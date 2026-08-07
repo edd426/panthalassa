@@ -1,0 +1,190 @@
+/**
+ * Genotype → phenotype, computed **once at birth**.
+ *
+ * ```
+ *   genotypic_k = ( Σ_l w_kl·(a_mat + a_pat)  +  Σ_d discreteEffect_dk ) · gxe_k
+ *   latent_k    = baseline_k + cladeShift_k + genotypic_k + e_k
+ *   expressed_k = applyTraitLink(k, latent_k)
+ * ```
+ *
+ * Four things here are load-bearing and easy to get subtly wrong:
+ *
+ * 1. **The environmental deviation is derived, not authored.** `e_k` is drawn
+ *    once, at birth, from `N(0, σ_e)` with
+ *    `σ_e = sqrt(Vg · (1 − h²)/h²) · environmentDeviationScale`, where `Vg` is
+ *    the analytic founder genetic variance of the trait. Authoring per-trait
+ *    environment SDs would silently break the h² target the moment A7 retunes
+ *    `founderSdScale`; deriving it keeps `targetFounderHeritability` honest.
+ *
+ * 2. **GxE is an expression shift, never a multiply of deviation-from-mean.**
+ *    The genotypic value — a fixed linear function of the genome, centred on
+ *    zero by construction of the allele scale — is scaled by
+ *    `1 + gxeSensitivity·z`. Nothing here ever looks at a population mean.
+ *    Herdloom shrank each individual's deviation from the *measured* population
+ *    mean, which is a variance-destroying feedback loop; this is the opposite,
+ *    a genuine reaction norm that makes a mixed-environment population *more*
+ *    variable than a uniform one.
+ *
+ * 3. **Latent and expressed are both kept.** Selection and every popgen
+ *    estimator read the unbounded latent scale; only the ecology reads the
+ *    linked value. Applying the link twice, or storing only the expressed
+ *    value, would let a softplus floor masquerade as lost additive variance.
+ *
+ * 4. **No clamping.** The only bounding anywhere in this file is
+ *    `applyTraitLink`, and the links are strictly increasing.
+ */
+
+import type { CladeArchetype, Genome } from '../../contracts/genome';
+import {
+  CLADE_SCHEMA,
+  DISCRETE_EFFECTS_BY_LOCUS,
+  DISCRETE_LOCI,
+  DISCRETE_LOCUS_COUNT,
+  QUANT_LOCUS_COUNT,
+  W_ROWS_BY_TRAIT,
+  expressedCladeArchetype,
+  founderGeneticVariance,
+} from '../../contracts/genome';
+import type { PhenotypeContext, PhenotypeResult } from '../../contracts/apis';
+import type { TraitKey } from '../../contracts/traits';
+import { TRAIT_COUNT, TRAIT_INDEX, TRAIT_KEYS, TRAIT_META, applyTraitLink } from '../../contracts/traits';
+import type { RandomSource, SimConfig } from '../../contracts/types';
+
+/**
+ * Scratch buffers for one phenotype computer. The contract lets
+ * `computePhenotype` hand back views the next call invalidates, and the engine
+ * copies straight into the pool columns, so a birth allocates nothing.
+ */
+export interface PhenotypeScratch {
+  readonly traits: Float32Array;
+  readonly traitsLatent: Float32Array;
+  readonly genotypicValues: Float32Array;
+  /** Float64 accumulator: the Float32 output column would round mid-computation. */
+  readonly genotypicScratch: Float64Array;
+}
+
+export function createPhenotypeScratch(): PhenotypeScratch {
+  return {
+    traits: new Float32Array(TRAIT_COUNT),
+    traitsLatent: new Float32Array(TRAIT_COUNT),
+    genotypicValues: new Float32Array(TRAIT_COUNT),
+    genotypicScratch: new Float64Array(TRAIT_COUNT),
+  };
+}
+
+/** Per-config constants, derived once and cached against the (frozen) config object. */
+interface DerivedConstants {
+  readonly baselines: Float64Array;
+  readonly environmentSds: Float64Array;
+  /** 1 where the trait is subject to spatial GxE. */
+  readonly gxeMask: Uint8Array;
+}
+
+const DERIVED_CACHE = new WeakMap<SimConfig, DerivedConstants>();
+
+/** `TRAIT_META[key].baseline`, retuned by `genetics.traitBaselineOverrides`. */
+export function resolveBaseline(key: TraitKey, config: SimConfig): number {
+  return config.genetics.traitBaselineOverrides[key] ?? TRAIT_META[key].baseline;
+}
+
+function derive(config: SimConfig): DerivedConstants {
+  const cached = DERIVED_CACHE.get(config);
+  if (cached !== undefined) return cached;
+
+  const { targetFounderHeritability, environmentDeviationScale, founderSdScale, gxeTraits } = config.genetics;
+  // Domain guard on the tuning surface, not a trait bound: h² = 0 asks for an
+  // infinite environmental deviation and h² > 1 for an imaginary one.
+  const heritability = Math.min(1, Math.max(1e-6, targetFounderHeritability));
+
+  const baselines = new Float64Array(TRAIT_COUNT);
+  const environmentSds = new Float64Array(TRAIT_COUNT);
+  const gxeMask = new Uint8Array(TRAIT_COUNT);
+
+  for (let index = 0; index < TRAIT_COUNT; index += 1) {
+    const key = TRAIT_KEYS[index] as TraitKey;
+    baselines[index] = resolveBaseline(key, config);
+    const geneticVariance = founderGeneticVariance(key, founderSdScale);
+    environmentSds[index] =
+      Math.sqrt((geneticVariance * (1 - heritability)) / heritability) * environmentDeviationScale;
+  }
+  for (const key of gxeTraits) gxeMask[TRAIT_INDEX[key]] = 1;
+
+  const derived: DerivedConstants = { baselines, environmentSds, gxeMask };
+  DERIVED_CACHE.set(config, derived);
+  return derived;
+}
+
+/**
+ * Genotypic value of every trait, into `out`, **without** GxE, baseline, clade
+ * shift or environmental deviation. Shared with the clade re-seeding step in
+ * `meiosis.ts`, which has to know what a genome currently expresses before it
+ * can shift it onto a new body plan's schema.
+ */
+export function accumulateGenotypicValues(genome: Genome, out: Float64Array): void {
+  const { quant, discrete } = genome;
+
+  for (let index = 0; index < TRAIT_COUNT; index += 1) {
+    const key = TRAIT_KEYS[index] as TraitKey;
+    let value = 0;
+    for (const row of W_ROWS_BY_TRAIT[key]) {
+      const maternal = quant[row.locusIndex] ?? 0;
+      const paternal = quant[QUANT_LOCUS_COUNT + row.locusIndex] ?? 0;
+      value += row.weight * (maternal + paternal);
+    }
+    out[index] = value;
+  }
+
+  // Discrete alleles are additive at half weight per copy, so a heterozygote
+  // sits midway and a homozygote gets the full authored delta.
+  for (const locus of DISCRETE_LOCI) {
+    const effects = DISCRETE_EFFECTS_BY_LOCUS[locus.id];
+    if (effects.length === 0) continue;
+    const maternal = discrete[locus.index] ?? 0;
+    const paternal = discrete[DISCRETE_LOCUS_COUNT + locus.index] ?? 0;
+    for (const effect of effects) {
+      let copies = 0;
+      if (effect.allele === maternal) copies += 1;
+      if (effect.allele === paternal) copies += 1;
+      if (copies === 0) continue;
+      const index = TRAIT_INDEX[effect.trait];
+      out[index] = (out[index] ?? 0) + (effect.delta * copies) / 2;
+    }
+  }
+}
+
+export function computePhenotype(
+  scratch: PhenotypeScratch,
+  genome: Genome,
+  rng: RandomSource,
+  config: SimConfig,
+  context: PhenotypeContext,
+): PhenotypeResult {
+  const { baselines, environmentSds, gxeMask } = derive(config);
+  const { traits, traitsLatent, genotypicValues, genotypicScratch } = scratch;
+
+  const archetype: CladeArchetype = expressedCladeArchetype(genome);
+  const { traitBaselineShift } = CLADE_SCHEMA[archetype];
+
+  // The engine passes z = 0 when the mechanism is off; the toggle is honoured
+  // here too so a probe cannot accidentally leave GxE running by forgetting to.
+  const gxeFactor = config.toggles.enableSpatialGxE
+    ? 1 + config.genetics.gxeSensitivity * context.localTemperatureAnomalyZ
+    : 1;
+
+  accumulateGenotypicValues(genome, genotypicScratch);
+
+  for (let index = 0; index < TRAIT_COUNT; index += 1) {
+    const key = TRAIT_KEYS[index] as TraitKey;
+    const genotypic = (genotypicScratch[index] ?? 0) * (gxeMask[index] === 1 ? gxeFactor : 1);
+    // One draw per trait per birth, unconditionally, so that the stream does
+    // not shift when a trait's environmental SD happens to be zero.
+    const deviation = rng.normal(0, environmentSds[index] ?? 0);
+    const latent = (baselines[index] ?? 0) + (traitBaselineShift[key] ?? 0) + genotypic + deviation;
+
+    genotypicValues[index] = genotypic;
+    traitsLatent[index] = latent;
+    traits[index] = applyTraitLink(key, latent);
+  }
+
+  return { traits, traitsLatent, genotypicValues, archetype };
+}
