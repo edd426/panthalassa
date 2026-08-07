@@ -1,0 +1,33 @@
+{
+  "name": "panthalassa",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "An aquatic evolution simulation to watch: population genetics with probe-enforced aliveness.",
+  "engines": {
+    "node": ">=23"
+  },
+  "scripts": {
+    "dev": "vite",
+    "build": "tsc --noEmit && vite build",
+    "preview": "vite preview",
+    "typecheck": "tsc --noEmit --pretty false",
+    "lint": "eslint . --max-warnings=0",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "probe": "node --import tsx scripts/probe.mjs",
+    "probe:quick": "node --import tsx scripts/probe.mjs --suite=quick",
+    "probe:full": "LONG_SIM=1 node --import tsx scripts/probe.mjs --suite=full"
+  },
+  "devDependencies": {
+    "@eslint/js": "9.39.5",
+    "@types/node": "26.2.0",
+    "eslint": "9.39.5",
+    "fast-check": "4.9.0",
+    "tsx": "4.23.11",
+    "typescript": "6.0.3",
+    "typescript-eslint": "8.66.0",
+    "vite": "7.3.6",
+    "vitest": "3.2.7"
+  }
+}
