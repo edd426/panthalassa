@@ -348,6 +348,15 @@ export interface StatsApi {
 
   /** Register an allele to follow so `sweepCrossedHalf` can fire (the `trackSweep` command). */
   trackSweep(locus: DiscreteLocusId, allele: number, tick: number): void;
+
+  /**
+   * Events the stats layer itself raised since the last drain — today that is
+   * `sweepCrossedHalf`, detected during `sample()`. The engine calls this right
+   * after each `sample()` and merges the result into that tick's returned
+   * events. Stats has already recorded them internally; the engine must NOT
+   * feed them back through `onEvent`.
+   */
+  drainRaisedEvents(): readonly SimEvent[];
 }
 
 // ---------------------------------------------------------------------------

@@ -179,6 +179,13 @@ export interface OrganismPools {
    * lost additive variance.
    */
   readonly traitsLatent: Float32Array;
+  /**
+   * Pure genotypic contribution per trait (`PhenotypeResult.genotypicValues`),
+   * same layout as `traits`. Written once at birth by the engine. This is what
+   * the additive-variance estimator consumes; without it V_A cannot be
+   * separated from V_E.
+   */
+  readonly traitsGenotypic: Float32Array;
 
   /** Cold storage, immutable once written; `undefined` for free slots. */
   readonly genomes: (Genome | undefined)[];
@@ -201,6 +208,13 @@ export interface ResourceField {
   readonly kelp: Float32Array;
   /** Per-cell K, recomputed when the climate moves. */
   readonly carryingCapacity: Float32Array;
+  /**
+   * Per-cell water temperature, °C, written by ecology's `updateFields` every
+   * tick (gradient + season + OU walk). Consumers — the recorder's
+   * `meanTemperatureC`, renderer overlays, organism dumps — read it and never
+   * write. Single source of truth for temperature outside `temperatureAt`.
+   */
+  readonly temperature: Float32Array;
 }
 
 /**
@@ -546,6 +560,18 @@ export interface SamplingConfig {
   stateHashIntervalTicks: number;
   /** Ancestry GC keeps living ∪ founder ∪ event ancestors plus this many generations of the rest. */
   ancestryRetentionGenerations: number;
+  /**
+   * A quantitative locus counts as "alive" for `quantLociWithVariance` when its
+   * allelic variance exceeds this factor × (founderSd·founderSdScale)². P6's
+   * dead-locus floor; A7 tunes it.
+   */
+  quantVarianceFloorFactor: number;
+  /**
+   * The temporal-Ne estimator compares neutral-marker frequencies this many
+   * generations apart. Adjacent 200-tick rows are ~0.2 generations apart, where
+   * Δp is pure sampling noise; the window must span real drift.
+   */
+  temporalNeWindowGenerations: number;
 }
 
 /**
@@ -714,6 +740,8 @@ export const DEFAULT_SIM_CONFIG: SimConfig = Object.freeze({
     burnInGenerations: 30,
     stateHashIntervalTicks: 1000,
     ancestryRetentionGenerations: 12,
+    quantVarianceFloorFactor: 0.05,
+    temporalNeWindowGenerations: 4,
   }),
   toggles: Object.freeze({
     enableSpatialGxE: true,

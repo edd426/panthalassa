@@ -11,7 +11,7 @@
 import type { DiscreteLocusId } from './genome';
 import type { CladeArchetype } from './genome';
 import type { TraitKey } from './traits';
-import type { CladeId, DeathCause, DemeId, OrganismId, SpeciesTag } from './types';
+import type { CladeId, DeathCause, DemeId, OrganismId, Sex, SpeciesTag } from './types';
 
 // ---------------------------------------------------------------------------
 // Time series
@@ -138,6 +138,8 @@ export interface AncestryRecord {
   readonly birthY: number;
   readonly speciesTag: SpeciesTag;
   readonly cladeId: CladeId;
+  /** Recorded so demographic Ne can use realized breeders, not the living census. */
+  readonly sex: Sex;
 }
 
 /**
