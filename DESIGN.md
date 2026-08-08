@@ -113,6 +113,68 @@ them that are not obvious from the plan:
   `generalistTaxPerDegree`. κ = 0 switches the tradeoff off cleanly, which the
   linear form could not do without also shifting the baseline.
 
+## Review gates
+
+### Gate A-1 — Sol (GPT-5.6, xhigh) review of genetics + popgen, 2026-08-08
+
+**Verdict: FAIL** at `bd2cf57`. Full report:
+`sol-a1-final.md` (session scratchpad; findings adjudicated below are the
+durable record). Orchestrator spot-verified 7/7 sampled findings at the cited
+lines before accepting. The gate did exactly what it was built for: the
+inheritance machinery is clean, but the herdloom failure mode reappeared at
+the expression and measurement layers.
+
+Accepted defects and rulings (fix wave F0–F3, before any A7 tuning):
+
+1. **GxE multiplies the genotypic value** (`phenotype.ts`) — `G × (1 + s·z)`
+   scales genetic deviation by environment and the scaled value is stored as
+   `genotypicValues`, contaminating every V_A the recorder reports. This is
+   the axiom-5 violation that killed herdloom. Ruling: environment shifts
+   expression **additively** (`… + s·z` on GxE-masked traits); store raw `G`.
+   True reaction-norm slope loci are roadmap, not v1.
+2. **Founder h² target excludes discrete-locus variance** (`genome.ts`) —
+   display/preference traits start with h² far above target. Ruling: fold
+   discrete effect variance into the founder-variance analytic.
+3. **Speed cost charges `speedFraction`, not speed** (`formulas.ts`,
+   `metabolism.ts`) — raising `speedCap` buys free absolute speed; the
+   advertised receding ceiling does not exist. Ruling: charge
+   `(speed/referenceSpeed)²` with a config reference speed.
+4. **`laplace()` can return −∞** when the RNG hands back exactly 0
+   (`rng.ts`) — one draw in 2³² poisons a genome forever. Ruling: guard.
+5. **Temporal Ne**: short-window fallback, `10 × census` right-censoring and
+   `Ne = 0.5` substitutions (`recorder.ts`, `popgen.ts`). Ruling: null until
+   a full window exists; null for non-identifiable estimates; nullable
+   `neTemporal` in the contract.
+6. **Demographic Ne multiplies sex-ratio and offspring-variance corrections**
+   (`popgen.ts`) — double-counts between-sex inequality. Ruling: sex-specific
+   Crow & Denniston (1988) combination.
+7. **Breeder window counts juveniles that died before maturity**
+   (`ancestry.ts`). Ruling: eligibility requires surviving to maturity.
+8. **Midparent h² only sees offspring that survive to a census row**
+   (`recorder.ts`) — trait-dependent juvenile mortality biases the slope.
+   Ruling: ingest offspring phenotypes at birth via `onBirth`.
+9. **Rect barriers have no two-sides Fst partition** (`popgen.ts`). Ruling:
+   ridges define sides; rect ⇒ `fstBarrier = null`, documented.
+10. **Zero reported where assortment is undefined** (`shared.ts`). Ruling:
+    nullable assortment indices; "no matings" ≠ "measured random mating".
+11. **Species cross-mating expectation ignores sex margins** (`species.ts`).
+    Ruling: directed expectation `f_f(1−f_m) + (1−f_f)f_m`.
+12. **`wariness` benefit saturates at the scan radius with no cost**
+    (`behavior.ts`) — selection shadow, neutral drift above the horizon.
+    Ruling: sensing horizon is legitimate physics; add an explicit vigilance
+    metabolic cost so the trait pays for what it asks of the organism.
+13. **Fst deme filter coupled to `speciation.minSpeciesSize`** — estimator
+    estimand changes with an unrelated knob. Ruling: own small constant.
+
+Adjudicated down: diet's logistic link saturating (in Float32 at latent
+≈17.3) is inherent to a deliberate proportion-scale trait, not a hidden
+clamp — the guild sample already reports the expressed scale; docs corrected.
+Temporal-Ne-under-overlapping-generations is a known estimator limitation:
+documented as a drift index, P14 keeps broad thresholds. Macro-mutation
+"genome reset" semantics, 4-marker estimate width, detector
+allopatry-vs-incompatibility conflation: recorded as risks for A7 and the
+roadmap, not v1 defects.
+
 ## Tuning log
 
 WP-A7 owns this section. Every config change gets a row: what moved, why, and
