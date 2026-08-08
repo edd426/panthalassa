@@ -450,13 +450,109 @@ the field pass; the rest is per-organism work, which points at F4's lever (b)
 — three separate neighbour queries per organism per tick (behaviour r=90,
 predation r=45, mating r=120) — and that is a model change, not a knob.
 
-### The suite asks for two things this model trades against each other
+### The two discriminators — and the correction they force
 
-This is the campaign's most load-bearing result and it belongs in front of
-Gate A-2, whose question is "aliveness or tuned-to-pass?".
+Run at the orchestrator's direction after the knob phase closed. Both were
+designed to attribute a red probe rather than to move a knob, and **both
+overturned an A7 claim**, one of them a headline claim that was already on its
+way into the Gate A-2 brief. Recorded before the superseded version so nobody
+reads the old conclusion first.
 
-Across every configuration measured on three seeds, **a live predator guild and
-retained locus variance move in opposite directions**:
+#### (a) Is P4/P6 sweep consumption or mutation shortfall? — Mutation, by ~3.4×
+
+Two readings. First, the 18 runs measured this campaign already contain a
+matched-intensity comparison, using predator fraction as the proxy for
+selection intensity:
+
+| Arm | Loci alive (P6) |
+|---|---|
+| Mutation on, weak selection (<10% predators) | 0.708–0.938, **mean 0.843** (n=9) |
+| Mutation on, fierce selection (≥50% predators) | 0.583–0.958, **mean 0.727** (n=8) |
+| Mutation off, weak selection | **0.438** (n=1) |
+
+Holding mutation fixed, selection intensity costs ~0.12 of loci alive — real,
+but well inside the seed spread, since the fierce arm's range (0.583–0.958)
+covers the weak arm's. Holding selection weak, removing mutation costs **0.41**,
+which lands outside the mutation-on range entirely. **Mutation input dominates
+sweep consumption by about 3.4×.**
+
+Second, the direct dose: `quantMutationRate` 1.6e-3 → 3.2e-3 at the accepted
+config, three seeds.
+
+| Reading | 1.6e-3 (accepted) | 3.2e-3 |
+|---|---|---|
+| P6 loci alive | 0.625 / 0.771 / 0.771 | **0.958 / 0.979** / — |
+| P9 guild present | 92% / 19% / 86% | **99%** / 0% / — |
+| P4 V_A ratio | 0.179 / 0.272 / 0.214 | 8.27 / 2.80 / — |
+| P3 viability | 1.00 / 1.00 / 1.00 | 0.991 / 1.00 / **extinct at gen 12** |
+
+#### The correction: P6 and P9 *can* be green together, and A7 has now shown it
+
+The section below concluded from the 3-seed configs that a live predator guild
+and retained locus variance move in opposite directions, and recommended Gate
+A-2 treat "P6 and P9 green simultaneously" as unproven-until-shown. **On s1 at
+3.2e-3 they are both green at once**: P6 0.958 with the guild present in 99% of
+samples and predators at 73% of the population. More than that, it is the only
+run in the whole campaign with a **two-sided** arms race — attack 2.95 SD
+against defense 2.93 SD, where every other config had defense running 5–7 SD
+against an attack that barely moved.
+
+So the trade-off is real as a correlation across the configs A7 happened to
+sample, and false as a law. The correct statement is narrower: **at a fixed
+mutation rate**, buying guild persistence costs locus variance; raising the
+mutation rate buys both back at once. What actually binds is elsewhere —
+**mutation load at the founding cliff** (s3 extinct at generation 12), plus
+P4's ceiling (8.27 against a max of 8.0) and P14's floor (0.081 against 0.10)
+on s1. The founding transient has now been the binding constraint for the size
+window, the attempt radius, and the mutation rate alike.
+
+A7 stopped here rather than searching the dose, per the directive that the knob
+phase is closed. The obvious next experiment, for whoever picks it up, is an
+intermediate rate around **2.0–2.4e-3** on three seeds: the evidence says P6
+and P9 both come green somewhere below the dose that kills s3, and the
+question is only whether P4's ceiling and P14's floor leave a window open.
+
+#### (b) Is frequency-dependent predation what stops hue diverging? — No
+
+A7 hypothesised that frequency-dependent predation acts as balancing selection
+holding both sides of the ridge at the same hue distribution, which would
+explain P8's cross/within mate acceptance sitting at 1.03. Tested directly, the
+barrier scenario with `enableFrequencyDependentPredation` off:
+
+| Barrier run | Fst across the ridge | cross/within acceptance |
+|---|---|---|
+| Default | 0.063 → 0.723 | 1.03 |
+| `prefSigmaBaseDeg` 45 | 0.161 → 0.760 | 1.01 |
+| `prefSigmaBaseDeg` 32 | 0.144 → 0.798 | 1.04 |
+| **frequency dependence off** | 0.292 → **0.931** | **1.02** |
+
+**Hypothesis falsified.** Acceptance does not move even with the mechanism off,
+and neutral Fst reaches 0.93 while mate choice stays blind. Two explanations
+survive, and A7 could not separate them with the instruments available:
+`displayHue`'s within-side spread (sd ≈ 34°) may simply exceed any between-side
+divergence a polygenic trait accumulates in 250 generations, so the pairwise
+distance distribution is the same across and within; or the authored magic-trait
+pleiotropy is pinning it — q36 loads `diet`, `size` and `displayHue` together,
+and both sides of the ridge experience the *same* ecology, so parallel
+selection on diet and size would drag hue to the same place on both sides
+rather than letting it drift apart.
+
+Distinguishing them needs a per-side trait mean, which `SampleRow` does not
+carry (it has `populationByDeme` but no per-deme trait moments). **That is the
+concrete instrumentation gap blocking P8's second criterion**, and it is a
+stats/contract question rather than a tuning one.
+
+### Superseded by (a) above: the trade-off as A7 first read it
+
+**Kept because the correlation is real and the reasoning from it was wrong** —
+it is exactly the kind of "settled" conclusion the design record exists to stop
+someone re-deriving. Read (a) first: raising the mutation rate makes P6 and P9
+green together, so the pattern below is a property of the configs A7 sampled at
+a fixed mutation rate, not a law of the model.
+
+Across every configuration measured on three seeds **at `quantMutationRate`
+1.6e-3**, a live predator guild and retained locus variance move in opposite
+directions:
 
 | Config | P9 guild present | P6 loci alive | P4 V_A ratio |
 |---|---|---|---|
@@ -471,14 +567,19 @@ without one has P6 ≥ 0.79.** The mechanism-table result says the same thing fr
 the other side: five of six toggle-off runs keep more loci alive than the
 reference, and the reference is the run with the fiercest selection.
 
-The causal story is consistent across all of it. A live guild means intense
-predation, intense predation means a large defense sweep (+5.8…+6.6 SD), and a
-sweep of that size drags linked loci and eats variance ratios. So P6 and P9
-cannot both be green until defense is expensive enough that the guild does not
-have to buy it with a sweep — which is the genome-table question below, not a
-knob. **A7 recommends Gate A-2 treat "P6 and P9 green simultaneously" as
-unproven-until-shown rather than as a tuning target**, and decide whether the
-suite should assert both at once at all.
+The causal story A7 inferred: a live guild means intense predation, intense
+predation means a large defense sweep (+5.8…+6.6 SD), and a sweep of that size
+drags linked loci and eats variance ratios — therefore P6 and P9 could not both
+be green until defense was made expensive, a genome-table change.
+
+**That inference was wrong, and discriminator (a) is what caught it.** The
+sweep-consumption effect is real but small (~0.12 of loci alive, inside the
+seed spread); the dominant term is mutation input (~0.41), and at 3.2e-3 both
+probes go green together on s1 *with* a 73% predator guild — and with the
+campaign's only two-sided arms race, attack 2.95 SD against defense 2.93 SD.
+The correct reading of the table above is "at a fixed mutation rate, guild
+persistence is bought with locus variance", not "the suite asks for two
+incompatible things".
 
 ### `attemptRadiusWu` 75 — rejected, and it is the cleanest demonstration
 
