@@ -296,7 +296,10 @@ export interface PopgenEstimators {
   /**
    * Weir–Cockerham Fst from neutral markers only. `grouping` selects the deme
    * grid or the two sides of the active barrier; returns null when the grouping
-   * does not apply (no barrier up, or a group below `minSpeciesSize`).
+   * does not apply — no barrier up, a rect barrier (which has no two-sides
+   * partition), or too few organisms per group for a variance component (an
+   * estimator-local minimum, deliberately NOT `speciation.minSpeciesSize`:
+   * an Fst estimand must not move when a species-detector knob does).
    */
   fst(state: SimState, grouping: 'deme' | 'barrier'): number | null;
 
@@ -328,7 +331,21 @@ export interface PopgenEstimators {
 export interface StatsApi {
   readonly estimators: PopgenEstimators;
 
-  onBirth(record: AncestryRecord): void;
+  /**
+   * Per-birth hook. `traitsLatent` is the pools' latent-trait column and
+   * `traitOffset` the newborn's base index into it (stride `TRAIT_COUNT`) —
+   * a zero-alloc view valid ONLY for the duration of the call; copy what you
+   * keep, the slot recycles. This is how the midparent regression sees
+   * offspring that die young: the free list is LIFO, so a juvenile's slot is
+   * gone within ticks and sample-boundary recovery selects against exactly
+   * the early deaths h² must not be conditioned on (Gate A-1 defect 11).
+   *
+   * The parameters are optional ONLY as a mid-wave staging convenience: the
+   * engine must always pass them, and they become required at the next
+   * contract revision. A recorder receiving `undefined` records no phenotype
+   * observation, and P13 will show the missing regression.
+   */
+  onBirth(record: AncestryRecord, traitsLatent?: Float32Array, traitOffset?: number): void;
   onDeath(id: OrganismId, tick: number, cause: DeathCause): void;
   onMating(motherId: OrganismId, fatherId: OrganismId, tick: number): void;
   /** Lets the recorder maintain the phylogeny and the sweep tracker. */
