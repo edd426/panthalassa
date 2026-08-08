@@ -52,9 +52,11 @@ import type {
 /** What the phenotype step needs to know about the world at the moment of birth. */
 export interface PhenotypeContext {
   /**
-   * Standardised local temperature anomaly at the birth position. Drives
-   * spatial GxE: for `config.genetics.gxeTraits` the genotypic value is scaled
-   * by `1 + gxeSensitivity · z`. Pass 0 when `toggles.enableSpatialGxE` is off.
+   * Standardised local temperature anomaly at the birth position. Drives the
+   * spatial environment-of-birth effect: for `config.genetics.gxeTraits` the
+   * latent value is shifted **additively** by `gxeSensitivity · z` (see
+   * `GeneticsConfig.gxeTraits` — the multiplicative form was Gate A-1
+   * defect 1). Pass 0 when `toggles.enableSpatialGxE` is off.
    */
   readonly localTemperatureAnomalyZ: number;
   /** The mother's expressed archetype; the engine compares it against the result to detect a clade founding. */

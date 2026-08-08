@@ -313,11 +313,13 @@ class StubGenetics implements GeneticsApi {
         genotypic +=
           row.weight * ((genome.quant[row.locusIndex] ?? 0) + (genome.quant[QUANT_LOCUS_COUNT + row.locusIndex] ?? 0));
       }
-      if (gxe.has(key)) genotypic *= 1 + config.genetics.gxeSensitivity * context.localTemperatureAnomalyZ;
+      // Additive, matching the real module — never the multiplicative form
+      // Gate A-1 rejected; a stub is still a place the defect could hide.
+      const gxeShift = gxe.has(key) ? config.genetics.gxeSensitivity * context.localTemperatureAnomalyZ : 0;
 
       const baseline = config.genetics.traitBaselineOverrides[key] ?? TRAIT_META[key].baseline;
       const deviation = rng.normal(0, envSd[index] ?? 0);
-      const latent = baseline + (shift[key] ?? 0) + genotypic + deviation;
+      const latent = baseline + (shift[key] ?? 0) + genotypic + gxeShift + deviation;
 
       this.genotypic[index] = genotypic;
       this.latent[index] = latent;

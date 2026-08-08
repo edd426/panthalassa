@@ -7,12 +7,17 @@
  * authored mutation kernel, the analytic founder genetic variance — so a
  * plausible-looking implementation that is quietly wrong (one haplotype
  * dropped, crossovers drawn on the wrong interval, a Gaussian-only mutation
- * kernel, GxE shrinking variance) fails rather than passes.
+ * kernel, environment leaking into the genotypic value) fails rather than
+ * passes.
  *
- * Two of them exist specifically because of how the previous project died:
- * `founder variance` (herdloom's generation 0 had almost nothing to select on)
- * and `GxE shifts expression` (herdloom multiplied deviation-from-mean and bled
- * variance every generation).
+ * Some of them exist specifically because of how the previous project died or
+ * how Gate A-1 found this one drifting: `founders` (herdloom's generation 0 had
+ * almost nothing to select on, and the h² target used to miss discrete-locus
+ * variance entirely) and `GxE` (herdloom multiplied deviation-from-mean and
+ * bled variance every generation; this project's first cut multiplied the
+ * genotypic value by `1 + s·z` and stored the product, which contaminated every
+ * V_A the recorder reported). The GxE tests are written so that reintroducing
+ * the multiplicative form fails all three.
  */
 
 import fc from 'fast-check';
@@ -108,20 +113,34 @@ function copyPhenotype(result: PhenotypeResult): {
   };
 }
 
-/** Genotypic value of every trait across a founder cohort, one column per trait. */
-function founderGenotypicColumns(count: number, seed: string, z: number): number[][] {
+/**
+ * A founder cohort born at anomaly `z`, one column per trait.
+ *
+ * Both scales are kept because the GxE and heritability assertions need to
+ * tell them apart: `genotypic` is the raw genotypic value the recorder reads
+ * for V_A, `latent` is the unbounded expressed value before the trait link.
+ * Circular traits are read on the latent scale precisely because it does not
+ * wrap — variance of a wrapped hue is meaningless.
+ */
+function founderColumns(
+  count: number,
+  seed: string,
+  z: number,
+): { genotypic: number[][]; latent: number[][] } {
   const genetics = createGenetics();
   const rng = new SeededRng(seed);
-  const columns: number[][] = TRAIT_KEYS.map(() => []);
+  const genotypic: number[][] = TRAIT_KEYS.map(() => []);
+  const latent: number[][] = TRAIT_KEYS.map(() => []);
   const context: PhenotypeContext = { localTemperatureAnomalyZ: z, parentArchetype: 'undulator' };
   for (let index = 0; index < count; index += 1) {
     const genome = genetics.buildFounderGenome(rng, CONFIG);
     const result = genetics.computePhenotype(genome, rng, CONFIG, context);
     for (let trait = 0; trait < TRAIT_COUNT; trait += 1) {
-      (columns[trait] as number[]).push(result.genotypicValues[trait] ?? 0);
+      (genotypic[trait] as number[]).push(result.genotypicValues[trait] ?? 0);
+      (latent[trait] as number[]).push(result.traitsLatent[trait] ?? 0);
     }
   }
-  return columns;
+  return { genotypic, latent };
 }
 
 const TRAITS_WITH_DISCRETE_EFFECTS = new Set<TraitKey>(DISCRETE_EFFECTS.map((effect) => effect.trait));
@@ -385,23 +404,54 @@ describe('phenotype', () => {
 
 describe('founders', () => {
   it('gives every trait strictly positive genotypic variance at generation 0', () => {
-    const columns = founderGenotypicColumns(500, 'founder-variance', 0);
+    const columns = founderColumns(500, 'founder-variance', 0).genotypic;
     for (const [index, key] of TRAIT_KEYS.entries()) {
       const observed = variance(columns[index] as number[]);
       expect(observed, `trait ${key} has no founder variance`).toBeGreaterThan(0);
     }
   });
 
-  it('reproduces the analytic founder genetic variance', () => {
-    const columns = founderGenotypicColumns(2_000, 'founder-analytic', 0);
+  it('reproduces the analytic founder genetic variance, discrete loci included', () => {
+    // Every trait, not just the quant-only ones: since contracts v1.3
+    // `founderGeneticVariance` folds in `Var_a(δ)/2` per discrete effect locus
+    // (Gate A-1 defect 2), so hue, preference and choosiness are covered here
+    // rather than exempted.
+    const columns = founderColumns(2_000, 'founder-analytic', 0).genotypic;
     for (const [index, key] of TRAIT_KEYS.entries()) {
-      // `founderGeneticVariance` counts quantitative loci only, so traits that
-      // also carry authored discrete effects (hue, preference) sit above it.
-      if (TRAITS_WITH_DISCRETE_EFFECTS.has(key)) continue;
       const analytic = founderGeneticVariance(key, CONFIG.genetics.founderSdScale);
       const observed = variance(columns[index] as number[]);
       expect(observed / analytic, `trait ${key}`).toBeGreaterThan(0.85);
       expect(observed / analytic, `trait ${key}`).toBeLessThan(1.15);
+    }
+  });
+
+  /**
+   * Gate A-1 defect 2. `derive()` sizes each trait's birth environmental
+   * deviation from the analytic genetic variance, so if that analytic misses a
+   * variance source the realised heritability runs above target for exactly
+   * the traits it misses — which is what discrete-effect traits did while the
+   * analytic counted quantitative loci only. Measuring realised h² rather than
+   * re-deriving it means the assertion cannot be satisfied by a matching bug on
+   * both sides.
+   */
+  it('hits the founder heritability target for discrete-effect traits too', () => {
+    // Named traits, not a derived set: hue and preference are here because
+    // they carry authored discrete effects and size is the quant-only control.
+    // The first two assertions keep that framing honest if the effects table
+    // moves.
+    expect(TRAITS_WITH_DISCRETE_EFFECTS.has('displayHue')).toBe(true);
+    expect(TRAITS_WITH_DISCRETE_EFFECTS.has('prefTarget')).toBe(true);
+    expect(TRAITS_WITH_DISCRETE_EFFECTS.has('size')).toBe(false);
+
+    const target = CONFIG.genetics.targetFounderHeritability;
+    const { genotypic, latent } = founderColumns(3_000, 'founder-h2', 0);
+
+    for (const key of ['displayHue', 'prefTarget', 'size'] as const) {
+      const index = TRAIT_INDEX[key];
+      const geneticVariance = variance(genotypic[index] as number[]);
+      const totalVariance = variance(latent[index] as number[]);
+      const realised = geneticVariance / totalVariance;
+      expect(Math.abs(realised - target), `founder h² for ${key} was ${realised.toFixed(3)}`).toBeLessThan(0.12);
     }
   });
 
@@ -431,57 +481,111 @@ describe('founders', () => {
 
 describe('GxE', () => {
   /**
-   * The axiom herdloom broke. The environment scales the *genotypic value* — a
-   * fixed function of the genome — so a population spread across warm and cold
-   * water carries **more** genetic variance than one held at a single
-   * temperature. Multiplying deviation-from-the-population-mean instead would
-   * shrink variance every generation, which is exactly what happened before.
+   * The axiom herdloom broke, and Gate A-1 defect 1 after it. The environment
+   * shifts *expression* and nothing else: a GxE-masked trait's latent value
+   * moves by `gxeSensitivity·z` latent units while its genotypic value — a
+   * fixed function of the genome — does not move at all. The multiplicative
+   * `G · (1 + s·z)` this replaced made an organism's recorded genetic
+   * contribution a function of where it happened to be born, so every V_A the
+   * recorder reported was contaminated by the temperature field. These tests
+   * fail immediately if that form comes back.
    */
   const sensitivity = CONFIG.genetics.gxeSensitivity;
   const gxeTraits = new Set<TraitKey>(CONFIG.genetics.gxeTraits);
 
-  it('scales genotypic variance by (1 + s·z)² for GxE traits and leaves the rest alone', () => {
-    const neutral = founderGenotypicColumns(3_000, 'gxe', 0);
-    const warm = founderGenotypicColumns(3_000, 'gxe', 1);
+  /** One genome, one environmental-deviation stream, two birth temperatures. */
+  function sameGenomeAcrossZ(coldZ: number, warmZ: number, config = CONFIG) {
+    const genetics = createGenetics();
+    const genome = genetics.buildFounderGenome(new SeededRng('gxe-genome'), CONFIG);
+    const at = (z: number) =>
+      copyPhenotype(
+        genetics.computePhenotype(genome, new SeededRng('gxe-environment'), config, {
+          localTemperatureAnomalyZ: z,
+          parentArchetype: 'undulator',
+        }),
+      );
+    return { cold: at(coldZ), warm: at(warmZ) };
+  }
+
+  it('stores the raw genotypic value, identical at every birth temperature', () => {
+    const { cold, warm } = sameGenomeAcrossZ(-1.5, 2.5);
 
     for (const [index, key] of TRAIT_KEYS.entries()) {
-      const base = variance(neutral[index] as number[]);
-      const shifted = variance(warm[index] as number[]);
-      const expected = gxeTraits.has(key) ? (1 + sensitivity) ** 2 : 1;
-      expect(shifted / base, `trait ${key}`).toBeCloseTo(expected, 1);
+      // A genotypic value of 0 is invariant under a multiply as well, so the
+      // assertion below only means something once there is a value to scale.
+      expect(Math.abs(cold.genotypicValues[index] as number), `trait ${key}`).toBeGreaterThan(0);
+      expect(warm.genotypicValues[index], `trait ${key}`).toBe(cold.genotypicValues[index]);
     }
   });
 
-  it('makes a mixed-temperature population more variable than a uniform one', () => {
-    const uniform = founderGenotypicColumns(4_000, 'gxe-mix', 0);
-    const warm = founderGenotypicColumns(2_000, 'gxe-mix-warm', 1);
-    const cold = founderGenotypicColumns(2_000, 'gxe-mix-cold', -1);
+  it('shifts the latent value of a masked trait by exactly s·Δz', () => {
+    const coldZ = -1.5;
+    const warmZ = 2.5;
+    const { cold, warm } = sameGenomeAcrossZ(coldZ, warmZ);
 
     for (const [index, key] of TRAIT_KEYS.entries()) {
-      if (!gxeTraits.has(key)) continue;
-      const mixed = variance([...(warm[index] as number[]), ...(cold[index] as number[])]);
-      expect(mixed, `trait ${key}`).toBeGreaterThan(variance(uniform[index] as number[]));
+      const observed = (warm.traitsLatent[index] as number) - (cold.traitsLatent[index] as number);
+      const expected = gxeTraits.has(key) ? sensitivity * (warmZ - coldZ) : 0;
+      // Absolute, not relative: the masked traits sit on baselines of 1–6, so
+      // the Float32 latent column resolves this shift to ~1e-6.
+      expect(Math.abs(observed - expected), `trait ${key}`).toBeLessThan(1e-4);
+    }
+  });
+
+  it('moves environmental heterogeneity into expressed variance, never genetic variance', () => {
+    // One fixed cohort expressed twice, so the only difference between the two
+    // passes is where each organism was born. Comparing two independently drawn
+    // cohorts instead would bury a 12% effect under ~2% of sampling noise.
+    const genetics = createGenetics();
+    const genomeRng = new SeededRng('gxe-mix-genomes');
+    const genomes = Array.from({ length: 3_000 }, () => genetics.buildFounderGenome(genomeRng, CONFIG));
+
+    const express = (zOf: (index: number) => number): { genotypic: number[][]; latent: number[][] } => {
+      const rng = new SeededRng('gxe-mix-environment');
+      const genotypic: number[][] = TRAIT_KEYS.map(() => []);
+      const latent: number[][] = TRAIT_KEYS.map(() => []);
+      for (const [index, genome] of genomes.entries()) {
+        const result = genetics.computePhenotype(genome, rng, CONFIG, {
+          localTemperatureAnomalyZ: zOf(index),
+          parentArchetype: 'undulator',
+        });
+        for (let trait = 0; trait < TRAIT_COUNT; trait += 1) {
+          (genotypic[trait] as number[]).push(result.genotypicValues[trait] ?? 0);
+          (latent[trait] as number[]).push(result.traitsLatent[trait] ?? 0);
+        }
+      }
+      return { genotypic, latent };
+    };
+
+    const uniform = express(() => 0);
+    const mixed = express((index) => (index % 2 === 0 ? 1 : -1));
+
+    for (const [index, key] of TRAIT_KEYS.entries()) {
+      // Under the multiplicative form, spreading the cohort across warm and
+      // cold water inflated genetic variance by 1 + s² ≈ 1.12. Now the
+      // genotypic column is the same numbers in the same order.
+      expect(mixed.genotypic[index], `trait ${key} genotypic`).toEqual(uniform.genotypic[index]);
+
+      if (!gxeTraits.has(key)) {
+        expect(mixed.latent[index], `trait ${key} latent`).toEqual(uniform.latent[index]);
+        continue;
+      }
+      // The heterogeneity is real, but it lands where it belongs: the s²·Var(z)
+      // an environmental gradient adds to *expressed* variance.
+      const gained = variance(mixed.latent[index] as number[]) - variance(uniform.latent[index] as number[]);
+      expect(gained, `trait ${key} expressed variance`).toBeGreaterThan(0);
+      expect(gained, `trait ${key} expressed variance`).toBeCloseTo(sensitivity ** 2, 1);
     }
   });
 
   it('is off when the mechanism toggle is off', () => {
     const off = resolveSimConfig({ toggles: { enableSpatialGxE: false } });
-    const genetics = createGenetics();
-    const genome = genetics.buildFounderGenome(new SeededRng('gxe-toggle'), CONFIG);
+    const { cold, warm } = sameGenomeAcrossZ(0, 2, off);
 
-    const neutral = copyPhenotype(
-      genetics.computePhenotype(genome, new SeededRng('e'), off, {
-        localTemperatureAnomalyZ: 0,
-        parentArchetype: 'undulator',
-      }),
-    );
-    const warm = copyPhenotype(
-      genetics.computePhenotype(genome, new SeededRng('e'), off, {
-        localTemperatureAnomalyZ: 2,
-        parentArchetype: 'undulator',
-      }),
-    );
-    expect(warm.genotypicValues).toEqual(neutral.genotypicValues);
+    expect(warm.genotypicValues).toEqual(cold.genotypicValues);
+    // The toggle zeroes the additive shift and nothing else, so with the same
+    // environmental stream the whole latent vector has to match.
+    expect(warm.traitsLatent).toEqual(cold.traitsLatent);
   });
 });
 
