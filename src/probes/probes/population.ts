@@ -2,9 +2,11 @@
  * P3 (viability), P6 (no dead loci) and P7 (mortality mix) — the three probes
  * that read a baseline run and ask whether the world is a going concern.
  *
- * All three are `warn` severity until WP-A7's tuning campaign demonstrates them
- * on three seeds. They are the probes most likely to be red on an untuned
- * model, and that is what they are for.
+ * P3 is a **gate** as of A7's ratchet: the tuned ecology held it at 1.00 on
+ * three seeds, and every other reading in the suite is meaningless over an
+ * empty ocean. P6 and P7 stay `warn` because they are still red at the tuned
+ * config — they are the probes most likely to be red on an untuned model, and
+ * that is what they are for.
  */
 
 import { DISCRETE_LOCI, NEUTRAL_MARKER_LOCI } from '../../contracts/genome';
@@ -28,6 +30,22 @@ const POPULATION_FLOOR = 100;
 const POPULATION_CEILING = 3500;
 /** Fraction of samples allowed to sit against the slot cap before the cap counts as an ecological limit. */
 const CAP_BOUND_ALLOWANCE = 0.05;
+/**
+ * Ratcheted to a gate by A7 once the tuned ecology held 1.00 on three seeds at
+ * 300 generations. Viability is the one reading with no interpretation in it:
+ * either the world is populated for the whole run or the rest of the suite is
+ * measuring an empty ocean.
+ */
+const P3_SEVERITY = 'gate' as const;
+/** Ratcheted from 0.98: three seeds achieved 1.00, so 0.99 sits just below. */
+const P3_IN_RANGE_MIN = 0.99;
+
+function p3Threshold(): { min: number; label: string } {
+  return {
+    min: P3_IN_RANGE_MIN,
+    label: `pop ∈ [${POPULATION_FLOOR}, ${POPULATION_CEILING}] ≥${(P3_IN_RANGE_MIN * 100).toFixed(0)}% of samples`,
+  };
+}
 
 function viabilityReport(run: RunResult): ProbeReport {
   const rows = postBurnIn(run);
@@ -36,13 +54,13 @@ function viabilityReport(run: RunResult): ProbeReport {
     name: 'Viability',
     scenario: run.scenario,
     seed: run.seed,
-    severity: 'warn' as const,
+    severity: P3_SEVERITY,
     generationsRun: run.generationsRun,
   };
   if (rows.length === 0) {
     return notEvaluable({
       ...shared,
-      threshold: { min: 0.98, label: `pop ∈ [${POPULATION_FLOOR}, ${POPULATION_CEILING}] ≥98% of samples` },
+      threshold: p3Threshold(),
       detail:
         run.extinctGeneration === null
           ? `no samples past the ${run.config.sampling.burnInGenerations}-generation burn-in (run reached generation ${lastGeneration(run).toFixed(1)})`
@@ -63,15 +81,12 @@ function viabilityReport(run: RunResult): ProbeReport {
   }
   const inRangeFraction = inRange / rows.length;
   const capFraction = atCap / rows.length;
-  const threshold = {
-    min: 0.98,
-    label: `pop ∈ [${POPULATION_FLOOR}, ${POPULATION_CEILING}] ≥98% of samples`,
-  };
+  const threshold = p3Threshold();
 
   const status = worstStatus([
-    statusFor(inRangeFraction, threshold, 'warn'),
-    run.extinctGeneration === null ? 'pass' : breach('warn'),
-    capFraction < CAP_BOUND_ALLOWANCE ? 'pass' : breach('warn'),
+    statusFor(inRangeFraction, threshold, P3_SEVERITY),
+    run.extinctGeneration === null ? 'pass' : breach(P3_SEVERITY),
+    capFraction < CAP_BOUND_ALLOWANCE ? 'pass' : breach(P3_SEVERITY),
   ]);
 
   const detail = [
@@ -90,7 +105,7 @@ export const viabilityProbe: ProbeDefinition = {
   id: 'P3',
   name: 'Viability',
   scenario: 'baseline',
-  severity: 'warn',
+  severity: P3_SEVERITY,
   evaluate: (runs) => runs.map(viabilityReport),
 };
 

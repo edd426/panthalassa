@@ -395,6 +395,24 @@ happens before generation 12.
 |---|---|---|---|---|---|
 | 2026-08-08 | `predation.sizeRatioOptimum` + `predation.baseLogit` | 0.55 → 0.88, −3.2 → −4.45 | 3 seeds × 300 gens: predator guild present in **0% / 0% / 1%** of samples, starvation 76/83/80%, predation 6/0/3%; P7 and P9 WARN on all three | 3 seeds × 300 gens: guild present **92% / 19% / 86%** (predators 84/4/82% of the population), predation 6/7/10% of deaths, starvation 67/75/72%; P7 **PASS** on s1 (0.055) and P9 **PASS** on s1 (0.750); P3 1.00 on all three; P13 0.71/0.41/0.61; P14 0.108/0.206/0.141 | Moved together because the pair is one mechanism and neither half works alone: 0.88 alone is extinct on 2 of 3 seeds, and a lower `baseLogit` alone only deepens the monoculture. The window fix adds ~1.25 logits of mean kill probability at the realised size CV, and the `baseLogit` offset hands them back — so predation keeps its **intensity** and changes its **shape**, from "uniformly impossible" to "decided by how much bigger you are than your neighbour". Size is a trait the model actually charges for (metabolic cost ∝ size^0.75), unlike defense, so this puts the arms race on a costed axis. Not yet a 3-seed P9 pass: s2 still falls into the poor basin, and P6 drops to 0.63–0.77 because a 5.8–6.6 SD defense sweep drags linked loci. |
 
+### Threshold ratchet
+
+"A probe that has never failed is not testing anything." Ratcheted against the
+three-seed readings at the accepted config above; every moved threshold sits
+just outside measured behaviour, and severity moves to `gate` only where three
+seeds passed with margin.
+
+| Probe | Threshold before → after | Severity | Measured on 3 seeds | Why this number |
+|---|---|---|---|---|
+| P3 viability | ≥98% of samples in band → **≥99%** | warn → **gate** | 1.00 / 1.00 / 1.00 | Every other reading in the suite is meaningless over an empty ocean, and the tuned world never leaves the band. |
+| P5 no flatline | ≥2 of 4 focal traits → **≥3 of 4** | warn → **gate** | 4 / 4 / 4 | 4 of 4 moved on *every* config measured this campaign, tuned or collapsing — at 2 the probe was asserting nothing. |
+| P13 heritability | h² ∈ [0.2, 0.8] → **[0.25, 0.78]** | warn → **gate** | 0.707 / 0.408 / 0.609 | The old band spanned nearly every value a sane estimator can return. |
+| P14 drift | Ne/N ∈ [0.1, 1.2] → **[0.1, 0.6]** | stays warn | 0.108 / 0.206 / 0.141 | Ne/N never exceeded 0.22 on any config or seed, so a 1.2 ceiling could not catch the census-sized Ne it exists to catch. **Floor left alone and severity left at warn deliberately**: the best seed reads 0.108 against a 0.10 floor, and a probe 8% from a breach would gate on seed luck. |
+| P4, P6, P7, P9 | unchanged | stay warn | still breaching | These are the open front; ratcheting a red probe would be backwards. |
+| P8, P10, P11, P12 | unchanged | stay warn | P10 passes on s1 only; P8 half-passes; P11/P12 pre-adjudicated | Not demonstrated on three seeds yet. |
+
+### Mechanism marginal contributions
+
 Toggle-off runs measuring what each variance mechanism actually buys. Filled in
 by A7; a mechanism that shows no marginal contribution is a mechanism to delete,
 not to keep for comfort.

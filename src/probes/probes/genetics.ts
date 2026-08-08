@@ -107,8 +107,13 @@ export const varianceProbe: ProbeDefinition = {
 
 /** Movement, in population SDs, that counts as a trait still going somewhere. */
 const FLATLINE_MOVEMENT_SD = 0.3;
-/** Focal traits that must clear it. */
-const FLATLINE_TRAITS_REQUIRED = 2;
+/**
+ * Focal traits that must clear it. Ratcheted from 2 by A7: every measured
+ * config, tuned or not, moved all 4 focal traits, so 2 was asserting nothing.
+ */
+const FLATLINE_TRAITS_REQUIRED = 3;
+/** Gated by A7's ratchet — 4 of 4 on three seeds at 300 generations. */
+const P5_SEVERITY = 'gate' as const;
 const FLATLINE_WINDOW_GENERATIONS = 50;
 
 /** Largest |Δmean| in SD units over any window of up to `span` generations. */
@@ -149,7 +154,7 @@ function flatlineReport(run: RunResult): ProbeReport {
     name: 'No flatline',
     scenario: run.scenario,
     seed: run.seed,
-    severity: 'warn' as const,
+    severity: P5_SEVERITY,
     generationsRun: run.generationsRun,
   };
 
@@ -195,7 +200,7 @@ export const flatlineProbe: ProbeDefinition = {
   id: 'P5',
   name: 'No flatline',
   scenario: 'baseline',
-  severity: 'warn',
+  severity: P5_SEVERITY,
   evaluate: (runs) => runs.map(flatlineReport),
 };
 
@@ -203,8 +208,15 @@ export const flatlineProbe: ProbeDefinition = {
 // P13 — heritability sane
 // ---------------------------------------------------------------------------
 
-const H2_MIN = 0.2;
-const H2_MAX = 0.8;
+/**
+ * Ratcheted from [0.2, 0.8] by A7: three seeds at the tuned config read
+ * 0.41-0.71, so the band now sits just outside what the model achieves rather
+ * than spanning every value a sane estimator could return.
+ */
+const H2_MIN = 0.25;
+const H2_MAX = 0.78;
+/** Gated by A7's ratchet — in band on three seeds at 300 generations. */
+const P13_SEVERITY = 'gate' as const;
 
 function heritabilityReport(run: RunResult): ProbeReport {
   const rows = postBurnIn(run);
@@ -215,7 +227,7 @@ function heritabilityReport(run: RunResult): ProbeReport {
     name: 'Heritability sane',
     scenario: run.scenario,
     seed: run.seed,
-    severity: 'warn' as const,
+    severity: P13_SEVERITY,
     generationsRun: run.generationsRun,
   };
 
@@ -242,7 +254,7 @@ export const heritabilityProbe: ProbeDefinition = {
   id: 'P13',
   name: 'Heritability sane',
   scenario: 'baseline',
-  severity: 'warn',
+  severity: P13_SEVERITY,
   evaluate: (runs) => runs.map(heritabilityReport),
 };
 
@@ -251,7 +263,15 @@ export const heritabilityProbe: ProbeDefinition = {
 // ---------------------------------------------------------------------------
 
 const NE_RATIO_MIN = 0.1;
-const NE_RATIO_MAX = 1.2;
+/**
+ * Ratcheted from 1.2 by A7. Measured Ne/N never exceeded 0.22 on any config or
+ * seed, so 1.2 could not have caught a census-sized Ne — which is the thing
+ * this ceiling exists to catch. P14 stays `warn` rather than gating with the
+ * rest of the ratchet because the *floor* is nearly binding: the best seed read
+ * 0.108 against a 0.10 floor, and a probe 8% from a breach is a probe that
+ * would gate on seed luck.
+ */
+const NE_RATIO_MAX = 0.6;
 
 function driftReport(run: RunResult): ProbeReport {
   const rows = postBurnIn(run);
