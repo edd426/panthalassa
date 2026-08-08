@@ -7,27 +7,61 @@
     <meta name="description" content="Panthalassa — an aquatic evolution simulation to watch." />
     <title>Panthalassa</title>
     <style>
+      /*
+        WP-A6 crude shell. One full-window canvas with two text overlays; the
+        status block never takes pointer events so every click reaches the
+        water, while the inspector panel does, so its dump can be selected.
+      */
       html,
       body {
         margin: 0;
         height: 100%;
-        background: #06202b;
-        color: #b8d8e0;
-        font: 14px/1.5 ui-monospace, SFMono-Regular, Menlo, monospace;
+        overflow: hidden;
+        background: #03151d;
+        color: #cfe9f2;
+        font: 12px/1.45 ui-monospace, SFMono-Regular, Menlo, monospace;
       }
-      #app {
-        display: grid;
-        place-items: center;
-        height: 100%;
+
+      #world {
+        position: fixed;
+        inset: 0;
+        display: block;
+        cursor: crosshair;
+      }
+
+      #status {
+        position: fixed;
+        top: 10px;
+        left: 12px;
+        margin: 0;
+        white-space: pre;
+        pointer-events: none;
+        text-shadow: 0 1px 3px #000;
+        color: #d8f2ff;
+      }
+
+      #panel {
+        position: fixed;
+        top: 10px;
+        right: 12px;
+        width: min(62ch, 48vw);
+        max-height: calc(100vh - 20px);
+        overflow: auto;
+        margin: 0;
+        padding: 8px 10px;
+        white-space: pre;
+        font-size: 11px;
+        line-height: 1.35;
+        color: #bcdfe9;
+        background: rgba(3, 21, 29, 0.82);
+        border: 1px solid rgba(150, 210, 230, 0.25);
       }
     </style>
   </head>
   <body>
-    <!--
-      Placeholder shell (WP-A0). WP-A6 owns this file from here on: it replaces
-      the notice with the crude canvas renderer and adds
-      <script type="module" src="/src/app/main.ts"></script>.
-    -->
-    <div id="app">Panthalassa — headless sim core only. The app shell lands with WP-A6.</div>
+    <canvas id="world"></canvas>
+    <pre id="status"></pre>
+    <pre id="panel"></pre>
+    <script type="module" src="/src/app/main.ts"></script>
   </body>
 </html>
