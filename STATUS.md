@@ -1,7 +1,22 @@
 # Status — pickup state
 
-_Last updated 2026-08-08, end of the orchestration session that ran Phase A
-waves 1–2, Gate A-1, and the F0–F4 fix wave._
+_Last updated 2026-08-08 evening, at the user's wind-down order. This is the
+handoff for a fresh session: the session that wrote it ran Phase A waves 1–2,
+Gate A-1 + fix wave, the A6 watchability upgrades, and the A7 tuning campaign
+through its discriminator phase. The user's instruction at close: **do not
+start the next phase** (no Gate A-2, no Phase B) until they say so._
+
+## Resume HERE
+
+**Next action: the one-batch mutation dose search** (knob phase reopened for
+exactly this, then closed). Bracket `quantMutationRate` ≈ 2.0/2.2/2.4e-3,
+3 seeds, spec length. Accept a dose iff: founding cliff survivable on all
+seeds, P4 under its 8.0 ceiling, P14 above its 0.10 floor, AND the two-sided
+arms race + P6 retention seen at 3.2e-3 persist. If no window exists, 1.6e-3
+stands and the residual goes to Gate A-2 as measured. Then `LONG_SIM=1 npm run
+probe:full` ONCE on the accepted config (hours accepted — see below) as the
+campaign-closing record, then Gate A-2. Full context in "Where the second A7
+session left it" below and DESIGN.md's tuning log.
 
 ## Where things stand
 
@@ -75,14 +90,31 @@ Where the second A7 session left it:
 1. **A7**: tune until `LONG_SIM=1 npm run probe:full` exits 0 on 3 seeds
    (P11 and P12 warn acceptable), thresholds ratcheted, mechanism
    marginal-contribution table filled (DESIGN.md).
-2. **Gate A-2**: Sol (codex-sol, xhigh) reviews tuned thresholds —
-   "aliveness or tuned-to-pass?" — PLUS the explicit question of whether
-   P12's 2×10⁶ gate is right for this model (context in DESIGN.md "Fix
-   wave F0–F4", lever c).
-3. **Gate A-3**: the user watches the crude dots ~30 min at mixed speeds
-   (`npm run dev`, has been on port 5183). Only after that does Phase B
-   (PixiJS creature rendering) begin — plan at
-   `~/.claude/plans/okay-so-i-ve-been-fluffy-frost.md`.
+2. **Gate A-2**: Sol (codex-sol skill, xhigh, read-only, brief on stdin)
+   reviews the tuned suite. The agenda, all with DESIGN.md context:
+   - Threshold ratchet legitimacy — "aliveness or tuned-to-pass?" — with the
+     falsified P6↔P9 tradeoff presented as a worked example of the campaign
+     catching itself (fixed-mutation-rate correlation over-read as model
+     property; superseded sections marked in place).
+   - The defense-pricing genome finding: defense carries 1.5× attack's input
+     mass and 8 of 9 defense loci charge nothing, contradicting the design
+     record's own "armour is the thing you pay for" note. Sol rules whether a
+     genome-table change is warranted (A7 was barred from editing it).
+   - P8's second criterion is unfalsifiable: SampleRow lacks per-deme trait
+     moments, so per-side hue means cannot be compared. Sol rules on both the
+     criterion's reformulation and the minimal instrument; implementation
+     lands after the review.
+   - P12's 2×10⁶ threshold predates the model (measured ~1.0×10⁶ clean;
+     remaining 2× is model decisions — DESIGN.md "Fix wave F0–F4" lever c).
+   - Whether the suite may demand P6 and P9 green simultaneously (evidence
+     now says yes, via mutation input — confirm the dose-batch result).
+3. **Gate A-3**: the user watches ~30 min at mixed speeds (`npm run dev`,
+   port 5183). They already did an informal watch and found it "more
+   interesting than this morning"; their two requests (trait colour modes,
+   trend charts) are BUILT and committed, plus extinction banner/reseed.
+   Only after their formal verdict does Phase B (PixiJS creature rendering)
+   begin — plan at `~/.claude/plans/okay-so-i-ve-been-fluffy-frost.md`.
+   **Phase B is explicitly NOT to be started without the user's go.**
 
 ## Conventions that made this work (keep them)
 
