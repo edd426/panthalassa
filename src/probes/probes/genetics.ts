@@ -108,10 +108,19 @@ export const varianceProbe: ProbeDefinition = {
 /** Movement, in population SDs, that counts as a trait still going somewhere. */
 const FLATLINE_MOVEMENT_SD = 0.3;
 /**
- * Focal traits that must clear it. Ratcheted from 2 by A7: every measured
- * config, tuned or not, moved all 4 focal traits, so 2 was asserting nothing.
+ * Focal traits that must clear it.
+ *
+ * A7 ratcheted this to 3 on the strength of 4-of-4 on three seeds at 300
+ * generations, and `probe:quick` immediately went red: this count is a
+ * function of the *window*, not only of the world. The window is the last
+ * third of the run capped at {@link FLATLINE_WINDOW_GENERATIONS}, so a
+ * 60-generation quick run scores traits over 10 generations and only the
+ * fastest two clear 0.3 SD (measured: 0.26 / 0.31 / 0.21 / 0.87). Ratcheting
+ * this threshold from spec-length data alone is therefore invalid, and it
+ * stays at 2 until the probe scores a length-independent quantity. The
+ * *severity* ratchet stands — 2 is a gate now.
  */
-const FLATLINE_TRAITS_REQUIRED = 3;
+const FLATLINE_TRAITS_REQUIRED = 2;
 /** Gated by A7's ratchet — 4 of 4 on three seeds at 300 generations. */
 const P5_SEVERITY = 'gate' as const;
 const FLATLINE_WINDOW_GENERATIONS = 50;

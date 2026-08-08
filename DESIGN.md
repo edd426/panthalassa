@@ -395,6 +395,40 @@ happens before generation 12.
 |---|---|---|---|---|---|
 | 2026-08-08 | `predation.sizeRatioOptimum` + `predation.baseLogit` | 0.55 → 0.88, −3.2 → −4.45 | 3 seeds × 300 gens: predator guild present in **0% / 0% / 1%** of samples, starvation 76/83/80%, predation 6/0/3%; P7 and P9 WARN on all three | 3 seeds × 300 gens: guild present **92% / 19% / 86%** (predators 84/4/82% of the population), predation 6/7/10% of deaths, starvation 67/75/72%; P7 **PASS** on s1 (0.055) and P9 **PASS** on s1 (0.750); P3 1.00 on all three; P13 0.71/0.41/0.61; P14 0.108/0.206/0.141 | Moved together because the pair is one mechanism and neither half works alone: 0.88 alone is extinct on 2 of 3 seeds, and a lower `baseLogit` alone only deepens the monoculture. The window fix adds ~1.25 logits of mean kill probability at the realised size CV, and the `baseLogit` offset hands them back — so predation keeps its **intensity** and changes its **shape**, from "uniformly impossible" to "decided by how much bigger you are than your neighbour". Size is a trait the model actually charges for (metabolic cost ∝ size^0.75), unlike defense, so this puts the arms race on a costed axis. Not yet a 3-seed P9 pass: s2 still falls into the poor basin, and P6 drops to 0.63–0.77 because a 5.8–6.6 SD defense sweep drags linked loci. |
 
+### `probe:full` no longer fits its budget, because the world survives
+
+The brief's endgame is `LONG_SIM=1 npm run probe:full`, exit 0, "under ~40
+min". That number was set when every run ended at generation 5. It cannot be
+met now, and the reason is the campaign succeeding rather than anything going
+wrong.
+
+Measured: `probe:quick` (175 generations on one seed, plus P1 and P12) takes
+**5m 24s** at the accepted config. A single 300-generation baseline run takes
+**~13 minutes** of core time. `probe:full` is 3 seeds × (baseline 300 + barrier
+300 + sweep 200 + speciation 600) = **4200 generations**, run sequentially —
+roughly **3 hours**, and the tuned world is *more* expensive per generation
+than the numbers above because population now reaches ~3100 instead of dying.
+
+This needs an orchestrator decision before the endgame gate means anything.
+The options, cheapest first:
+
+1. **`world.fieldCellSizeWu` 25 → 45** — A7's knob, untested this session for
+   lack of wall-clock. The field pass is population-independent and currently
+   runs 3840 cells every tick; at 45 wu it is ~1190 cells, a 3.2× cut in the
+   part of the tick that does not scale with population. This is also the
+   biggest remaining P12 lever (Gate A-2 lever (a)), and it is simultaneously
+   an ecology-patchiness knob, so it must be measured against the ecology
+   probes and not only the stopwatch.
+2. **Cut `speciation` from 600 generations to 300** — it is 43% of the suite's
+   cost and feeds only P11, which is pre-adjudicated to stay `warn`.
+3. **Run the four scenarios as parallel processes.** They are independent; the
+   runner is sequential. On 8 cores this is ~3× wall-clock for free, and it is
+   an A5 change of maybe twenty lines.
+4. **Accept `probe:full` as a nightly job** and gate CI on `probe:quick`.
+
+A7 did not choose among these because 1 and 2 change measured behaviour or a
+spec length, 3 is not A7's file, and 4 is a policy call.
+
 ### Structural finding for a human or Sol: what the defense loci buy
 
 A7 was told to stop and report rather than edit `genome.ts` if the conclusion
@@ -449,7 +483,7 @@ seeds passed with margin.
 | Probe | Threshold before → after | Severity | Measured on 3 seeds | Why this number |
 |---|---|---|---|---|
 | P3 viability | ≥98% of samples in band → **≥99%** | warn → **gate** | 1.00 / 1.00 / 1.00 | Every other reading in the suite is meaningless over an empty ocean, and the tuned world never leaves the band. |
-| P5 no flatline | ≥2 of 4 focal traits → **≥3 of 4** | warn → **gate** | 4 / 4 / 4 | 4 of 4 moved on *every* config measured this campaign, tuned or collapsing — at 2 the probe was asserting nothing. |
+| P5 no flatline | ≥2 of 4 focal traits, **unchanged** | warn → **gate** | 4 / 4 / 4 at 300 gens, but **2 / 4 at quick length** | Ratcheted to 3, then **reverted by measurement**: `probe:quick` went red immediately. P5's count is a function of the window, not only of the world — the window is the last third of the run capped at 50 generations, so a 60-generation quick run scores traits over 10 generations and only the fastest two clear 0.3 SD (0.26 / 0.31 / 0.21 / 0.87). A threshold ratcheted from spec-length data alone is invalid for this probe. Severity ratchet stands; the number does not move until the probe scores something length-independent. |
 | P13 heritability | h² ∈ [0.2, 0.8] → **[0.25, 0.78]** | warn → **gate** | 0.707 / 0.408 / 0.609 | The old band spanned nearly every value a sane estimator can return. |
 | P14 drift | Ne/N ∈ [0.1, 1.2] → **[0.1, 0.6]** | stays warn | 0.108 / 0.206 / 0.141 | Ne/N never exceeded 0.22 on any config or seed, so a 1.2 ceiling could not catch the census-sized Ne it exists to catch. **Floor left alone and severity left at warn deliberately**: the best seed reads 0.108 against a 0.10 floor, and a probe 8% from a breach would gate on seed luck. |
 | P4, P6, P7, P9 | unchanged | stay warn | still breaching | These are the open front; ratcheting a red probe would be backwards. |
