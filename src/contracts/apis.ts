@@ -340,14 +340,9 @@ export interface StatsApi {
    * keep, the slot recycles. This is how the midparent regression sees
    * offspring that die young: the free list is LIFO, so a juvenile's slot is
    * gone within ticks and sample-boundary recovery selects against exactly
-   * the early deaths h² must not be conditioned on (Gate A-1 defect 11).
-   *
-   * The parameters are optional ONLY as a mid-wave staging convenience: the
-   * engine must always pass them, and they become required at the next
-   * contract revision. A recorder receiving `undefined` records no phenotype
-   * observation, and P13 will show the missing regression.
+   * the early deaths h² must not be conditioned on (Gate A-1 defect 8).
    */
-  onBirth(record: AncestryRecord, traitsLatent?: Float32Array, traitOffset?: number): void;
+  onBirth(record: AncestryRecord, traitsLatent: Float32Array, traitOffset: number): void;
   onDeath(id: OrganismId, tick: number, cause: DeathCause): void;
   onMating(motherId: OrganismId, fatherId: OrganismId, tick: number): void;
   /** Lets the recorder maintain the phylogeny and the sweep tracker. */

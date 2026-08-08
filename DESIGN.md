@@ -175,6 +175,52 @@ documented as a drift index, P14 keeps broad thresholds. Macro-mutation
 allopatry-vs-incompatibility conflation: recorded as risks for A7 and the
 roadmap, not v1 defects.
 
+### Fix wave F0–F4 — closed 2026-08-08 (`f083f2c`…`7d9f19d`)
+
+Every accepted defect above is fixed and committed; each fix's tests were
+proven revert-sensitive by their authors (reinstate the defect → named tests
+fail). Verified findings worth keeping visible:
+
+- Realised founder h² for discrete-effect traits now lands 0.47–0.54 on the
+  0.5 target (displayHue had been 0.92). Reported V_A is genetic again.
+- Demographic Ne on the skewed-sex test window: 5.98 (double-counted) →
+  16.52 (per-sex Crow & Denniston). The per-sex variance uses the N−1
+  divisor deliberately: the population-variance form cancels the breeder
+  count exactly, which would have made the breeder-eligibility fix
+  unobservable. Ne is NaN for near-empty windows (either sex absent, <3
+  births) rather than negative.
+- The sex-margin cross-mating expectation is provably second-order where
+  cross-mating is rare (correction = 2·d², d bounded by the cross rate), so
+  **P11 movement must not be credited to or expected from it**; it matters
+  at high cross rates, where the pooled form dissolves real pairs.
+- `onBirth` carries the newborn's latent view (required as of the wave
+  close), so the midparent regression is no longer conditioned on juvenile
+  survival. P13 stays n/a until the ecology survives burn-in.
+- **P12 stands red at 1.05×10⁶ organism-ticks/s against the 2×10⁶ gate**
+  after a measured 1.37× campaign (thermal-tax memo +17.5% the largest
+  single win; full ledger in the F4 commit). The profile is flat at
+  ~950 ns/organism-tick vs the 488 ns budget: the remaining 2× is model
+  decisions, not optimisation —
+  (a) field-grid resolution: `fieldCellSizeWu` 25 ⇒ 3840 cells for ~512
+  organisms; the per-tick field pass plus per-organism field reads are the
+  biggest lever, and it is an A7-ownable config default;
+  (b) one shared neighbour query instead of three (behaviour r=90,
+  predation r=45, mating r=120) — changes candidate sets, i.e. a model
+  change nobody should make casually;
+  (c) whether 2×10⁶ is the right gate for this model at all.
+  **Gate A-2 must adjudicate (c) explicitly**: the number was authored
+  before the model existed. At 1.05×10⁶, 256× fast-forward is genuine up to
+  ~140 organisms and degrades to ~35–70× at 500–1000 — the worker already
+  degrades gracefully (A6 measured a locked 60 fps at 256×).
+- Declined for correctness, permanently: tick-caching `temperatureAt` (it
+  is the analytic authority; a probe legitimately moves climate without
+  advancing the tick) and lazy carrying capacity (the every-tick K recompute
+  is load-bearing for restore fidelity — see the P1 incident above).
+- Tooling: vitest runs sequentially (`fileParallelism: false`) because the
+  CPU-bound suite starved the reporter RPC and made exit codes
+  non-deterministic — a run could fail with every test green. Diagnosed by
+  A5/A6.
+
 ## Tuning log
 
 WP-A7 owns this section. Every config change gets a row: what moved, why, and
