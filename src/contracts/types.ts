@@ -726,9 +726,15 @@ export const DEFAULT_SIM_CONFIG: SimConfig = Object.freeze({
   }),
   predation: Object.freeze({
     attemptRadiusWu: 45,
-    baseLogit: -3.2,
+    // Paired with `sizeRatioOptimum` below: the window fix adds ~1.25 logits of
+    // mean kill probability, and this offset gives them back, so the change is a
+    // shape change at constant mean rather than a predation-intensity change.
+    baseLogit: -4.45,
     attackDefenseCoef: 1,
-    sizeRatioOptimum: 0.55,
+    // Retuned by A7 from 0.55: at the realised size CV of 6-10% almost no pair
+    // of organisms reaches ratio 0.55, so the window paid out 0.3 of its 2.0
+    // logits and predation was arithmetically impossible. See the tuning log.
+    sizeRatioOptimum: 0.88,
     sizeRatioWidth: 0.3,
     sizeWindowGain: 2,
     speedDiffCoef: 0.8,

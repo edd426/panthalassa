@@ -364,17 +364,36 @@ Expected size-window bonus against `sizeRatioOptimum`, at the realised CV of
 rewarded for being modestly larger than its neighbour — the disparity
 gradient stays alive, which a peak at 1.00 would flatten.
 
-**Measurement provenance.** Every number from here down was taken with a
-two-hunk engine fix in the working tree that A7 does not own and did not
-commit: the thermal-tax memo in `stageMovement` and `metabolicCostFor`
-returned a full-precision double on a memo miss and a float32 on a hit, so the
-first tick after a snapshot restore diverged from the run the snapshot came
-from. P1 was red on s3 and passing on s1/s2 only because the one-ULP
-perturbation re-converged there. Reported to the orchestrator for A2/A3
-ownership; A7's config numbers are measured against the fixed engine because
-tuning against a knowingly non-deterministic engine would not be evidence.
+**Measurement provenance.** Every number from here down was taken against the
+memo-precision fix landed at `d9d1839`, which A7 diagnosed but does not own.
+F4's thermal-tax memo in `stageMovement` and `metabolicCostFor` returned a
+full-precision double on a memo miss and a float32 on a hit, so the first tick
+after a snapshot restore ran on different numbers than the run the snapshot
+came from — a 1-ULP `vx`/`vy` divergence at tick 601 on **every** seed, which
+P1 caught only on the one seed where it failed to re-converge before the next
+hash checkpoint. Tuning numbers measured before that fix (the three rows above)
+describe the same regime but not the same trajectory.
 
-### Mechanism marginal contributions
+### Red-Queen screens: what was tried and what it did
+
+Every row is a 300-generation baseline run unless noted. The founding-cliff rows
+are 45-generation runs, which is enough because every extinction in this table
+happens before generation 12.
+
+| Knob move | s1 | s2 | s3 | Verdict |
+|---|---|---|---|---|
+| `attackDefenseCoef` 1 → 0.35 | **extinct at gen 9.1** | — | — | Rejected. Defense is the founders' only protection from each other; cutting it to a third re-runs the untuned predation crash. A "keep the kernel sensitive" knob is not free. |
+| `energyPerPreySize` 0.9 → 2.2 | P7 **PASS** (starv 70%, pred 10%), P9 WARN (attack **0.00 SD**), P6 0.583 | — | — | Rejected as the primary. Fixes the mortality mix, but attack stops moving entirely and 7 loci fix — a bigger payoff per kill does not make attack pay if the kill never lands. |
+| `sizeRatioOptimum` 0.55 → 0.70 | — | survives, P9 0.045 (predators **0%**) | P7 **PASS**, P9 **PASS** 2.74 (guilds 92%, predators 74%) | Rejected: bimodal. Same knob, same value, and s3 lands in the rich basin while s2 lands in the poor one. |
+| `sizeRatioOptimum` 0.55 → 0.78 | — | extinct | extinct | Founding cliff. |
+| `sizeRatioOptimum` 0.55 → 0.88 | P9 **PASS** 0.626 (guilds 100%, predators 72%), P7 72% starv, P6 0.708 | **extinct at 9.6** | **extinct at 6.7** | Right mechanism, overshoots the cliff. This is the run that proved the guild collapse is fixable at all. |
+| + `maturityTicks` 600 → 450 | survives 45g | **extinct at 11.8** | survives 45g | Rejected. Breeding earlier clears the cliff on two seeds only. |
+| + `diet` baseline 0 → −1.4 | survives; P9 predators **0%** | survives; P9 predators **0%** | (in flight) | Rejected. Founders that start as filterers clear the cliff and then never invent carnivory — the guild the knob was meant to protect never forms. |
+| + `baseLogit` −3.2 → −4.45 | P7 **PASS**, P9 **PASS** (guilds 92%, predators 84%) | P9 guilds 19% | P9 guilds 86%, pred 10% of deaths | **Accepted**, below. |
+
+| Date | Knob | From → To | Probe evidence before | Probe evidence after | Rationale |
+|---|---|---|---|---|---|
+| 2026-08-08 | `predation.sizeRatioOptimum` + `predation.baseLogit` | 0.55 → 0.88, −3.2 → −4.45 | 3 seeds × 300 gens: predator guild present in **0% / 0% / 1%** of samples, starvation 76/83/80%, predation 6/0/3%; P7 and P9 WARN on all three | 3 seeds × 300 gens: guild present **92% / 19% / 86%** (predators 84/4/82% of the population), predation 6/7/10% of deaths, starvation 67/75/72%; P7 **PASS** on s1 (0.055) and P9 **PASS** on s1 (0.750); P3 1.00 on all three; P13 0.71/0.41/0.61; P14 0.108/0.206/0.141 | Moved together because the pair is one mechanism and neither half works alone: 0.88 alone is extinct on 2 of 3 seeds, and a lower `baseLogit` alone only deepens the monoculture. The window fix adds ~1.25 logits of mean kill probability at the realised size CV, and the `baseLogit` offset hands them back — so predation keeps its **intensity** and changes its **shape**, from "uniformly impossible" to "decided by how much bigger you are than your neighbour". Size is a trait the model actually charges for (metabolic cost ∝ size^0.75), unlike defense, so this puts the arms race on a costed axis. Not yet a 3-seed P9 pass: s2 still falls into the poor basin, and P6 drops to 0.63–0.77 because a 5.8–6.6 SD defense sweep drags linked loci. |
 
 Toggle-off runs measuring what each variance mechanism actually buys. Filled in
 by A7; a mechanism that shows no marginal contribution is a mechanism to delete,
