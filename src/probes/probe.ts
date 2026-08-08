@@ -1,13 +1,19 @@
 /**
  * What a probe is, and how a measurement becomes a `ProbeReport`.
  *
- * The severity split is the orchestrator's ruling and it is deliberate: **P1,
- * P2 and P12 gate from day one** because determinism, RNG hygiene and
- * throughput are properties of the *code*, and a regression in any of them is a
- * bug no amount of tuning fixes. Every other probe starts at `warn`, because
- * the simulation is untuned and the aliveness thresholds describe where WP-A7
- * has to get it to — not where an unturned model is expected to be. Turning
- * those into gates now would only teach everyone to ignore a red suite.
+ * The severity split is the orchestrator's ruling and it is deliberate: **P1
+ * and P2 gate from day one** because determinism and RNG hygiene are properties
+ * of the *code*, and a regression in either is a bug no amount of tuning fixes.
+ * Every other probe starts at `warn`, because the simulation is untuned and the
+ * aliveness thresholds describe where WP-A7 has to get it to — not where an
+ * untuned model is expected to be. Turning those into gates now would only
+ * teach everyone to ignore a red suite.
+ *
+ * P12 (throughput) gated from day one on the same code-property argument and
+ * was demoted to `warn` by A7: its 2×10⁶ target was authored before the model
+ * existed and the remaining gap is model decisions rather than optimisation.
+ * See `probes/performance.ts` and DESIGN.md's "Fix wave F0–F4"; Gate A-2 owns
+ * the threshold.
  *
  * A7 flips each one to `gate` as it demonstrably passes on three seeds. Until
  * then a warn-severity breach reports yellow and the suite still exits 0.

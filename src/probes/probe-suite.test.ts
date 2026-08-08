@@ -45,9 +45,12 @@ describe('probe registry', () => {
     ]);
   });
 
-  it('gates exactly the three code-property probes', () => {
+  it('gates exactly the probes A7 has ratcheted, plus the code-property pair', () => {
     const gates = PROBES.filter((probe) => probe.severity === 'gate').map((probe) => probe.id);
-    expect(gates).toEqual(['P1', 'P2', 'P12']);
+    // P1 and P2 gate from day one. P12 was demoted to `warn` pending Gate A-2
+    // (see probes/performance.ts). Everything else earns `gate` by passing on
+    // three seeds during the A7 campaign; extend this list as each is ratcheted.
+    expect(gates).toEqual(['P1', 'P2']);
   });
 
   it('names a scenario that exists, or builds its own', () => {
