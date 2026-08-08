@@ -395,12 +395,19 @@ happens before generation 12.
 |---|---|---|---|---|---|
 | 2026-08-08 | `predation.sizeRatioOptimum` + `predation.baseLogit` | 0.55 → 0.88, −3.2 → −4.45 | 3 seeds × 300 gens: predator guild present in **0% / 0% / 1%** of samples, starvation 76/83/80%, predation 6/0/3%; P7 and P9 WARN on all three | 3 seeds × 300 gens: guild present **92% / 19% / 86%** (predators 84/4/82% of the population), predation 6/7/10% of deaths, starvation 67/75/72%; P7 **PASS** on s1 (0.055) and P9 **PASS** on s1 (0.750); P3 1.00 on all three; P13 0.71/0.41/0.61; P14 0.108/0.206/0.141 | Moved together because the pair is one mechanism and neither half works alone: 0.88 alone is extinct on 2 of 3 seeds, and a lower `baseLogit` alone only deepens the monoculture. The window fix adds ~1.25 logits of mean kill probability at the realised size CV, and the `baseLogit` offset hands them back — so predation keeps its **intensity** and changes its **shape**, from "uniformly impossible" to "decided by how much bigger you are than your neighbour". Size is a trait the model actually charges for (metabolic cost ∝ size^0.75), unlike defense, so this puts the arms race on a costed axis. Not yet a 3-seed P9 pass: s2 still falls into the poor basin, and P6 drops to 0.63–0.77 because a 5.8–6.6 SD defense sweep drags linked loci. |
 
-### `probe:full` no longer fits its budget, because the world survives
+### `probe:full` costs hours now, and that is the accepted price
 
 The brief's endgame is `LONG_SIM=1 npm run probe:full`, exit 0, "under ~40
 min". That number was set when every run ended at generation 5. It cannot be
 met now, and the reason is the campaign succeeding rather than anything going
 wrong.
+
+**Orchestrator ruling, 2026-08-08: accepted at ~2.5–3 hours.** A suite that
+runs 300–600 generations on surviving worlds is the honest price of the
+product's central claim, and generations are not to be trimmed to fit a stale
+estimate. It runs in the background as the campaign-closing record, at future
+gates, and nightly. The options below are recorded as the wall-clock levers
+that remain, not as a request to shrink the suite.
 
 Measured: `probe:quick` (175 generations on one seed, plus P1 and P12) takes
 **5m 24s** at the accepted config. A single 300-generation baseline run takes
@@ -596,7 +603,12 @@ trade above, running in the direction nobody wanted. Also non-monotone at the
 cliff, as ever: `attemptRadiusWu` 60 is extinct on s1 at generation 10.7 while
 75 survives on all three.
 
-### P8's acceptance criterion: the diagnosis was wrong, and the real one is worse
+### P8's acceptance criterion: the first diagnosis was wrong, and so was the second
+
+**Both explanations below were later falsified — see discriminator (b).** The
+preference window is not the constraint, and neither is frequency-dependent
+predation. Kept for the measurements and because the reasoning is a good
+example of a plausible mechanism that measurement did not support.
 
 A7's first reading was that `mating.prefSigmaBaseDeg` 70° is simply too wide —
 the Gaussian acceptance kernel needs 82° of hue divergence to halve, and
@@ -615,20 +627,22 @@ i.e. **`displayHue` is not diverging across the barrier**, after 250
 generations of complete isolation with Fst at 0.72–0.80. The preference window
 is not the binding constraint; there is nothing for it to discriminate.
 
-The likely cause is the same frequency-dependent predation the mechanism table
-just credited: it penalises the locally common morph, which is *balancing*
-selection holding both sides' hue distributions at the same spread around the
-same centre. The toggle-off run supports it — with frequency dependence off,
-`displayHue` moves +0.90 SD directionally against +0.25 SD with it on.
+A7's hypothesis at this point was frequency-dependent predation acting as
+balancing selection that holds both sides' hue distributions at the same spread
+around the same centre, supported by the toggle-off run in which `displayHue`
+moves +0.90 SD directionally against +0.25 SD with it on. **Discriminator (b)
+tested it directly and falsified it**: with the mechanism off, acceptance is
+1.02 and Fst reaches 0.931. The live explanations are now that `displayHue`'s
+within-side spread exceeds any between-side divergence available in 250
+generations, or that the magic-trait pleiotropy pins hue to an ecology both
+sides share.
 
 So P8's second criterion and the hue-variance mechanism are in direct conflict,
 which is the same shape of finding as the P6/P9 trade above. Narrowing
 preference also costs: at 45° P14 fell to 0.092, under its 0.10 floor, because
 choosier mating skews reproductive success and lowers Ne. **Knob not moved.**
-Whoever takes this next should test the hypothesis directly — run the barrier
-scenario with `enableFrequencyDependentPredation` off and see whether
-cross-side acceptance finally separates — rather than narrowing the window
-further.
+That test has since been run; see discriminator (b) for the result and for the
+instrument gap that now blocks the question.
 
 ### Structural finding for a human or Sol: what the defense loci buy
 
