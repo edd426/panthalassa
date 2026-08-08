@@ -412,22 +412,43 @@ than the numbers above because population now reaches ~3100 instead of dying.
 This needs an orchestrator decision before the endgame gate means anything.
 The options, cheapest first:
 
-1. **`world.fieldCellSizeWu` 25 → 45** — A7's knob, untested this session for
-   lack of wall-clock. The field pass is population-independent and currently
-   runs 3840 cells every tick; at 45 wu it is ~1190 cells, a 3.2× cut in the
-   part of the tick that does not scale with population. This is also the
-   biggest remaining P12 lever (Gate A-2 lever (a)), and it is simultaneously
-   an ecology-patchiness knob, so it must be measured against the ecology
-   probes and not only the stopwatch.
+1. ~~`world.fieldCellSizeWu` 25 → 45~~ — **measured and rejected, see the row
+   below.** The field pass is not where the time goes.
 2. **Cut `speciation` from 600 generations to 300** — it is 43% of the suite's
    cost and feeds only P11, which is pre-adjudicated to stay `warn`.
 3. **Run the four scenarios as parallel processes.** They are independent; the
    runner is sequential. On 8 cores this is ~3× wall-clock for free, and it is
-   an A5 change of maybe twenty lines.
+   an A5 change of maybe twenty lines. **With (1) dead, this is the only option
+   that buys wall-clock without changing what the suite measures.**
 4. **Accept `probe:full` as a nightly job** and gate CI on `probe:quick`.
 
-A7 did not choose among these because 1 and 2 change measured behaviour or a
-spec length, 3 is not A7's file, and 4 is a policy call.
+A7 did not choose among 2–4 because 2 changes a spec length, 3 is not A7's
+file, and 4 is a policy call.
+
+**`world.fieldCellSizeWu` 25 → 40/50/60: measured, rejected, and it falsifies
+the F4 hypothesis.** The F4 ledger named field-grid resolution the biggest
+remaining P12 lever — 3840 cells serving ~512 organisms — and Gate A-2 lever
+(a) rests on it. Measured serially on a quiet machine, one P12 run each:
+
+| `fieldCellSizeWu` | cells | org-ticks/s | mean population in the perf harness |
+|---|---|---|---|
+| 25 (default) | 3840 | 1.01×10⁶ | 512 |
+| 40 | 1500 | 1.07×10⁶ | 511 |
+| 50 | 960 | 1.07×10⁶ | **471** |
+| 60 | 660 | 1.07×10⁶ | **313** |
+
+Cutting the cell count 2.6× buys **6%**, and everything past 40 wu buys nothing
+further while visibly damaging the ecology: the perf harness turns predation,
+senescence and thermal hazard off, so the population falling to 471 and 313 is
+*starvation* — a coarser field changes the grazing dynamics enough to starve a
+world that the fine grid feeds. The knob is therefore not a free performance
+lever in either direction, and 6% is not worth an ecology risk.
+
+The useful conclusion for Gate A-2: **P12's remaining 2× is not recoverable
+from field resolution**, so lever (a) is closed. At most ~10% of the tick is
+the field pass; the rest is per-organism work, which points at F4's lever (b)
+— three separate neighbour queries per organism per tick (behaviour r=90,
+predation r=45, mating r=120) — and that is a model change, not a knob.
 
 ### Structural finding for a human or Sol: what the defense loci buy
 
