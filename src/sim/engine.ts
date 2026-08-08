@@ -94,6 +94,7 @@ import type {
   SimSnapshot,
   SimState,
   SlotIndex,
+  SpeciesBookkeeping,
 } from '../contracts/types';
 import {
   BEHAVIOR_WANDER,
@@ -169,6 +170,7 @@ const CAUSE_CODE: Readonly<Record<DeathCause, number>> = Object.freeze({
   predation: 1,
   temperature: 2,
   senescence: 3,
+  catastrophe: 4,
 });
 
 const NO_CAUSE = -1;
@@ -379,6 +381,10 @@ class PanthalassaSim implements SimHandleInternal {
       this.seedFounders();
     } else {
       applySnapshot(this.state, this.store, restoring);
+      for (const entry of restoring.species) {
+        this.speciesFirstTick.set(entry.tag, entry.firstTick);
+        this.speciesPeak.set(entry.tag, entry.peakPopulation);
+      }
       this.ecology.rebuildBarrierMask(this.state);
     }
 
@@ -567,7 +573,14 @@ class PanthalassaSim implements SimHandleInternal {
   }
 
   snapshot(): SimSnapshot {
-    return serializeSnapshot(this.state, this.store, this.configOverrides, this.stateHash());
+    const species: SpeciesBookkeeping[] = [...this.speciesFirstTick.keys()]
+      .sort((a, b) => a - b)
+      .map((tag) => ({
+        tag,
+        firstTick: this.speciesFirstTick.get(tag) ?? 0,
+        peakPopulation: this.speciesPeak.get(tag) ?? 0,
+      }));
+    return serializeSnapshot(this.state, this.store, this.configOverrides, species, this.stateHash());
   }
 
   sampleSlice(maxOrganisms?: number, recycle?: Float32Array): SampleSlice {
@@ -1247,7 +1260,7 @@ class PanthalassaSim implements SimHandleInternal {
       const dx = (pools.x[slot] ?? 0) - x;
       const dy = (pools.y[slot] ?? 0) - y;
       if (dx * dx + dy * dy > radiusSq) continue;
-      this.pendingCause[slot] = CAUSE_CODE.temperature;
+      this.pendingCause[slot] = CAUSE_CODE.catastrophe;
       this.pendingKiller[slot] = NO_SLOT;
       killed += 1;
     }

@@ -195,7 +195,11 @@ export interface DeathSink {
  * order and stay deterministic.
  */
 export interface EcologyApi {
-  /** Seed reefs, kelp and the initial resource field. Called once at init. */
+  /**
+   * Seed reefs, kelp and the initial resource field. Called once at init.
+   * Must be a pure function of `(state.config, rng)` — no module-level state —
+   * so a restore can rebuild the derived fields a snapshot does not carry.
+   */
   initFields(state: SimState, rng: RandomSource): void;
 
   /** Advance temperature: latitudinal gradient, season, OU climate walk. Whole-field, once per tick. */

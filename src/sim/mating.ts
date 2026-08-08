@@ -28,17 +28,6 @@ import type { RandomSource, SimConfig, SimState, SlotIndex } from '../contracts/
 import { NO_SLOT, SEX_MALE } from '../contracts/types';
 import { T, energyCapacityOf, traitAt } from './organisms';
 
-/**
- * Share of the per-offspring reproduction cost the father pays.
- *
- * `metabolism.reproductionEnergyCost` is documented as the *mother's* cost per
- * offspring and there is no paternal knob in `SimConfig`, but a mating that is
- * free for males makes male mating effort unselectable. Anisogamy says the
- * paternal share is the smaller one; this constant is the placeholder until the
- * config grows a real knob for it (reported to the orchestrator).
- */
-export const PATERNAL_MATING_COST_FRACTION = 0.25;
-
 /** Energy the mother is debited for a clutch of `clutchSize`. */
 export function maternalClutchCost(clutchSize: number, config: SimConfig): number {
   return config.metabolism.reproductionEnergyCost * clutchSize;
@@ -46,7 +35,7 @@ export function maternalClutchCost(clutchSize: number, config: SimConfig): numbe
 
 /** Energy the father is debited for a clutch of `clutchSize`. */
 export function paternalClutchCost(clutchSize: number, config: SimConfig): number {
-  return config.metabolism.reproductionEnergyCost * clutchSize * PATERNAL_MATING_COST_FRACTION;
+  return config.metabolism.reproductionEnergyCost * clutchSize * config.mating.paternalCostFraction;
 }
 
 /** Mature, off cooldown, and carrying enough energy to survey suitors. */

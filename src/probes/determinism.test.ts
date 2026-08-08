@@ -81,7 +81,7 @@ import {
 } from '../contracts/types';
 import { createSim } from '../sim/engine';
 import type { SimHandleInternal } from '../sim/engine';
-import { PATERNAL_MATING_COST_FRACTION, createMating } from '../sim/mating';
+import { createMating } from '../sim/mating';
 import type { EnginePools } from '../sim/organisms';
 
 // ===========================================================================
@@ -782,7 +782,7 @@ class StubStats implements StatsApi {
     deaths: 0,
     matings: 0,
     events: 0,
-    byCause: { starvation: 0, predation: 0, temperature: 0, senescence: 0 },
+    byCause: { starvation: 0, predation: 0, temperature: 0, senescence: 0, catastrophe: 0 },
     bornIds: [],
     diedIds: new Set<OrganismId>(),
     bornIdSet: new Set<OrganismId>(),
@@ -1251,7 +1251,7 @@ describe('mating', () => {
 
     expect(offspringCounted).toBe(offspring);
     const expectedDebit =
-      config.metabolism.reproductionEnergyCost * offspring * (1 + PATERNAL_MATING_COST_FRACTION);
+      config.metabolism.reproductionEnergyCost * offspring * (1 + config.mating.paternalCostFraction);
     expect(energyBefore - parentEnergyAfter).toBeCloseTo(expectedDebit, 2);
     // The endowment is the only energy the birth path creates, and it is exact.
     expect(offspringEnergyAfter).toBeCloseTo(config.metabolism.birthEnergy * offspring, 5);

@@ -29,6 +29,7 @@ import type {
   SimSnapshot,
   SimState,
   SlotIndex,
+  SpeciesBookkeeping,
 } from '../contracts/types';
 import { DEATH_CAUSES, SNAPSHOT_FORMAT_VERSION } from '../contracts/types';
 import type { EnginePools, PoolColumnName } from './organisms';
@@ -209,6 +210,7 @@ export function serializeSnapshot(
   state: SimState,
   store: OrganismStore,
   configOverrides: SimConfigOverrides,
+  species: readonly SpeciesBookkeeping[],
   stateHash: string,
 ): SimSnapshot {
   const columns: Record<string, ArrayBufferView> = {};
@@ -241,6 +243,7 @@ export function serializeSnapshot(
     climate: copyClimate(state.climate),
     barriers: state.barriers.specs.map((spec) => ({ ...spec })),
     deathCounts: copyDeathCounts(state.deathCounts),
+    species: species.map((entry) => ({ ...entry })),
     stateHash,
   };
 }

@@ -66,13 +66,15 @@ export function karyotypeToSex(karyotype: Karyotype): Sex {
 }
 
 /**
- * The four independent mortality channels. Herdloom had exactly one (old age)
- * and therefore no natural selection at all; probe P7 requires every channel
- * here to carry between 5% and 70% of deaths.
+ * The four independent mortality channels, plus `catastrophe` for god-tool
+ * kills (meteor). Herdloom had exactly one channel (old age) and therefore no
+ * natural selection at all; probe P7 requires each of the four *endogenous*
+ * channels to carry between 5% and 70% of deaths — `catastrophe` is excluded
+ * from that mix, because it is the user's hand, not selection.
  */
-export type DeathCause = 'starvation' | 'predation' | 'temperature' | 'senescence';
+export type DeathCause = 'starvation' | 'predation' | 'temperature' | 'senescence' | 'catastrophe';
 
-export const DEATH_CAUSES = ['starvation', 'predation', 'temperature', 'senescence'] as const satisfies readonly DeathCause[];
+export const DEATH_CAUSES = ['starvation', 'predation', 'temperature', 'senescence', 'catastrophe'] as const satisfies readonly DeathCause[];
 
 /** xoshiro128** state; see `src/sim/rng.ts`. Declared here so contracts stay dependency-free. */
 export type RngState = [number, number, number, number];
@@ -206,7 +208,7 @@ export interface ResourceField {
   readonly plankton: Float32Array;
   /** Kelp cover per cell in [0,1]; grows near reefs and shelters prey. */
   readonly kelp: Float32Array;
-  /** Per-cell K, recomputed when the climate moves. */
+  /** Per-cell K, recomputed from scratch by `updateFields` every tick; snapshots do not carry it. */
   readonly carryingCapacity: Float32Array;
   /**
    * Per-cell water temperature, °C, written by ecology's `updateFields` every
@@ -325,8 +327,20 @@ export interface SimSnapshot {
   readonly climate: ClimateState;
   readonly barriers: readonly BarrierSpec[];
   readonly deathCounts: Record<DeathCause, number>;
+  /**
+   * Per-species first-seen tick and peak census, sorted by tag. Extinction
+   * events report lifetime and peak; without this a restored sim would date
+   * every extant lineage to the restore tick.
+   */
+  readonly species: readonly SpeciesBookkeeping[];
   /** `stateHash()` at the moment of capture; restore must reproduce it. */
   readonly stateHash: string;
+}
+
+export interface SpeciesBookkeeping {
+  readonly tag: SpeciesTag;
+  readonly firstTick: number;
+  readonly peakPopulation: number;
 }
 
 export interface SerializedGenome {
@@ -336,7 +350,7 @@ export interface SerializedGenome {
 }
 
 /** Current snapshot format. Bump on any layout change. */
-export const SNAPSHOT_FORMAT_VERSION = 1;
+export const SNAPSHOT_FORMAT_VERSION = 2;
 
 // ---------------------------------------------------------------------------
 // SimConfig — the tuning surface
@@ -367,8 +381,6 @@ export interface TimeConfig {
   maturityTicks: number;
   /** Nominal generation length; every probe threshold is denominated in these. */
   generationTicks: number;
-  /** Ticks between conception and birth. */
-  gestationTicks: number;
   /** Organisms re-evaluate their behaviour policy every N ticks, staggered by slot so the cost is spread. */
   decisionStaggerTicks: number;
 }
@@ -540,6 +552,13 @@ export interface MatingConfig {
   matingCooldownTicks: number;
   /** Weight of male condition (energy) relative to display match in the acceptance weight. */
   conditionWeight: number;
+  /**
+   * Fraction of the per-offspring reproduction cost the father pays.
+   * `metabolism.reproductionEnergyCost` is the mother's cost per offspring; a
+   * mating that is free for males makes male mating effort unselectable, so
+   * anisogamy gets a knob: the paternal share is the smaller one.
+   */
+  paternalCostFraction: number;
 }
 
 export interface SpeciationConfig {
@@ -637,7 +656,6 @@ export const DEFAULT_SIM_CONFIG: SimConfig = Object.freeze({
     ticksPerSecond: 30,
     maturityTicks: 600,
     generationTicks: 900,
-    gestationTicks: 120,
     decisionStaggerTicks: 4,
   }),
   genetics: Object.freeze({
@@ -728,6 +746,7 @@ export const DEFAULT_SIM_CONFIG: SimConfig = Object.freeze({
     choosinessScale: 1,
     matingCooldownTicks: 300,
     conditionWeight: 0.5,
+    paternalCostFraction: 0.25,
   }),
   speciation: Object.freeze({
     crossMatingThreshold: 0.05,

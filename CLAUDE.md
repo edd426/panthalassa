@@ -90,6 +90,9 @@ bit-identical world at every tick, on every machine.
 - `SeededRng.fork(label)` gives a stage its own sub-stream without consuming
   parent entropy, so adding a consumer cannot shift the trajectory. Put the tick
   in the label when you want a fresh stream per tick.
+- **Read `state.config` fresh on every call; never cache it** (not in a module
+  field, not in a closure). `setToggle` and the A7 tuning tools swap the config
+  object's identity mid-run; a cached reference silently keeps the old knobs.
 
 ### Model
 

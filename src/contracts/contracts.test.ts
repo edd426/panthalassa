@@ -360,7 +360,7 @@ describe('SimConfig', () => {
 
 describe('measurement contracts', () => {
   it('names four independent mortality channels', () => {
-    expect([...DEATH_CAUSES].sort()).toEqual(['predation', 'senescence', 'starvation', 'temperature']);
+    expect([...DEATH_CAUSES].sort()).toEqual(['catastrophe', 'predation', 'senescence', 'starvation', 'temperature']);
   });
 
   it('declares every event kind exactly once', () => {
