@@ -317,6 +317,23 @@ rich regime.
 
 | 2026-08-08 | `senescence.gompertzA` | 2.2e-5 → 9e-5 | senescence 4/3/4% of deaths across seeds — under P7's 5% floor; P7 WARN | 3 seeds × 45 generations: senescence 9/10/9%, P7 **PASS** on all seeds (starvation 31/49/28%, predation 53/34/56%, temperature 8/8/7%); P3 still 1.00 on all seeds | Old age was decorative. ~4× on the Gompertz baseline hazard puts senescence just above the floor without denting viability; the age slope (`gompertzB`) untouched so it still kills the old, not the unlucky. (Orchestrator row — A7's agent died at the session limit; same discipline, one knob, three seeds.) |
 
+| 2026-08-08 | `genetics.quantMutationRate` | 1e-3 → 1.6e-3 | P4 ratio 0.17–0.22 across seeds at 150 gens (variance eroding); P6 75–92% | **Spec length (300 gens, 3 seeds): P4 4.46 / 4.88 / 0.43 — all in band**; P13 h² 0.52/0.72/0.59; P3 ≥0.999. Dose-response mapped: 3e-3 gave ratios 6.3–8.9 (runaway, s3 breached the 8× cap); 1.6e-3 at 150 gens reads high (3.8–10.7) because the denominator window sits in the post-founding trough — judge this knob at spec length only. | The plan's #1 leverage knob. Mutation input now balances selection+drift consumption at the probe's own windows. (Orchestrator row.) |
+
+**Open front after the 300-generation runs (the campaign's remaining hard
+problem):** the ecology is stable but the **attack–defense arms race is
+one-sided at long horizons**. On s3, defense ran +6.96 SD while attack moved
++0.06 SD: predation collapsed to 10% of deaths, starvation breached P7's 70%
+ceiling (73%), and the defense sweep dragged linked loci with it — neutralB
+**fixed** and pigmentA fixed (P6 breach) despite mutation input, i.e. genuine
+hitchhiking at Ne ≈ 0.17N. Defense is selected in every organism while
+attack's gradient flattens once defense escapes, so the Red Queen needs a
+mechanism that keeps the kill rate in a sensitive band (candidates, in
+leverage order: predation payoff `energyPerPreySize`, frequency-dependence
+strength, revisiting how much un-paid-for defense the loci buy — the last is
+a genome-table question for a human/Sol review, not a knob). s1/s2 P6/P7/P9
+detail lines were not captured for this run and need re-reading before
+concluding the pattern is universal rather than an s3 story.
+
 ### Mechanism marginal contributions
 
 Toggle-off runs measuring what each variance mechanism actually buys. Filled in

@@ -673,7 +673,7 @@ export const DEFAULT_SIM_CONFIG: SimConfig = Object.freeze({
   }),
   genetics: Object.freeze({
     crossoverLambda: 1,
-    quantMutationRate: 1e-3,
+    quantMutationRate: 1.6e-3,
     discreteMutationRate: 1e-4,
     cladeMacroMutationRate: 1e-5,
     mutationFatTailFraction: 0.1,
