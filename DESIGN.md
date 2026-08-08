@@ -792,6 +792,24 @@ noticed.
 only through the `meteor` protocol command (a god tool); no disturbance fires
 spontaneously. The climate walk wobbled ±0.02 °C the whole run.
 
+**Why predators never re-evolved (user question, answered from code).**
+"Predator" is a statistical label on the continuous `diet` trait, not a
+species — expressed diet is a share in (0,1), plankton efficiency is
+`(1−diet)^q`, prey efficiency `diet^q` (`formulas.ts`), the recorder bins the
+guild at 0.5, and predation attempts are rate-gated by diet with deliberately
+no hard cutoff (`predation.ts`). The run's own `species 1` confirms the act-one
+predators were a diet morph of the forager population. Re-evolution is
+therefore structurally possible, and its absence over 1,800 predator-free
+generations has three compounding causes: (1) the q=1.6 convexity is a
+two-sided fitness valley — a mid-diet organism is bad at both jobs, so
+selection pushes diet-ward drift back to the filterer pole; (2) the toolkit
+rusted — attack sat at the floor and heterozygosity eroded to ~0.1, so the
+standing variance a guild transition would draw on is gone; (3) the rare-morph
+advantage operates *through* predation, so a rare proto-predator in a
+predator-free world gets no invader's bonus. Real carnivory evolves up a ramp
+(scavenging, egg-eating, juvenile predation); the model has a valley and no
+ramp. Candidate fix recorded on the STATUS.md roadmap under item 1.
+
 **Audit question raised, not adjudicated:** is speed's cost fully paid?
 Metabolic cost charges *realized* speed, so an evolving `speedCap` is free
 until used — an 8× runaway in a world selecting only on foraging is either

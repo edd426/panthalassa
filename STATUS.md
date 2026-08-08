@@ -140,6 +140,17 @@ probe, a kelp-channel probe, …); none is exempt from the suite.
    showed everything downstream hangs on it: the arms race, variance
    maintenance via frequency-dependent predation, defense meaning anything,
    and kelp mattering at all.
+   - **Flip side, endorsed 2026-08-09: predator *re-evolvability*.** Predators
+     are a diet morph of the same species, not a lineage — re-evolution from
+     foragers is structurally possible but did not happen in 1,800
+     predator-free generations (DESIGN.md "Deep time" for the three barriers:
+     the q=1.6 disruptive-selection valley, attack variance eroded, no
+     rare-invader advantage without predation). The candidate fix is a
+     **valley-filling on-ramp**: carrion/scavenging biomass best exploited at
+     intermediate diet (or juvenile cannibalism via the existing size window),
+     so every step from filterer toward hunter pays. Interacts with item 2:
+     a plankton crash is exactly the selective window where re-evolution
+     should fire — guild rebirth after collapse is the payoff to watch for.
 2. **A disturbance regime** *(new)* — rare spontaneous shocks: marine
    heatwaves, plankton crashes, storms that mow kelp down, disease outbreaks,
    century-scale climate excursions. Today nothing fires spontaneously (the
