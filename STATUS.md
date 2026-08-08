@@ -10,7 +10,10 @@ start the next phase** (no Gate A-2, no Phase B) until they say so._
 
 **Next action: the one-batch mutation dose search** (knob phase reopened for
 exactly this, then closed). Bracket `quantMutationRate` ≈ 2.0/2.2/2.4e-3,
-3 seeds, spec length. Accept a dose iff: founding cliff survivable on all
+3 seeds. **Cliff-screen first**: 45 generations × 3 seeds per dose (~2 min)
+before any spec-length run — every knob this campaign was bound by the
+founding transient, and the screen rejects doomed doses for the price of a
+coffee (3.2e-3 killed s3 at generation 12). Then spec length on survivors. Accept a dose iff: founding cliff survivable on all
 seeds, P4 under its 8.0 ceiling, P14 above its 0.10 floor, AND the two-sided
 arms race + P6 retention seen at 3.2e-3 persist. If no window exists, 1.6e-3
 stands and the residual goes to Gate A-2 as measured. Then `LONG_SIM=1 npm run
