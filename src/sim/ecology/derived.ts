@@ -1,0 +1,118 @@
+/**
+ * Per-organism derived quantities and their cache (WP-A2).
+ *
+ * Everything here is a pure function of one organism's phenotype, which is
+ * written once at birth and never changes. The tick loop asks for these on
+ * every one of an animal's ~900 ticks, so they are computed once per organism
+ * and memoised in the runtime rather than recomputed — `Math.pow` for a bite
+ * size and a diet efficiency, three times per organism-tick, is most of the
+ * ecology's cost otherwise.
+ *
+ * The cache is a memo of the frozen `formulas.ts` functions, never a
+ * reimplementation of them: every value below comes out of a contract function
+ * called once. If A7 retunes a formula the cache retunes with it.
+ */
+
+import {
+  dietEfficiencyPlankton,
+  dietEfficiencyPrey,
+  metabolicCostPerTick,
+} from '../../contracts/formulas';
+import { TRAIT_META } from '../../contracts/traits';
+import type { SimConfig, SimState, SlotIndex } from '../../contracts/types';
+import { T_ARMOR_PLATING, T_DIET, T_FORAGE_BOLDNESS, T_SIZE, trait } from './columns';
+import type { EcologyRuntime } from './runtime';
+
+/** Speed-fraction quantisation for the metabolic-cost memo, in steps per unit. */
+const SPEED_QUANTISATION = 64;
+
+/** Founder-population reference body length, cm, for scaling a bite. */
+export function referenceSizeCm(config: SimConfig): number {
+  return config.genetics.traitBaselineOverrides.size ?? TRAIT_META.size.baseline;
+}
+
+/**
+ * Specialist premium on assimilation, 1 at the generalist midpoint and
+ * `1 + dietSpecialistBonus` at either end of the diet axis. It reinforces the
+ * convexity `dietEfficiency*` already provides rather than replacing it.
+ */
+export function dietSpecialisationBonus(diet: number, config: SimConfig): number {
+  return 1 + config.metabolism.dietSpecialistBonus * Math.min(1, 2 * Math.abs(diet - 0.5));
+}
+
+/** Energy storage ceiling for a body of this length. */
+export function maxEnergyFor(size: number, config: SimConfig): number {
+  return Math.max(1e-6, config.metabolism.maxEnergyPerSize * Math.max(0, size));
+}
+
+/**
+ * Digestive throughput, energy per tick: one prey-sized meal cleared over the
+ * satiation-plus-handling window. This is what makes the predator's functional
+ * response type-II — a saturating kill rate falls out of handling time, it is
+ * not imposed on top of it.
+ */
+export function digestionRate(size: number, config: SimConfig): number {
+  const predation = config.predation;
+  const window = Math.max(1, predation.satiationTicks + predation.handlingTicks);
+  return (predation.energyPerPreySize * Math.max(0, size)) / window;
+}
+
+/**
+ * Bring one organism's memo up to date. Keyed on `pop.id` — never reused — with
+ * the size trait as a second witness, so a recycled slot or an edited phenotype
+ * misses rather than reading the previous occupant's numbers.
+ */
+export function ensureOrganismCache(runtime: EcologyRuntime, state: SimState, slot: SlotIndex): void {
+  const pop = state.pop;
+  const id = pop.id[slot] ?? 0;
+  const size = trait(pop.traits, slot, T_SIZE);
+  if (runtime.memoId[slot] === id && runtime.memoSize[slot] === size) return;
+
+  const config = state.config;
+  const diet = trait(pop.traits, slot, T_DIET);
+  const bonus = dietSpecialisationBonus(diet, config);
+  const preyEfficiency = dietEfficiencyPrey(diet, config);
+
+  runtime.memoBite[slot] =
+    config.resources.grazingMaxIntake *
+    Math.pow(Math.max(0, size) / referenceSizeCm(config), config.metabolism.sizeExponent) *
+    Math.exp(trait(pop.traits, slot, T_FORAGE_BOLDNESS));
+  runtime.memoPlantEfficiency[slot] = dietEfficiencyPlankton(diet, config) * bonus;
+  runtime.memoPreyEfficiency[slot] = preyEfficiency;
+  runtime.memoPreyYield[slot] = preyEfficiency * bonus;
+  runtime.memoMaxEnergy[slot] = maxEnergyFor(size, config);
+  runtime.memoDigestion[slot] = digestionRate(size, config);
+
+  runtime.memoId[slot] = id;
+  runtime.memoSize[slot] = size;
+  runtime.memoCostKey[slot] = Number.NaN;
+}
+
+/**
+ * Metabolic cost for this tick, memoised on a quantised speed fraction.
+ *
+ * The policies pick from a small fixed menu of cruising speeds, so the key
+ * repeats tick after tick and the `Math.pow` on body size runs about once per
+ * organism per policy change rather than once per tick. The 1/64 quantisation
+ * moves the cost by well under a tenth of a percent, since the speed term
+ * enters as `1 + 0.03·f²`.
+ */
+export function metabolicCostFor(
+  runtime: EcologyRuntime,
+  state: SimState,
+  slot: SlotIndex,
+  speedFraction: number,
+): number {
+  const key = Math.round(speedFraction * SPEED_QUANTISATION);
+  if (runtime.memoCostKey[slot] === key) return runtime.memoCostValue[slot] ?? 0;
+
+  const value = metabolicCostPerTick(
+    trait(state.pop.traits, slot, T_SIZE),
+    key / SPEED_QUANTISATION,
+    trait(state.pop.traits, slot, T_ARMOR_PLATING),
+    state.config,
+  );
+  runtime.memoCostKey[slot] = key;
+  runtime.memoCostValue[slot] = value;
+  return value;
+}
