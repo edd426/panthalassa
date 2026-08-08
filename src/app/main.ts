@@ -49,6 +49,13 @@ const SELECT_RADIUS_PX = 16;
 const MAX_FEED_LINES = 8;
 
 /**
+ * How long a finished world sits on screen before reseeding itself. Ambient
+ * mode should keep going without a keypress; anyone actually at the keyboard
+ * cancels it by touching any key.
+ */
+const AUTO_RESTART_MS = 30_000;
+
+/**
  * The god tools have no key binding in Phase A — the keyboard is deliberately
  * four keys wide — so this console handle is the only way to reach the command
  * path before there are buttons for it. `window.panthalassa.command({ kind:
@@ -80,9 +87,17 @@ function requireElement<T extends Element>(id: string, kind: new () => T): T {
 
 const canvas = requireElement('world', HTMLCanvasElement);
 const renderer = new CrudeRenderer(canvas, config);
-const hud = new Hud(requireElement('status', HTMLElement), requireElement('panel', HTMLElement));
+const hud = new Hud(
+  requireElement('status', HTMLElement),
+  requireElement('panel', HTMLElement),
+  requireElement('banner', HTMLElement),
+);
 
-const seed = new URLSearchParams(window.location.search).get('seed') ?? Math.random().toString(36).slice(2, 10);
+function drawSeed(): string {
+  return Math.random().toString(36).slice(2, 10);
+}
+
+let seed = new URLSearchParams(window.location.search).get('seed') ?? drawSeed();
 
 let tick = 0;
 let population = 0;
@@ -92,6 +107,27 @@ let overlay: FieldOverlay = 'off';
 
 /** True once the worker holds an initialised sim. Input before that is local-only. */
 let live = false;
+
+/**
+ * Bumped on every reseed. Replies from the previous world are still in flight
+ * when the new one is seeded, and a stale sample slice or series row folded into
+ * the fresh tallies would make the new world look like a continuation of the
+ * dead one.
+ */
+let epoch = 0;
+
+/** Tick the population reached zero, or null while anything is still alive. */
+let extinctionTick: number | null = null;
+let extinctionGeneration = 0;
+
+/**
+ * Arms the extinction detector. Population is legitimately 0 between `init`
+ * being sent and the founders existing, and that is not an extinction.
+ */
+let sawPopulation = false;
+
+/** Wall-clock deadline for the ambient auto-reseed; 0 once cancelled or absent. */
+let autoRestartAt = 0;
 
 let slice: SliceView | null = null;
 let recyclable: Float32Array | undefined;
@@ -132,6 +168,13 @@ const client = new SimClient({
     tick = message.tick;
     population = message.population;
     for (const event of message.events) note(describeEvent(event));
+
+    // Every `ticked` carries the population — the frame-loop pushes and the
+    // acknowledgement a command replies with alike — so a meteor that empties
+    // the ocean is caught on the same path as a starvation spiral, without the
+    // god tools needing to know extinction exists.
+    if (population > 0) sawPopulation = true;
+    else if (sawPopulation && extinctionTick === null) beginExtinction();
   },
   onEvents(message: EventsMessage): void {
     for (const event of message.events) note(describeEvent(event));
@@ -153,20 +196,59 @@ function applySpeed(): void {
   client.setSpeed(paused ? 0 : speedMultiplier()).catch(fail);
 }
 
+/**
+ * Stop the world and put the banner up.
+ *
+ * Pausing is not cosmetic: an empty ocean still costs a full tick loop of
+ * field updates and resource regrowth every frame, and the user watching a
+ * finished run should not be paying for it.
+ */
+function beginExtinction(): void {
+  extinctionTick = tick;
+  extinctionGeneration = tick / Math.max(1, config.time.generationTicks);
+  paused = true;
+  applySpeed();
+  autoRestartAt = Date.now() + AUTO_RESTART_MS;
+  note(`extinct at tick ${tick} (generation ${extinctionGeneration.toFixed(2)})`);
+
+  // The running tallies only advance when a `SampleRow` lands, every 200 ticks,
+  // so whatever killed the last organisms is missing from them — a meteor at
+  // tick 287 shows as "catastrophe 0" on the banner announcing the world it
+  // ended. `SimSnapshot.deathCounts` is exactly that unsampled remainder, and
+  // the recorder zeroes it per row, so adding it cannot double-count.
+  const forEpoch = epoch;
+  client
+    .snapshot()
+    .then((reply) => {
+      if (forEpoch !== epoch) return;
+      for (const cause of DEATH_CAUSES) deaths[cause] += reply.snapshot.deathCounts[cause];
+    })
+    .catch(fail);
+}
+
+/** Start over in a brand-new world without reloading the page. */
+function reseed(): void {
+  const next = drawSeed();
+  note(`reseeding as ${next}…`);
+  startWorld(next);
+}
+
 function requestSlice(): void {
   if (!live || sliceInFlight) return;
   sliceInFlight = true;
+  const forEpoch = epoch;
   const handBack = recyclable;
   recyclable = undefined;
   client
     .sampleSlice(MAX_DOTS, handBack)
     .then((next) => {
+      sliceInFlight = false;
+      if (forEpoch !== epoch) return;
       // The buffer being drawn is only offered back for reuse once a newer one
       // has replaced it; the worker transfers it away, so handing back the live
       // one would detach the array mid-frame.
       if (slice !== null) recyclable = slice.buffer;
       slice = { count: next.count, buffer: next.buffer };
-      sliceInFlight = false;
     })
     .catch((error: unknown) => {
       sliceInFlight = false;
@@ -176,9 +258,11 @@ function requestSlice(): void {
 
 function pollSeries(): void {
   if (!live) return;
+  const forEpoch = epoch;
   client
     .series(lastRowTick)
     .then((rows) => {
+      if (forEpoch !== epoch) return;
       for (const row of rows) {
         if (row.tick <= lastRowTick) continue;
         lastRowTick = row.tick;
@@ -194,12 +278,13 @@ function pollSeries(): void {
 function pollField(): void {
   if (!live || overlay === 'off') return;
   const requested = overlay;
+  const forEpoch = epoch;
   client
     .fieldSlice(requested)
     .then((reply) => {
       // The key may have cycled while this was in flight; a late reply must not
       // paint plankton over a temperature overlay.
-      if (overlay !== requested) return;
+      if (overlay !== requested || forEpoch !== epoch) return;
       field = {
         field: reply.field,
         cols: reply.cols,
@@ -217,6 +302,13 @@ function frame(timestamp: number): void {
     if (delta > 0) framesPerSecond = framesPerSecond * 0.9 + (1000 / delta) * 0.1;
   }
   lastFrameAt = timestamp;
+
+  let restartInSeconds: number | null = null;
+  if (extinctionTick !== null && autoRestartAt > 0) {
+    const remainingMs = autoRestartAt - Date.now();
+    if (remainingMs <= 0) reseed();
+    else restartInSeconds = Math.ceil(remainingMs / 1000);
+  }
 
   renderer.draw({
     slice,
@@ -244,6 +336,15 @@ function frame(timestamp: number): void {
     framesPerSecond,
     lastRowTick,
     events: feed,
+    extinction:
+      extinctionTick === null
+        ? null
+        : {
+            tick: extinctionTick,
+            generation: extinctionGeneration,
+            deaths,
+            autoRestartInSeconds: restartInSeconds,
+          },
   });
 
   requestSlice();
@@ -268,7 +369,35 @@ canvas.addEventListener('click', (event: MouseEvent) => {
     .catch(fail);
 });
 
+function cycleOverlay(): void {
+  const next = (FIELD_OVERLAYS.indexOf(overlay) + 1) % FIELD_OVERLAYS.length;
+  overlay = FIELD_OVERLAYS[next] ?? 'off';
+  if (overlay === 'off') field = null;
+  else pollField();
+}
+
 window.addEventListener('keydown', (event: KeyboardEvent) => {
+  // R is deliberately inert while anything is alive: it wipes a world, and the
+  // one thing worse than a run that ends unannounced is a run ended by a
+  // mistyped key.
+  if (event.key === 'r' || event.key === 'R') {
+    if (extinctionTick !== null) reseed();
+    return;
+  }
+
+  if (extinctionTick !== null) {
+    // Anything else stands the ambient restart down — someone is at the
+    // keyboard, so the world should wait for them rather than wipe itself.
+    if (autoRestartAt > 0) {
+      autoRestartAt = 0;
+      note('auto-restart cancelled — press R when you want a new world');
+    }
+    // The field overlays still read on a dead ocean: watching the plankton
+    // recover once the grazers are gone is worth looking at.
+    if (event.key === 'f' || event.key === 'F') cycleOverlay();
+    return;
+  }
+
   if (event.code === 'Space') {
     event.preventDefault();
     paused = !paused;
@@ -281,44 +410,83 @@ window.addEventListener('keydown', (event: KeyboardEvent) => {
     applySpeed();
     return;
   }
-  if (event.key === 'f' || event.key === 'F') {
-    const next = (FIELD_OVERLAYS.indexOf(overlay) + 1) % FIELD_OVERLAYS.length;
-    overlay = FIELD_OVERLAYS[next] ?? 'off';
-    if (overlay === 'off') field = null;
-    else pollField();
-  }
+  if (event.key === 'f' || event.key === 'F') cycleOverlay();
 });
 
-client
-  .init(seed, overrides)
-  .then((ready) => {
-    live = true;
-    tick = ready.tick;
-    population = ready.population;
-    note(`world ${seed} seeded with ${ready.population} founders`);
+/**
+ * Seed a world, from scratch, in the page that is already running.
+ *
+ * Everything the main thread remembers about the previous world is cleared
+ * here rather than at the call sites, because the failure this guards against
+ * is quiet: a fresh ocean still showing the last one's death tallies, or
+ * skipping its own first thousand sample rows because `lastRowTick` was left at
+ * the tick the old world died on. The worker rebuilds its own sim on `init`.
+ */
+function startWorld(nextSeed: string): void {
+  epoch += 1;
+  const forEpoch = epoch;
 
-    window.panthalassa = {
-      seed,
-      command: (command) => client.command(command),
-      step: (ticks) => client.step(ticks),
-      snapshot: () => client.snapshot(),
-      phylogeny: () => client.phylogeny(),
-    };
+  live = false;
+  seed = nextSeed;
 
-    const url = new URL(window.location.href);
-    if (url.searchParams.get('seed') !== seed) {
-      url.searchParams.set('seed', seed);
-      window.history.replaceState(null, '', url);
-    }
+  tick = 0;
+  population = 0;
+  sawPopulation = false;
+  extinctionTick = null;
+  extinctionGeneration = 0;
+  autoRestartAt = 0;
+  paused = false;
 
-    applySpeed();
-    window.setInterval(pollSeries, SERIES_POLL_MS);
-    window.setInterval(pollField, FIELD_POLL_MS);
-  })
-  .catch(fail);
+  slice = null;
+  recyclable = undefined;
+  sliceInFlight = false;
+  field = null;
+  selection = null;
+  hud.showSelection(null);
+
+  lastRowTick = -1;
+  matings = 0;
+  for (const cause of DEATH_CAUSES) deaths[cause] = 0;
+  speciesCount = 0;
+  cladeCount = 0;
+  feed.length = 0;
+
+  const url = new URL(window.location.href);
+  if (url.searchParams.get('seed') !== nextSeed) {
+    url.searchParams.set('seed', nextSeed);
+    window.history.replaceState(null, '', url);
+  }
+
+  note(`seeding ${nextSeed}…`);
+  client
+    .init(nextSeed, overrides)
+    .then((ready) => {
+      if (forEpoch !== epoch) return;
+      live = true;
+      tick = ready.tick;
+      population = ready.population;
+      if (ready.population > 0) sawPopulation = true;
+      note(`world ${nextSeed} seeded with ${ready.population} founders`);
+
+      window.panthalassa = {
+        seed: nextSeed,
+        command: (command) => client.command(command),
+        step: (ticks) => client.step(ticks),
+        snapshot: () => client.snapshot(),
+        phylogeny: () => client.phylogeny(),
+      };
+
+      // The watch speed survives a reseed on purpose: someone running the
+      // aquarium at 64x wants the next world at 64x too.
+      applySpeed();
+    })
+    .catch(fail);
+}
 
 // Drawing starts before the world does, so a worker that never reports `ready`
 // leaves the HUD on screen saying so instead of a black page with nothing on
 // it. Every send is gated on `live`, so an early frame just paints empty water.
-note(`seeding ${seed}…`);
 window.requestAnimationFrame(frame);
+window.setInterval(pollSeries, SERIES_POLL_MS);
+window.setInterval(pollField, FIELD_POLL_MS);
+startWorld(seed);

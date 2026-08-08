@@ -20,6 +20,20 @@ import type { DeathCause } from '../contracts/types';
 import { DEATH_CAUSES } from '../contracts/types';
 import type { FieldOverlay } from './crudeRenderer';
 
+/**
+ * What the banner says when the run is over. Extinction is the one state the
+ * corner text cannot carry: an empty ocean looks exactly like a paused one, and
+ * the whole point of the ambient view is that you are not staring at it.
+ */
+export interface ExtinctionNotice {
+  readonly tick: number;
+  readonly generation: number;
+  /** Final tallies, so the banner says what killed the world and not just that it died. */
+  readonly deaths: Readonly<Record<DeathCause, number>>;
+  /** Whole seconds until an automatic reseed, or null once the countdown is cancelled. */
+  readonly autoRestartInSeconds: number | null;
+}
+
 export interface HudModel {
   readonly seed: string;
   readonly tick: number;
@@ -36,6 +50,8 @@ export interface HudModel {
   /** Tick of the newest `SampleRow` folded into the tallies; −1 before the first row. */
   readonly lastRowTick: number;
   readonly events: readonly string[];
+  /** null while anything is still alive. */
+  readonly extinction: ExtinctionNotice | null;
 }
 
 const TRAIT_LABEL_WIDTH = 14;
@@ -80,11 +96,14 @@ export function describeEvent(event: SimEvent): string {
 export class Hud {
   private readonly status: HTMLElement;
   private readonly panel: HTMLElement;
+  private readonly banner: HTMLElement;
 
-  constructor(status: HTMLElement, panel: HTMLElement) {
+  constructor(status: HTMLElement, panel: HTMLElement, banner: HTMLElement) {
     this.status = status;
     this.panel = panel;
+    this.banner = banner;
     this.panel.textContent = 'click a dot to inspect it';
+    this.banner.hidden = true;
   }
 
   render(model: HudModel): void {
@@ -108,6 +127,28 @@ export class Hud {
     }
 
     this.status.textContent = lines.join('\n');
+    this.renderBanner(model.extinction);
+  }
+
+  private renderBanner(notice: ExtinctionNotice | null): void {
+    if (notice === null) {
+      if (!this.banner.hidden) {
+        this.banner.hidden = true;
+        this.banner.textContent = '';
+      }
+      return;
+    }
+
+    const tally = DEATH_CAUSES.map((cause) => `${cause} ${notice.deaths[cause]}`).join('   ');
+    const countdown =
+      notice.autoRestartInSeconds === null
+        ? ''
+        : `\n\nnew world in ${notice.autoRestartInSeconds}s — any other key to stay`;
+
+    this.banner.textContent =
+      `EXTINCT\n\ngeneration ${fixed(notice.generation, 2)}   tick ${notice.tick}\n` +
+      `${tally}\n\npress R for a new world${countdown}`;
+    this.banner.hidden = false;
   }
 
   showSelection(dump: OrganismDump | null): void {

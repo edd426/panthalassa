@@ -56,12 +56,39 @@
         background: rgba(3, 21, 29, 0.82);
         border: 1px solid rgba(150, 210, 230, 0.25);
       }
+
+      /*
+        Extinction banner. An empty ocean is indistinguishable from a paused
+        one, so when the run ends it has to say so from across the room.
+      */
+      #banner {
+        position: fixed;
+        top: 50%;
+        left: 50%;
+        transform: translate(-50%, -50%);
+        padding: 28px 44px;
+        white-space: pre;
+        text-align: center;
+        pointer-events: none;
+        font-size: 20px;
+        line-height: 1.6;
+        letter-spacing: 0.12em;
+        color: #ffd9d0;
+        background: rgba(8, 6, 14, 0.86);
+        border: 1px solid rgba(255, 130, 100, 0.55);
+        box-shadow: 0 0 60px rgba(0, 0, 0, 0.65);
+      }
+
+      #banner[hidden] {
+        display: none;
+      }
     </style>
   </head>
   <body>
     <canvas id="world"></canvas>
     <pre id="status"></pre>
     <pre id="panel"></pre>
+    <div id="banner" hidden></div>
     <script type="module" src="/src/app/main.ts"></script>
   </body>
 </html>
