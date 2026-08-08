@@ -203,8 +203,16 @@ describe('integration determinism', () => {
     const snapshot = source.snapshot();
     const restored = createSim({ seed: 'integration', config: overrides, modules: buildModules(config).modules, snapshot });
 
-    restored.step(600);
-    source.step(600);
+    // The first tick is asserted on its own: a memo that returns full-precision
+    // doubles on a miss and float32 on a hit diverges exactly here (the restore
+    // runs cold-cache against a warm-cache source) and can re-converge before a
+    // later checkpoint — which hid the F4 memo-precision defect on 2 of 3 seeds.
+    restored.step(1);
+    source.step(1);
+    expect(restored.stateHash()).toBe(source.stateHash());
+
+    restored.step(599);
+    source.step(599);
     expect(restored.stateHash()).toBe(source.stateHash());
   });
 });

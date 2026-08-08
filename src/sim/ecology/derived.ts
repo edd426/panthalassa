@@ -144,5 +144,8 @@ export function metabolicCostFor(
   );
   runtime.memoCostKey[slot] = key;
   runtime.memoCostValue[slot] = value;
-  return value;
+  // Read back through the float32 memo: a hit and a miss have to agree to the
+  // bit, or the first tick after a snapshot restore diverges from the run the
+  // snapshot was taken from (P1's restore-continuity assertion).
+  return runtime.memoCostValue[slot] ?? 0;
 }

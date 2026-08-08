@@ -835,9 +835,12 @@ class PanthalassaSim implements SimHandleInternal {
       const tWidth = traits[base + T.tWidth] ?? 0;
       let tax = taxValue[slot] ?? 0;
       if (taxWidth[slot] !== tWidth) {
-        tax = thermalTaxOf(tOpt, tWidth, config);
         taxWidth[slot] = tWidth;
-        taxValue[slot] = tax;
+        taxValue[slot] = thermalTaxOf(tOpt, tWidth, config);
+        // Read the memo back rather than keeping the double: a hit returns a
+        // float32 and a miss must return the same number, or the first tick
+        // after a restore differs from the run the snapshot came from (P1).
+        tax = taxValue[slot] ?? 0;
       }
       const performance = thermalToleranceOf(temperature, tOpt, tWidth) * tax;
       const speed = (traits[base + T.speedCap] ?? 0) * performance * Math.max(0, speedFraction[slot] ?? 0);
