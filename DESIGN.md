@@ -181,6 +181,15 @@ WP-A7 owns this section. Every config change gets a row: what moved, why, and
 the probe numbers before and after. A knob that moved without a measured
 justification is a knob that will be moved back.
 
+**Baseline before any tuning** (2026-08-08, `77a770c`, three seeds, verified
+live and headless): the default config collapses to extinction by generation
+5–6 — 600 founders → ~50 by gen 1 → 0 by gen 5. Predation carries ~66–71% of
+deaths. P3 viability fails wildly at defaults; the crude-renderer phase
+surfaced this before any graphics spend, which is exactly what it was for.
+Note the Gate A-1 fix wave (additive GxE, absolute-speed metabolic cost)
+changes the dynamics, so re-measure the baseline after F0–F3 land before
+turning any ecology knobs.
+
 | Date | Knob | From → To | Probe evidence before | Probe evidence after | Rationale |
 |---|---|---|---|---|---|
 | _(empty — A7 has not run)_ | | | | | |
