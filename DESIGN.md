@@ -319,20 +319,60 @@ rich regime.
 
 | 2026-08-08 | `genetics.quantMutationRate` | 1e-3 → 1.6e-3 | P4 ratio 0.17–0.22 across seeds at 150 gens (variance eroding); P6 75–92% | **Spec length (300 gens, 3 seeds): P4 4.46 / 4.88 / 0.43 — all in band**; P13 h² 0.52/0.72/0.59; P3 ≥0.999. Dose-response mapped: 3e-3 gave ratios 6.3–8.9 (runaway, s3 breached the 8× cap); 1.6e-3 at 150 gens reads high (3.8–10.7) because the denominator window sits in the post-founding trough — judge this knob at spec length only. | The plan's #1 leverage knob. Mutation input now balances selection+drift consumption at the probe's own windows. (Orchestrator row.) |
 
-**Open front after the 300-generation runs (the campaign's remaining hard
-problem):** the ecology is stable but the **attack–defense arms race is
-one-sided at long horizons**. On s3, defense ran +6.96 SD while attack moved
-+0.06 SD: predation collapsed to 10% of deaths, starvation breached P7's 70%
-ceiling (73%), and the defense sweep dragged linked loci with it — neutralB
-**fixed** and pigmentA fixed (P6 breach) despite mutation input, i.e. genuine
-hitchhiking at Ne ≈ 0.17N. Defense is selected in every organism while
-attack's gradient flattens once defense escapes, so the Red Queen needs a
-mechanism that keeps the kill rate in a sensitive band (candidates, in
-leverage order: predation payoff `energyPerPreySize`, frequency-dependence
-strength, revisiting how much un-paid-for defense the loci buy — the last is
-a genome-table question for a human/Sol review, not a knob). s1/s2 P6/P7/P9
-detail lines were not captured for this run and need re-reading before
-concluding the pattern is universal rather than an s3 story.
+### The Red-Queen front, re-diagnosed on three seeds
+
+The previous entry called the open problem a **one-sided attack–defense arms
+race**, from s3 alone (defense +6.96 SD against attack +0.06 SD). Reading all
+three seeds at 300 generations says that was one seed's expression of a
+simpler and more universal disease, and the arms-race framing sent the first
+round of knob candidates at the wrong target.
+
+**What actually happens on every seed: the predator guild goes extinct and the
+world ends as a starving filterer monoculture.** Late-window (generations
+250–300) readings, three seeds, at `33d6cc1` + the engine fix below:
+
+| Seed | predators late | starvation | predation | diet move | defense (abs) | P7 | P9 |
+|---|---|---|---|---|---|---|---|
+| s1 | 0% | 76% | 6% | −1.49 SD | +3.41 | WARN | WARN |
+| s2 | 0% | 83% | 0% | −2.50 SD | +2.41 | WARN | WARN |
+| s3 | 1% | 80% | 3% | −1.55 SD | +3.33 | WARN | WARN |
+
+P9's *movement* test passes on all three (0.65–1.80 SD); what fails is guild
+persistence. P7 fails by the starvation ceiling, not by the senescence floor.
+The direction attack moves is seed-dependent (+2.51, −2.50, −1.79 SD) — which
+is the signature of a trait under no selection at all, not of an arms race.
+
+**Why predation stops paying — a measured mis-sizing, not a mystery.** The
+kill kernel's size term is `sizeWindowGain · exp(−((ratio − 0.55)/0.3)²)`,
+worth up to +2 logits when the victim is 0.55× the predator's length. But
+`size` has a realised CV of **6–10%** in every run, so the ratio between two
+encountering organisms is 1.00 ± 0.12 and the window's peak sits ~3.5 SD
+outside the distribution that exists. Integrating the kernel over the realised
+ratio density, a predator collects **0.26–0.35 of the 2.0 logits on offer**,
+and fewer than 1% of encounters even reach ratio < 0.7. The default was
+authored for a population with a 2× spread of body sizes; the genome does not
+produce one, and cannot — `size` is written once at birth, so there are no
+small juveniles to eat either. Together with defense reaching +2.4…+3.4 by
+generation 50 (defense is cheap: 8 of its 9 loci carry no `armorPlating`
+load, so it is close to un-paid-for), the total kill logit sits near −6 and
+predation is arithmetically impossible. The predators then starve, `diet`
+selects down toward filtering, and starvation takes 76–83% of deaths.
+
+Expected size-window bonus against `sizeRatioOptimum`, at the realised CV of
+8%: 0.55 → 0.31 logits (the default), 0.70 → 0.81, 0.80 → 1.25, 0.88 → 1.56,
+1.00 → 1.77. The curve is still rising at 0.88, so a predator there is
+rewarded for being modestly larger than its neighbour — the disparity
+gradient stays alive, which a peak at 1.00 would flatten.
+
+**Measurement provenance.** Every number from here down was taken with a
+two-hunk engine fix in the working tree that A7 does not own and did not
+commit: the thermal-tax memo in `stageMovement` and `metabolicCostFor`
+returned a full-precision double on a memo miss and a float32 on a hit, so the
+first tick after a snapshot restore diverged from the run the snapshot came
+from. P1 was red on s3 and passing on s1/s2 only because the one-ULP
+perturbation re-converged there. Reported to the orchestrator for A2/A3
+ownership; A7's config numbers are measured against the fixed engine because
+tuning against a knowingly non-deterministic engine would not be evidence.
 
 ### Mechanism marginal contributions
 
