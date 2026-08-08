@@ -63,6 +63,30 @@ export function hueMorphFrequencyAt(
 }
 
 /**
+ * {@link hueMorphFrequencyAt} for an organism the grid has already binned.
+ *
+ * The predation kernel asks this of every candidate victim, and the cell and
+ * bin it needs were both computed when the grid was built this tick. Reading
+ * them back is exact rather than approximate — the position and hue are the
+ * same ones {@link ensureHueGrid} saw, because nothing moves or is born between
+ * the index rebuild and the end of the predation stage.
+ */
+export function hueMorphFrequencyOfSlot(
+  runtime: EcologyRuntime,
+  state: SimState,
+  slot: SlotIndex,
+): number {
+  const neutral = 1 / runtime.hueBins;
+  if (!state.config.toggles.enableFrequencyDependentPredation) return neutral;
+
+  ensureHueGrid(runtime, state);
+  const cell = runtime.hueSlotCell[slot] ?? 0;
+  const total = runtime.hueTotals[cell] ?? 0;
+  if (total <= 0) return neutral;
+  return (runtime.hueCounts[cell * runtime.hueBins + (runtime.hueSlotBin[slot] ?? 0)] ?? 0) / total;
+}
+
+/**
  * Bin the live population's display hues onto the coarse morph grid.
  *
  * Rebuilt whenever the tick has moved rather than on a cadence of its own: the
@@ -74,7 +98,7 @@ export function hueMorphFrequencyAt(
 function ensureHueGrid(runtime: EcologyRuntime, state: SimState): void {
   if (runtime.hueGridTick === state.tick) return;
 
-  const { hueCounts, hueTotals, hueBins } = runtime;
+  const { hueCounts, hueTotals, hueBins, hueSlotCell, hueSlotBin } = runtime;
   hueCounts.fill(0);
   hueTotals.fill(0);
 
@@ -85,6 +109,8 @@ function ensureHueGrid(runtime: EcologyRuntime, state: SimState): void {
     const bin = hueBinOf(trait(pop.traits, slot, T_DISPLAY_HUE), hueBins);
     hueCounts[cell * hueBins + bin] = (hueCounts[cell * hueBins + bin] ?? 0) + 1;
     hueTotals[cell] = (hueTotals[cell] ?? 0) + 1;
+    hueSlotCell[slot] = cell;
+    hueSlotBin[slot] = bin;
   }
   runtime.hueGridTick = state.tick;
 }
@@ -168,7 +194,7 @@ export function tryPredation(
       speed,
       trait(traits, victim, T_SPEED_CAP),
       cover,
-      hueMorphFrequencyAt(runtime, state, victimX, victimY, trait(traits, victim, T_DISPLAY_HUE)),
+      hueMorphFrequencyOfSlot(runtime, state, victim),
       config,
     );
 

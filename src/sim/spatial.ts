@@ -55,6 +55,8 @@ class UniformGridIndex implements SpatialIndex {
   /** Slot indices grouped by bucket, length `capacity`. */
   private entries = new Int32Array(0);
   private entryCount = 0;
+  /** Bucket each slot fell in, filled by the counting pass and reused by the scatter. */
+  private slotCell = new Int32Array(0);
 
   private posX: Float32Array = EMPTY_F32;
   private posY: Float32Array = EMPTY_F32;
@@ -78,12 +80,26 @@ class UniformGridIndex implements SpatialIndex {
 
     const { cellStart, cursor, entries, cellCount } = this;
     const alive = pop.alive;
+    const capacity = pop.capacity;
+    const posX = pop.x;
+    const posY = pop.y;
+    // The counting pass already located every organism; keeping the answer
+    // spares the scatter pass a second pair of floors and clamps per slot.
+    if (this.slotCell.length !== capacity) this.slotCell = new Int32Array(capacity);
+    const slotCell = this.slotCell;
+    const inv = this.invCellSizeWu;
+    const maxCol = this.cols - 1;
+    const maxRow = this.rows - 1;
+    const cols = this.cols;
 
     cellStart.fill(0);
-    for (let slot = 0; slot < pop.capacity; slot += 1) {
+    for (let slot = 0; slot < capacity; slot += 1) {
       if (alive[slot] !== 1) continue;
-      const bucket = this.cellOf(pop.x[slot] ?? 0, pop.y[slot] ?? 0) + 1;
-      cellStart[bucket] = (cellStart[bucket] ?? 0) + 1;
+      const col = clampInt(Math.floor((posX[slot] ?? 0) * inv), 0, maxCol);
+      const row = clampInt(Math.floor((posY[slot] ?? 0) * inv), 0, maxRow);
+      const cell = row * cols + col;
+      slotCell[slot] = cell;
+      cellStart[cell + 1] = (cellStart[cell + 1] ?? 0) + 1;
     }
     for (let cell = 1; cell <= cellCount; cell += 1) {
       cellStart[cell] = (cellStart[cell] as number) + (cellStart[cell - 1] as number);
@@ -93,9 +109,9 @@ class UniformGridIndex implements SpatialIndex {
     }
 
     let written = 0;
-    for (let slot = 0; slot < pop.capacity; slot += 1) {
+    for (let slot = 0; slot < capacity; slot += 1) {
       if (alive[slot] !== 1) continue;
-      const cell = this.cellOf(pop.x[slot] ?? 0, pop.y[slot] ?? 0);
+      const cell = slotCell[slot] as number;
       entries[cursor[cell] as number] = slot;
       cursor[cell] = (cursor[cell] as number) + 1;
       written += 1;
@@ -110,42 +126,37 @@ class UniformGridIndex implements SpatialIndex {
     const radius = Math.max(0, radiusWu);
     const radiusSq = radius * radius;
     const inv = this.invCellSizeWu;
-    const minCol = clampInt(Math.floor((x - radius) * inv), 0, this.cols - 1);
-    const maxCol = clampInt(Math.floor((x + radius) * inv), 0, this.cols - 1);
+    const cols = this.cols;
+    const minCol = clampInt(Math.floor((x - radius) * inv), 0, cols - 1);
+    const maxCol = clampInt(Math.floor((x + radius) * inv), 0, cols - 1);
     const minRow = clampInt(Math.floor((y - radius) * inv), 0, this.rows - 1);
     const maxRow = clampInt(Math.floor((y + radius) * inv), 0, this.rows - 1);
 
     const { cellStart, entries, posX, posY } = this;
     let count = 0;
 
+    // The window is a contiguous run of buckets on each row, and buckets are
+    // laid out in row-major order, so one span per row covers the whole row
+    // without re-deriving the bucket index for each column.
     for (let row = minRow; row <= maxRow; row += 1) {
-      const rowBase = row * this.cols;
-      for (let col = minCol; col <= maxCol; col += 1) {
-        const cell = rowBase + col;
-        const end = cellStart[cell + 1] as number;
-        for (let index = cellStart[cell] as number; index < end; index += 1) {
-          const slot = entries[index] as number;
-          const dx = (posX[slot] ?? 0) - x;
-          const dy = (posY[slot] ?? 0) - y;
-          if (dx * dx + dy * dy > radiusSq) continue;
-          out[count] = slot;
-          count += 1;
-          if (count === limit) {
-            sortAscending(out, count);
-            return count;
-          }
+      const rowBase = row * cols;
+      const end = cellStart[rowBase + maxCol + 1] as number;
+      for (let index = cellStart[rowBase + minCol] as number; index < end; index += 1) {
+        const slot = entries[index] as number;
+        const dx = (posX[slot] ?? 0) - x;
+        const dy = (posY[slot] ?? 0) - y;
+        if (dx * dx + dy * dy > radiusSq) continue;
+        out[count] = slot;
+        count += 1;
+        if (count === limit) {
+          sortAscending(out, count);
+          return count;
         }
       }
     }
 
     sortAscending(out, count);
     return count;
-  }
-
-  private cellOf(x: number, y: number): number {
-    const col = clampInt(Math.floor(x * this.invCellSizeWu), 0, this.cols - 1);
-    const row = clampInt(Math.floor(y * this.invCellSizeWu), 0, this.rows - 1);
-    return row * this.cols + col;
   }
 
   private resize(config: SimConfig): void {

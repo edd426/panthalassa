@@ -128,6 +128,30 @@ const EVICTION_SCAN_CELLS = 64;
 /** Ancestry generations `select` walks for the inspector. */
 const DUMP_ANCESTOR_GENERATIONS = 3;
 
+/**
+ * `thermalPerformance` split into its two factors, with the expensive one cached.
+ *
+ * The generalist tax `(tWidthRef / tWidth)^κ` is a `Math.pow` with a fractional
+ * exponent — tens of nanoseconds — and it is a pure function of `tWidth`, which
+ * is written at birth and never changes. Only the tolerance factor depends on
+ * where the organism is standing. Splitting them turns one pow per organism per
+ * tick into one pow per organism per lifetime.
+ *
+ * The tax is read back out of the frozen formula at the performance peak, where
+ * the tolerance factor is exactly 1, so this stays a memo of `formulas.ts`
+ * rather than a second copy of it, and the product is bit-identical to calling
+ * `thermalPerformance` directly.
+ */
+function thermalTaxOf(tOpt: number, tWidth: number, config: SimConfig): number {
+  return thermalPerformance(tOpt, tOpt, tWidth, config);
+}
+
+/** The tolerance factor of {@link thermalPerformance}; multiply by {@link thermalTaxOf}. */
+function thermalToleranceOf(temperatureC: number, tOpt: number, tWidth: number): number {
+  const z = (temperatureC - tOpt) / Math.max(1e-3, tWidth);
+  return Math.exp(-z * z);
+}
+
 /** Counters that describe the engine's own behaviour rather than the world's; not part of the hash or the snapshot. */
 export interface SimDiagnostics {
   /** Births the slot cap refused. P3 wants this at zero for a healthy run; it must never be silent. */
@@ -317,6 +341,15 @@ class PanthalassaSim implements SimHandleInternal {
   private readonly deaths: DeathQueue;
   private readonly pendingCause: Int32Array;
   private readonly pendingKiller: Int32Array;
+  /** Slots holding a verdict this tick, in claim order; {@link applyDeaths} sorts before emitting. */
+  private readonly pendingSlots: Int32Array;
+  private pendingCount = 0;
+
+  /** Per-slot memo of the generalist tax, keyed on `tWidth`; see {@link thermalTaxOf}. */
+  private readonly thermalTaxWidth: Float32Array;
+  private readonly thermalTaxValue: Float32Array;
+  /** Config the tax memo was filled against; `setToggle` swaps the identity and invalidates it. */
+  private thermalTaxConfig: SimConfig | undefined;
   private readonly births: PendingBirth[] = [];
   private readonly decision: BehaviorDecision = {
     mode: BEHAVIOR_WANDER,
@@ -371,6 +404,9 @@ class PanthalassaSim implements SimHandleInternal {
     this.deaths = new DeathQueue(64);
     this.pendingCause = new Int32Array(capacity).fill(NO_CAUSE);
     this.pendingKiller = new Int32Array(capacity).fill(NO_SLOT);
+    this.pendingSlots = new Int32Array(capacity);
+    this.thermalTaxWidth = new Float32Array(capacity).fill(Number.NaN);
+    this.thermalTaxValue = new Float32Array(capacity);
 
     // Reefs and the initial resource field come from the same stream whether we
     // are starting fresh or restoring, so a restored world has the same
@@ -441,7 +477,7 @@ class PanthalassaSim implements SimHandleInternal {
       // hundred ticks that has nothing to do with the model.
       this.store.energy[slot] = FOUNDER_ENERGY_FRACTION * energyCapacityOf(this.store, slot, config);
 
-      this.stats.onBirth(this.ancestryOf(slot, -age));
+      this.stats.onBirth(this.ancestryOf(slot, -age), this.store.traitsLatent, slot * TRAIT_COUNT);
     }
 
     this.state.liveCount = this.store.liveCount;
@@ -770,32 +806,57 @@ class PanthalassaSim implements SimHandleInternal {
     const maxX = config.world.widthWu - 1e-3;
     const maxY = config.world.heightWu - 1e-3;
 
-    for (let slot = 0; slot < pools.capacity; slot += 1) {
-      if ((pools.alive[slot] ?? 0) === 0) continue;
+    if (this.thermalTaxConfig !== config) {
+      this.thermalTaxWidth.fill(Number.NaN);
+      this.thermalTaxConfig = config;
+    }
 
-      const x = pools.x[slot] ?? 0;
-      const y = pools.y[slot] ?? 0;
+    // Column references and the tax memo are loaded once. Reaching through
+    // `pools.` and `this.` on every read is a property load per access, and at
+    // ten reads per organism per tick that is a measurable share of the stage.
+    const { alive, x: posX, y: posY, vx, vy, steerX, steerY, speedFraction, demeId, traits } = pools;
+    const taxWidth = this.thermalTaxWidth;
+    const taxValue = this.thermalTaxValue;
+    const ecology = this.ecology;
+    const capacity = pools.capacity;
+    // Barriers are only solid where a spec was raised; with none up the mask is
+    // uniformly open and the four probes below can only ever answer "open".
+    const walled = barriers.specs.length > 0;
 
-      const temperature = this.ecology.temperatureAt(state, x, y);
-      const performance = thermalPerformance(
-        temperature,
-        traitAt(pools, slot, T.tOpt),
-        traitAt(pools, slot, T.tWidth),
-        config,
-      );
-      const speed = traitAt(pools, slot, T.speedCap) * performance * Math.max(0, pools.speedFraction[slot] ?? 0);
+    for (let slot = 0; slot < capacity; slot += 1) {
+      if ((alive[slot] ?? 0) === 0) continue;
 
-      let dirX = pools.steerX[slot] ?? 0;
-      let dirY = pools.steerY[slot] ?? 0;
-      let length = Math.hypot(dirX, dirY);
+      const x = posX[slot] ?? 0;
+      const y = posY[slot] ?? 0;
+
+      const temperature = ecology.temperatureAt(state, x, y);
+      const base = slot * TRAIT_COUNT;
+      const tOpt = traits[base + T.tOpt] ?? 0;
+      const tWidth = traits[base + T.tWidth] ?? 0;
+      let tax = taxValue[slot] ?? 0;
+      if (taxWidth[slot] !== tWidth) {
+        tax = thermalTaxOf(tOpt, tWidth, config);
+        taxWidth[slot] = tWidth;
+        taxValue[slot] = tax;
+      }
+      const performance = thermalToleranceOf(temperature, tOpt, tWidth) * tax;
+      const speed = (traits[base + T.speedCap] ?? 0) * performance * Math.max(0, speedFraction[slot] ?? 0);
+
+      let dirX = steerX[slot] ?? 0;
+      let dirY = steerY[slot] ?? 0;
+      // `Math.hypot` rescales its arguments to survive overflow, which costs an
+      // order of magnitude over the plain form and buys nothing here: both
+      // components are steering directions bounded by the world size. The rest
+      // of the sim already normalises with `sqrt(x² + y²)`.
+      let length = Math.sqrt(dirX * dirX + dirY * dirY);
       if (length <= 1e-9) {
-        dirX = pools.vx[slot] ?? 0;
-        dirY = pools.vy[slot] ?? 0;
-        length = Math.hypot(dirX, dirY);
+        dirX = vx[slot] ?? 0;
+        dirY = vy[slot] ?? 0;
+        length = Math.sqrt(dirX * dirX + dirY * dirY);
       }
       if (length <= 1e-9) {
-        pools.vx[slot] = 0;
-        pools.vy[slot] = 0;
+        vx[slot] = 0;
+        vy[slot] = 0;
         continue;
       }
       const dx = (dirX / length) * speed;
@@ -804,7 +865,7 @@ class PanthalassaSim implements SimHandleInternal {
       let nx = Math.min(maxX, Math.max(0, x + dx));
       let ny = Math.min(maxY, Math.max(0, y + dy));
 
-      if (permeabilityAt(barriers, x, y) > 0) {
+      if (walled && permeabilityAt(barriers, x, y) > 0) {
         const target = permeabilityAt(barriers, nx, ny);
         if (target <= 0) {
           if (permeabilityAt(barriers, nx, y) > 0) {
@@ -828,11 +889,11 @@ class PanthalassaSim implements SimHandleInternal {
         }
       }
 
-      pools.vx[slot] = nx - x;
-      pools.vy[slot] = ny - y;
-      pools.x[slot] = nx;
-      pools.y[slot] = ny;
-      pools.demeId[slot] = demeAt(nx, ny, config);
+      vx[slot] = nx - x;
+      vy[slot] = ny - y;
+      posX[slot] = nx;
+      posY[slot] = ny;
+      demeId[slot] = demeAt(nx, ny, config);
     }
   }
 
@@ -875,10 +936,28 @@ class PanthalassaSim implements SimHandleInternal {
   }
 
   /**
+   * Record a verdict for one slot, first claim wins. Returns false when the slot
+   * is already spoken for, which is how a double kill is detected.
+   */
+  private markPending(slot: SlotIndex, causeCode: number, killerSlot: SlotIndex): boolean {
+    if ((this.pendingCause[slot] ?? NO_CAUSE) !== NO_CAUSE) return false;
+    this.pendingCause[slot] = causeCode;
+    this.pendingKiller[slot] = killerSlot;
+    this.pendingSlots[this.pendingCount] = slot;
+    this.pendingCount += 1;
+    return true;
+  }
+
+  /**
    * Drain both queues into a per-slot verdict, then emit in ascending slot order
    * and free in descending order. Predation is resolved first because it
    * happened first in the tick; a victim already claimed by an earlier kill or
    * already dead is ignored rather than double-counted.
+   *
+   * The verdicts are gathered into a list and sorted rather than recovered by
+   * scanning every slot: a healthy tick kills a handful out of hundreds, and
+   * two full sweeps of the pool to find them cost more than the deaths do.
+   * Sorting restores the ascending order the emit sequence depends on.
    */
   private applyDeaths(): void {
     const state = this.state;
@@ -892,12 +971,10 @@ class PanthalassaSim implements SimHandleInternal {
         this.diagnostics.predationKillsIgnored += 1;
         continue;
       }
-      if ((this.pendingCause[victim] ?? NO_CAUSE) !== NO_CAUSE) {
+      if (!this.markPending(victim, CAUSE_CODE.predation, predator)) {
         this.diagnostics.predationKillsIgnored += 1;
         continue;
       }
-      this.pendingCause[victim] = CAUSE_CODE.predation;
-      this.pendingKiller[victim] = predator;
 
       if (predator >= 0 && predator < pools.capacity && (pools.alive[predator] ?? 0) === 1) {
         const capacity = energyCapacityOf(pools, predator, config);
@@ -911,14 +988,28 @@ class PanthalassaSim implements SimHandleInternal {
     for (let index = 0; index < this.deaths.count; index += 1) {
       const slot = this.deaths.slots[index] ?? NO_SLOT;
       if (slot < 0 || slot >= pools.capacity || (pools.alive[slot] ?? 0) === 0) continue;
-      if ((this.pendingCause[slot] ?? NO_CAUSE) !== NO_CAUSE) continue;
-      this.pendingCause[slot] = this.deaths.causes[index] ?? CAUSE_CODE.starvation;
-      this.pendingKiller[slot] = this.deaths.killers[index] ?? NO_SLOT;
+      this.markPending(slot, this.deaths.causes[index] ?? CAUSE_CODE.starvation, this.deaths.killers[index] ?? NO_SLOT);
     }
 
-    for (let slot = 0; slot < pools.capacity; slot += 1) {
+    const pending = this.pendingSlots;
+    const pendingCount = this.pendingCount;
+    if (pendingCount === 0) {
+      state.liveCount = this.store.liveCount;
+      return;
+    }
+    for (let i = 1; i < pendingCount; i += 1) {
+      const value = pending[i] ?? 0;
+      let j = i - 1;
+      while (j >= 0 && (pending[j] ?? 0) > value) {
+        pending[j + 1] = pending[j] ?? 0;
+        j -= 1;
+      }
+      pending[j + 1] = value;
+    }
+
+    for (let index = 0; index < pendingCount; index += 1) {
+      const slot = pending[index] ?? 0;
       const code = this.pendingCause[slot] ?? NO_CAUSE;
-      if (code === NO_CAUSE) continue;
       const cause = DEATH_CAUSES[code] ?? 'starvation';
       const id = pools.id[slot] ?? NO_ORGANISM;
       const killerSlot = this.pendingKiller[slot] ?? NO_SLOT;
@@ -951,12 +1042,13 @@ class PanthalassaSim implements SimHandleInternal {
       this.diagnostics.deathsApplied += 1;
     }
 
-    for (let slot = pools.capacity - 1; slot >= 0; slot -= 1) {
-      if ((this.pendingCause[slot] ?? NO_CAUSE) === NO_CAUSE) continue;
+    for (let index = pendingCount - 1; index >= 0; index -= 1) {
+      const slot = pending[index] ?? 0;
       this.pendingCause[slot] = NO_CAUSE;
       this.pendingKiller[slot] = NO_SLOT;
       this.store.release(slot);
     }
+    this.pendingCount = 0;
 
     state.liveCount = this.store.liveCount;
   }
@@ -1076,7 +1168,7 @@ class PanthalassaSim implements SimHandleInternal {
         emitCladeFounding: true,
       });
 
-      this.stats.onBirth(this.ancestryOf(slot, state.tick));
+      this.stats.onBirth(this.ancestryOf(slot, state.tick), this.store.traitsLatent, slot * TRAIT_COUNT);
       const event: BirthEvent = {
         kind: 'birth',
         tick: state.tick,
@@ -1260,9 +1352,7 @@ class PanthalassaSim implements SimHandleInternal {
       const dx = (pools.x[slot] ?? 0) - x;
       const dy = (pools.y[slot] ?? 0) - y;
       if (dx * dx + dy * dy > radiusSq) continue;
-      this.pendingCause[slot] = CAUSE_CODE.catastrophe;
-      this.pendingKiller[slot] = NO_SLOT;
-      killed += 1;
+      if (this.markPending(slot, CAUSE_CODE.catastrophe, NO_SLOT)) killed += 1;
     }
 
     if (killed > 0) {
@@ -1334,7 +1424,7 @@ class PanthalassaSim implements SimHandleInternal {
         emitCladeFounding: true,
       });
 
-      this.stats.onBirth(this.ancestryOf(slot, state.tick));
+      this.stats.onBirth(this.ancestryOf(slot, state.tick), this.store.traitsLatent, slot * TRAIT_COUNT);
       const event: MutantIntroducedEvent = {
         kind: 'mutantIntroduced',
         tick: state.tick,

@@ -166,6 +166,39 @@ export function updateCarryingCapacity(runtime: EcologyRuntime, state: SimState)
     const z = ((baseTempC[cell] ?? 0) + offset - planktonOptimumC) / width;
     capacity[cell] = (kBase[cell] ?? 0) * Math.exp(-z * z);
   }
+  runtime.capacityTick = state.tick;
+}
+
+/** Publish K if this tick has not published it yet. */
+export function ensureCarryingCapacity(runtime: EcologyRuntime, state: SimState): void {
+  if (runtime.capacityTick === state.tick) return;
+  updateCarryingCapacity(runtime, state);
+}
+
+/**
+ * Publish the temperature and carrying-capacity fields together.
+ *
+ * Both are the same function of the same two scalars — the season phase and the
+ * climate offset — and both read `baseTempC` for every cell. Run as two passes
+ * they walk the same four thousand cells twice; fused they walk them once. The
+ * engine publishes here, once, immediately after the climate steps.
+ */
+export function writeClimateFields(runtime: EcologyRuntime, state: SimState): void {
+  const { thermalSuitabilityWidthC, planktonOptimumC } = state.config.resources;
+  const width = Math.max(1e-3, thermalSuitabilityWidthC);
+  const offset = seasonOffsetC(state) + state.climate.meanOffsetC;
+  const temperature = state.field.temperature;
+  const capacity = state.field.carryingCapacity;
+  const { baseTempC, kBase, cellCount } = runtime;
+
+  for (let cell = 0; cell < cellCount; cell += 1) {
+    const base = baseTempC[cell] ?? 0;
+    temperature[cell] = base + offset;
+    const z = (base + offset - planktonOptimumC) / width;
+    capacity[cell] = (kBase[cell] ?? 0) * Math.exp(-z * z);
+  }
+  runtime.temperatureTick = state.tick;
+  runtime.capacityTick = state.tick;
 }
 
 /**
@@ -176,8 +209,7 @@ export function updateCarryingCapacity(runtime: EcologyRuntime, state: SimState)
 export function initFields(runtime: EcologyRuntime, state: SimState, rng: RandomSource): void {
   state.climate.meanOffsetC = state.climate.targetOffsetC;
   rebuildBarrierMask(state);
-  writeTemperatureField(runtime, state);
-  updateCarryingCapacity(runtime, state);
+  writeClimateFields(runtime, state);
 
   const { plankton, kelp } = state.field;
   for (let cell = 0; cell < runtime.cellCount; cell += 1) {

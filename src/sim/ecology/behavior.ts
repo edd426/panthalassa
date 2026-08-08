@@ -18,7 +18,6 @@
  */
 
 import type { BehaviorDecision, SpatialIndex } from '../../contracts/apis';
-import { thermalPerformance } from '../../contracts/formulas';
 import type { RandomSource, SimState, SlotIndex } from '../../contracts/types';
 import {
   BEHAVIOR_CLIMB_GRADIENT,
@@ -39,7 +38,7 @@ import {
   T_WIDTH,
   trait,
 } from './columns';
-import { ensureOrganismCache } from './derived';
+import { ensureOrganismCache, thermalToleranceOf } from './derived';
 import { barrierPermeabilityAt, currentXAt, currentYAt, localTemperatureC } from './fields';
 import type { EcologyRuntime } from './runtime';
 import { clamp01, sampleField } from './runtime';
@@ -324,10 +323,11 @@ function climbGradient(
   const step = runtime.cellSizeWu;
   const tOpt = trait(state.pop.traits, slot, T_OPT);
   const tWidth = trait(state.pop.traits, slot, T_WIDTH);
-  const east = habitatQuality(runtime, state, x + step, y, tOpt, tWidth);
-  const west = habitatQuality(runtime, state, x - step, y, tOpt, tWidth);
-  const south = habitatQuality(runtime, state, x, y + step, tOpt, tWidth);
-  const north = habitatQuality(runtime, state, x, y - step, tOpt, tWidth);
+  const tax = runtime.memoThermalTax[slot] ?? 0;
+  const east = habitatQuality(runtime, state, x + step, y, tOpt, tWidth, tax);
+  const west = habitatQuality(runtime, state, x - step, y, tOpt, tWidth, tax);
+  const south = habitatQuality(runtime, state, x, y + step, tOpt, tWidth, tax);
+  const north = habitatQuality(runtime, state, x, y - step, tOpt, tWidth, tax);
 
   const gx = east - west;
   const gy = south - north;
@@ -344,10 +344,11 @@ function habitatQuality(
   y: number,
   tOpt: number,
   tWidth: number,
+  thermalTax: number,
 ): number {
   const resource = sampleField(runtime, state.field.plankton, x, y);
   const forage = resource / (state.config.resources.grazingHalfSaturation + Math.max(0, resource));
-  const comfort = thermalPerformance(localTemperatureC(runtime, state, x, y), tOpt, tWidth, state.config);
+  const comfort = thermalToleranceOf(localTemperatureC(runtime, state, x, y), tOpt, tWidth) * thermalTax;
   return forage + comfort;
 }
 

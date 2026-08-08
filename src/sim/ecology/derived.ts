@@ -17,14 +17,38 @@ import {
   dietEfficiencyPlankton,
   dietEfficiencyPrey,
   metabolicCostPerTick,
+  thermalPerformance,
 } from '../../contracts/formulas';
 import { TRAIT_META } from '../../contracts/traits';
 import type { SimConfig, SimState, SlotIndex } from '../../contracts/types';
-import { T_ARMOR_PLATING, T_DIET, T_FORAGE_BOLDNESS, T_SIZE, T_WARINESS, trait } from './columns';
+import {
+  T_ARMOR_PLATING,
+  T_DIET,
+  T_FORAGE_BOLDNESS,
+  T_OPT,
+  T_SIZE,
+  T_WARINESS,
+  T_WIDTH,
+  trait,
+} from './columns';
 import type { EcologyRuntime } from './runtime';
 
 /** Speed-fraction quantisation for the metabolic-cost memo, in steps per unit. */
 const SPEED_QUANTISATION = 64;
+
+/**
+ * The position-dependent half of `thermalPerformance`.
+ *
+ * The formula factors as `tolerance(T, tOpt, tWidth) · tax(tWidth)`, and the tax
+ * is a fractional `Math.pow` on a trait that never changes. `memoThermalTax`
+ * holds the tax; this is the part that has to be recomputed wherever the
+ * organism happens to be standing, and `tolerance · tax` is bit-identical to
+ * calling the frozen formula.
+ */
+export function thermalToleranceOf(temperatureC: number, tOpt: number, tWidth: number): number {
+  const z = (temperatureC - tOpt) / Math.max(1e-3, tWidth);
+  return Math.exp(-z * z);
+}
 
 /** Founder-population reference body length, cm, for scaling a bite. */
 export function referenceSizeCm(config: SimConfig): number {
@@ -82,6 +106,10 @@ export function ensureOrganismCache(runtime: EcologyRuntime, state: SimState, sl
   runtime.memoPreyYield[slot] = preyEfficiency * bonus;
   runtime.memoMaxEnergy[slot] = maxEnergyFor(size, config);
   runtime.memoDigestion[slot] = digestionRate(size, config);
+  // Read back out of the frozen formula at the performance peak, where the
+  // tolerance factor is exactly 1 and what is left is the tax alone.
+  const tOpt = trait(pop.traits, slot, T_OPT);
+  runtime.memoThermalTax[slot] = thermalPerformance(tOpt, tOpt, trait(pop.traits, slot, T_WIDTH), config);
 
   runtime.memoId[slot] = id;
   runtime.memoSize[slot] = size;

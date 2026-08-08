@@ -17,7 +17,7 @@ import {
   stepClimate,
   temperatureAnomalyZAt,
   temperatureAt,
-  writeTemperatureField,
+  writeClimateFields,
 } from './fields';
 import { applyFeeding } from './feeding';
 import { metabolismAndHazards } from './metabolism';
@@ -28,20 +28,56 @@ import { ensureRuntime } from './runtime';
 
 export function createEcology(): EcologyApi {
   let runtime: EcologyRuntime | undefined;
+
+  // The engine calls four of the methods below once per organism per tick, and
+  // each of them opened by revalidating the runtime and the published
+  // temperature field — tens of millions of repeats of a check whose answer can
+  // only change when the tick, the config or the state object does. Caching the
+  // answer against exactly those three collapses it to one full check per tick.
+  // Keying on the state *identity* matters: one ecology instance may be handed
+  // two worlds standing at the same tick, and each needs its own field written.
+  let checkedState: SimState | undefined;
+  let checkedTick = Number.NaN;
+  let checkedConfig: SimState['config'] | undefined;
+
   const ensure = (state: SimState): EcologyRuntime => {
+    if (
+      runtime !== undefined &&
+      checkedState === state &&
+      checkedTick === state.tick &&
+      checkedConfig === state.config
+    ) {
+      return runtime;
+    }
     runtime = ensureRuntime(runtime, state);
     ensureTemperatureField(runtime, state);
+    checkedState = state;
+    checkedTick = state.tick;
+    checkedConfig = state.config;
     return runtime;
+  };
+
+  /** Force the next `ensure` to do the full check; for the paths that change the world under it. */
+  const invalidate = (): void => {
+    checkedState = undefined;
   };
 
   return {
     initFields(state, rng) {
+      invalidate();
       initFields(ensure(state), state, rng);
     },
     updateFields(state, rng) {
-      const runtime = ensure(state);
+      // Deliberately not through `ensure`: the climate moves in this call, so
+      // publishing the fields on the way in would write them once from the
+      // previous offset and again from the new one. Take the runtime, step,
+      // publish once, then stamp the cache so the rest of the tick skips it.
+      runtime = ensureRuntime(runtime, state);
       stepClimate(state, rng);
-      writeTemperatureField(runtime, state);
+      writeClimateFields(runtime, state);
+      checkedState = state;
+      checkedTick = state.tick;
+      checkedConfig = state.config;
     },
     regrowResources(state) {
       regrowResources(ensure(state), state);
@@ -72,6 +108,7 @@ export function createEcology(): EcologyApi {
     },
     rebuildBarrierMask(state) {
       rebuildBarrierMask(state);
+      invalidate();
       ensure(state);
     },
   };

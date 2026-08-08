@@ -12,7 +12,7 @@
  */
 
 import type { SimState } from '../../contracts/types';
-import { updateCarryingCapacity } from './fields';
+import { ensureCarryingCapacity } from './fields';
 import type { EcologyRuntime } from './runtime';
 import { RESOURCE_UPDATE_INTERVAL, sampleField } from './runtime';
 
@@ -59,10 +59,13 @@ export function logisticStep(
  * same steps an uninterrupted run would have taken.
  */
 export function regrowResources(runtime: EcologyRuntime, state: SimState): void {
-  // K every tick, unconditionally: it is derived state a snapshot does not
-  // carry, and behaviour reads it, so a restore between interval steps would
-  // otherwise diverge from the uninterrupted run (P1; found by WP-A5).
-  updateCarryingCapacity(runtime, state);
+  // K on every tick: it is derived state a snapshot does not carry, and
+  // behaviour reads it, so a restore between interval steps would otherwise
+  // diverge from the uninterrupted run (P1; found by WP-A5). The stamp only
+  // skips the work when this same tick already published it — the engine
+  // publishes K and the temperature field together right after the climate
+  // steps — so the field is still exact at every read.
+  ensureCarryingCapacity(runtime, state);
 
   if (state.tick % RESOURCE_UPDATE_INTERVAL !== 0) return;
 

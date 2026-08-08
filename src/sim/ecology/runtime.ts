@@ -91,6 +91,15 @@ export interface EcologyRuntime {
   hueTotals: Float32Array;
   /** Tick the hue-morph grid was last binned for; `-1` means invalid. */
   hueGridTick: number;
+  /**
+   * The morph grid cell and hue bin each live organism was counted into, filled
+   * by the same pass that builds the grid. The predation kernel asks for the
+   * victim's local morph frequency once per candidate, and recovering the cell
+   * and the bin from its position and hue costs more than the division it feeds.
+   * Valid for slots alive at `hueGridTick` and meaningless for any other.
+   */
+  hueSlotCell: Int32Array;
+  hueSlotBin: Int32Array;
 
   neighbors: Int32Array;
 
@@ -98,6 +107,8 @@ export interface EcologyRuntime {
   capacity: number;
   /** Tick the published temperature field is current for; `NaN` means unwritten. */
   temperatureTick: number;
+  /** Tick the published carrying-capacity field is current for; `NaN` means unwritten. */
+  capacityTick: number;
 
   /**
    * Per-organism memo of quantities that are pure functions of a fixed
@@ -117,6 +128,8 @@ export interface EcologyRuntime {
   memoPreyYield: Float32Array;
   memoMaxEnergy: Float32Array;
   memoDigestion: Float32Array;
+  /** The `tWidth` half of `thermalPerformance`; see {@link thermalToleranceOf}. */
+  memoThermalTax: Float32Array;
   /** Metabolic cost keyed by quantised speed fraction; policies use a small fixed menu of speeds. */
   memoCostKey: Float32Array;
   memoCostValue: Float32Array;
@@ -197,9 +210,12 @@ function buildRuntime(state: SimState): EcologyRuntime {
     hueCounts: new Float32Array(hueCols * hueRows * hueBins),
     hueTotals: new Float32Array(hueCols * hueRows),
     hueGridTick: -1,
+    hueSlotCell: new Int32Array(capacity),
+    hueSlotBin: new Int32Array(capacity),
     neighbors: new Int32Array(Math.min(NEIGHBOR_SCRATCH, Math.max(1, state.pop.capacity))),
     capacity,
     temperatureTick: Number.NaN,
+    capacityTick: Number.NaN,
     memoId: new Float64Array(capacity).fill(Number.NaN),
     memoSize: new Float32Array(capacity).fill(Number.NaN),
     memoBite: new Float32Array(capacity),
@@ -208,6 +224,7 @@ function buildRuntime(state: SimState): EcologyRuntime {
     memoPreyYield: new Float32Array(capacity),
     memoMaxEnergy: new Float32Array(capacity),
     memoDigestion: new Float32Array(capacity),
+    memoThermalTax: new Float32Array(capacity),
     memoCostKey: new Float32Array(capacity).fill(Number.NaN),
     memoCostValue: new Float32Array(capacity),
   };

@@ -11,10 +11,10 @@
  * than toward its mean. Nothing in this file may soften that.
  */
 
-import { grazingIntake, thermalPerformance } from '../../contracts/formulas';
+import { grazingIntake } from '../../contracts/formulas';
 import type { RandomSource, SimState, SlotIndex } from '../../contracts/types';
 import { T_METABOLIC_EFF, T_OPT, T_WIDTH, trait } from './columns';
-import { ensureOrganismCache } from './derived';
+import { ensureOrganismCache, thermalToleranceOf } from './derived';
 import type { EcologyRuntime } from './runtime';
 import { fieldCellAt } from './runtime';
 
@@ -58,12 +58,12 @@ export function applyFeeding(
   // A bigger mouth takes a bigger bite, and a bold animal spends its time in
   // open water where the plankton is — the same trait raises its exposure in
   // the predation kernel, which is the tradeoff that keeps boldness honest.
-  const performance = thermalPerformance(
-    state.field.temperature[cell] ?? 0,
-    trait(traits, slot, T_OPT),
-    trait(traits, slot, T_WIDTH),
-    state.config,
-  );
+  const performance =
+    thermalToleranceOf(
+      state.field.temperature[cell] ?? 0,
+      trait(traits, slot, T_OPT),
+      trait(traits, slot, T_WIDTH),
+    ) * (runtime.memoThermalTax[slot] ?? 0);
   const jitter = 1 + INTAKE_JITTER_HALF_WIDTH * (2 * rng.next() - 1);
 
   let harvested =
