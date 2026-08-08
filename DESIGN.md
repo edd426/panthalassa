@@ -236,9 +236,84 @@ Note the Gate A-1 fix wave (additive GxE, absolute-speed metabolic cost)
 changes the dynamics, so re-measure the baseline after F0–F3 land before
 turning any ecology knobs.
 
+**Baseline after F0–F4** (2026-08-08, `6c0989b`, three seeds, 60 generations):
+unchanged in kind — extinction at generation 4.0 / 5.1 / 4.9. 600 founders →
+273 alive by tick 200 → 0 by generation 5. Predation 67% of deaths,
+starvation 16%, temperature 14%, senescence 3%. 195 births in the whole run.
+The Gate A-1 fix wave did not move the collapse, so the tuning campaign starts
+from the same diagnosis the crude-renderer phase surfaced.
+
+### The diagnosis A7 measured (and what it overturned)
+
+The brief's starting hypothesis was that the world is *predation*-limited. It
+is not, and the isolation experiments say so plainly (baseline, seed s1,
+60 generations):
+
+| Intervention | Outcome |
+|---|---|
+| predation off (`baseLogit` −12) | **survives**, population 173–709, 89% of deaths starvation |
+| temperature hazard off (`hazardCoef` 0) | extinct at generation 4.0, predation still 72% |
+| more food (`kBase` 40 + `grazingMaxIntake` 1.2) | **survives**, population 936–1964, both guilds ~50/50 |
+
+Predation is the proximate cause of death and the wrong place to intervene.
+Turning it down alone (`baseLogit` −4.0, −4.5) does not rescue the world at
+all; deaths simply move to starvation (22–24%) and it still empties by
+generation 8. Turning it down far enough to survive (−5.0, −6.0) buys a
+filterer monoculture: predators fall to 2% and 0% of the population, which is
+P9's failure by another route. Total mortality is near-conserved because the
+population sits on the edge of its energy budget, so **capping one channel
+just re-routes deaths through another**.
+
+Three mechanisms explain the collapse, and only the third is load-bearing:
+
+1. **Founders are obligate generalists.** `diet` has latent baseline 0, so
+   every founder expresses ≈0.5 through the logistic link, and `dietConvexity`
+   1.6 makes a 0.5 forager 2.6× worse at filtering than a specialist
+   (0.5^1.6 = 0.33 against 0.9^1.6 = 0.85). The founding population is the
+   worst possible composition: bad at both jobs.
+2. **Hunger drives predation.** `tryPredation` is gated on
+   `energy < matingSeekEnergyFraction × maxEnergy`, so a hungry world is a
+   world where every organism hunts on every tick it can. Food shortage
+   therefore *converts itself into predation pressure* — which is why the
+   predation share stays at 67–74% under every intervention that does not fix
+   the energy budget, and why raising `birthEnergy` to 16 changes nothing
+   (a founder burns back below the threshold in ~14 ticks).
+3. **The world is food-poor, and the binding quantity is standing stock, not
+   bite rate.** This is the one that moves.
+
+**Why the bite rate is not the lever.** Grazing is Holling type-II on the
+*cell's* plankton, and grazing pressure pulls each cell to wherever
+consumption balances regrowth. Raising `grazingMaxIntake` alone (0.8, 1.0,
+1.2) strips cells faster, `R/(Rhalf+R)` collapses, and the world dies
+*sooner* — extinct at generation 4.0, 5.6, 8.7 respectively. Raising the
+carrying capacity raises the equilibrium standing stock instead, and the
+type-II term with it. The two knobs are not substitutes and not independent:
+`kBase` 40 alone survives on seed s1 but goes **extinct on s2 and s3**
+(generation 11.8 and 6.0), and `grazingMaxIntake` 1.2 alone is extinct on
+every seed. Only together are they robust.
+
+**The response surface near the old default is non-monotone**, which is the
+reason no single-knob answer survives review: at default intake, `kBase` 18
+and 22 go extinct, 25 survives, and **30 goes extinct again**. That is an
+Allee-type founding cliff — 600 founders crash roughly tenfold before the
+first birth is possible at `maturityTicks` 600 — and whether a run clears it
+is not a smooth function of any knob. Tuning had to land somewhere the world
+is comfortably away from that cliff, not one step past it.
+
+**Two attractors, and only one is watchable.** Every survivable configuration
+falls into one of two regimes. A *poor* world sits next to the extinction
+cliff, runs 60–84% starvation, and always loses its predator guild
+(0–5% of the population) — the arms race runs away in favour of `defense`
+because defense is selected in everybody while attack is selected only in the
+few remaining predators. A *rich* world carries enough filterer biomass to
+feed a predator guild on top of it, and both guilds hold at roughly 50/50.
+The trophic pyramid needs a base; the aliveness probes are asking for the
+rich regime.
+
 | Date | Knob | From → To | Probe evidence before | Probe evidence after | Rationale |
 |---|---|---|---|---|---|
-| _(empty — A7 has not run)_ | | | | | |
+| 2026-08-08 | `probes/performance.ts` P12 severity | `gate` → `warn` | P12 red at 1.05e6 against a 2e6 gate; suite exits 1 | P12 yellow, same number; suite exit reflects tunable probes | Pre-adjudicated. The 2e6 target predates the model; the remaining 2× is model decisions, not optimisation. Gate A-2 owns the threshold. See "Fix wave F0–F4". |
+| 2026-08-08 | `resources.planktonCarryingCapacityBase` + `resources.grazingMaxIntake` | 12 → 40, 0.55 → 1.2 | 3 seeds: **extinct at generation 4.0 / 5.1 / 4.9**; P3–P14 all n/a | 3 seeds × 45 generations: P3 100% in band (population 936–1831 / 1164–1698 / 995–1682, 0% at slot cap); P7 starvation 28/32/51%, predation 61/56/40%, temperature 8/8/5%, senescence 4/3/4%; P4 ratios 0.21–1.96; P6 98/100%; P13 h² 0.40/0.49; P14 Ne/N 0.22–0.27; **both guilds 0.51/0.49** | Moved together because neither works alone: `kBase` 40 alone is extinct on 2 of 3 seeds, `grazingMaxIntake` 1.2 alone is extinct on all 3. Standing stock sets achievable intake; bite rate without stock just strips the field. Buys the rich regime and with it the predator guild. Senescence still short of P7's 5% floor. |
 
 ### Mechanism marginal contributions
 

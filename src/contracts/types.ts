@@ -699,11 +699,11 @@ export const DEFAULT_SIM_CONFIG: SimConfig = Object.freeze({
   }),
   resources: Object.freeze({
     planktonGrowthRate: 0.02,
-    planktonCarryingCapacityBase: 12,
+    planktonCarryingCapacityBase: 40,
     lightGradientStrength: 0.6,
     thermalSuitabilityWidthC: 9,
     planktonOptimumC: 17,
-    grazingMaxIntake: 0.55,
+    grazingMaxIntake: 1.2,
     grazingHalfSaturation: 3,
     kelpGrowthRate: 0.004,
     kelpCoverMax: 1,
