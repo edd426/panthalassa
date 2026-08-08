@@ -131,7 +131,9 @@ export class SeededRng {
    * consumes the stream through one audited object.
    */
   laplace(mean = 0, scale = 1): number {
-    const u = this.next() - 0.5;
+    // next() can return exactly 0 (one draw in 2^32), which would put log(0)
+    // = -Infinity into an allele forever; nudge to the smallest step instead.
+    const u = Math.max(this.next(), 2 ** -32) - 0.5;
     return mean - scale * Math.sign(u) * Math.log(1 - 2 * Math.abs(u));
   }
 }

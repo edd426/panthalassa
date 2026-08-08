@@ -107,6 +107,8 @@ export interface OrganismDump {
   readonly fatherId: OrganismId;
   readonly traits: Readonly<Record<TraitKey, number>>;
   readonly traitsLatent: Readonly<Record<TraitKey, number>>;
+  /** Raw genotypic contribution, environment excluded — the naturalist's breeding value. */
+  readonly traitsGenotypic: Readonly<Record<TraitKey, number>>;
   /** Population percentile of each expressed trait, 0..1 — context is what makes a number readable. */
   readonly traitPercentiles: Readonly<Record<TraitKey, number>>;
   readonly quantLoci: readonly GenomeLocusDump[];
@@ -204,6 +206,19 @@ export interface CommandMessage {
   readonly command: SimCommand;
 }
 
+export type FieldSliceField = 'plankton' | 'kelp' | 'temperature';
+
+/**
+ * Fetch one resource/temperature raster for an overlay. Exists so field
+ * underlays do not ride `snapshotRequest`, which serialises every pool column
+ * and genome just to paint a background (contracts v1.3, from WP-A6).
+ */
+export interface FieldSliceRequestMessage {
+  readonly type: 'fieldSliceRequest';
+  readonly requestId: number;
+  readonly field: FieldSliceField;
+}
+
 export type MainToWorkerMessage =
   | InitMessage
   | StepMessage
@@ -213,7 +228,8 @@ export type MainToWorkerMessage =
   | SelectMessage
   | SeriesRequestMessage
   | PhylogenyRequestMessage
-  | CommandMessage;
+  | CommandMessage
+  | FieldSliceRequestMessage;
 
 export type MainToWorkerType = MainToWorkerMessage['type'];
 
@@ -230,6 +246,7 @@ export interface ReadyMessage {
 
 export interface TickedMessage {
   readonly type: 'ticked';
+  /** Echo of the requesting message's id; `0` for the worker's autonomous frame-loop pushes. */
   readonly requestId: number;
   readonly tick: number;
   readonly population: number;
@@ -275,6 +292,17 @@ export interface EventsMessage {
   readonly events: readonly SimEvent[];
 }
 
+export interface FieldSliceMessage {
+  readonly type: 'fieldSlice';
+  readonly requestId: number;
+  readonly field: FieldSliceField;
+  readonly cols: number;
+  readonly rows: number;
+  readonly cellSizeWu: number;
+  /** Row-major cells; a copy — transfer the buffer. */
+  readonly values: Float32Array;
+}
+
 export interface ErrorMessage {
   readonly type: 'error';
   readonly requestId: number | null;
@@ -291,6 +319,7 @@ export type WorkerToMainMessage =
   | SeriesMessage
   | PhylogenyMessage
   | EventsMessage
+  | FieldSliceMessage
   | ErrorMessage;
 
 export type WorkerToMainType = WorkerToMainMessage['type'];

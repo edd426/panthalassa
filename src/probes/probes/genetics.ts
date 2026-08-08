@@ -255,9 +255,18 @@ const NE_RATIO_MAX = 1.2;
 
 function driftReport(run: RunResult): ProbeReport {
   const rows = postBurnIn(run);
+  // `neTemporal` is null until a full temporal window exists and for
+  // non-identifiable estimates (no observed frequency change, or F ≥ 1). Those
+  // are right-censored readings, not small ones: folding them in as a number
+  // would drag the median toward whatever sentinel was chosen and let P14 pass
+  // on samples that never measured drift at all.
   const ratios = finite(
-    rows.map((row) => (row.population > 0 ? row.popgen.neTemporal / row.population : null)),
+    rows.map((row) => {
+      const ne = row.popgen.neTemporal;
+      return ne !== null && row.population > 0 ? ne / row.population : null;
+    }),
   );
+  const censored = rows.length - ratios.length;
   const threshold = { min: NE_RATIO_MIN, max: NE_RATIO_MAX, label: `temporal Ne ∈ [${NE_RATIO_MIN}N, ${NE_RATIO_MAX}N]` };
   const shared = {
     probeId: 'P14',
@@ -272,7 +281,7 @@ function driftReport(run: RunResult): ProbeReport {
     return notEvaluable({
       ...shared,
       threshold,
-      detail: `temporal Ne needs neutral-marker frequencies ${run.config.sampling.temporalNeWindowGenerations} generations apart; none of the ${rows.length} post-burn-in samples had a baseline`,
+      detail: `temporal Ne needs neutral-marker frequencies ${run.config.sampling.temporalNeWindowGenerations} generations apart; all ${rows.length} post-burn-in samples were null (no baseline yet, or a non-identifiable estimate)`,
     });
   }
 
@@ -281,9 +290,9 @@ function driftReport(run: RunResult): ProbeReport {
     ...shared,
     value: median(ratios),
     threshold,
-    detail: `median of ${ratios.length} samples; demographic Ne reads ${
-      demographic.length > 0 ? median(demographic).toFixed(0) : 'n/a'
-    }`,
+    detail: `median of ${ratios.length} identifiable samples${
+      censored > 0 ? ` (${censored} of ${rows.length} right-censored, excluded)` : ''
+    }; demographic Ne reads ${demographic.length > 0 ? median(demographic).toFixed(0) : 'n/a'}`,
     series: { neTemporalOverN: ratios },
   });
 }

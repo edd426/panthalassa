@@ -71,10 +71,15 @@ export interface SampleRow {
   readonly deaths: Readonly<Record<DeathCause, number>>;
   readonly matings: number;
   readonly crossSpeciesMatings: number;
-  /** Pearson correlation of latent `diet` between mated pairs over the window. The magic trait's assortment signal. */
-  readonly assortmentIndex: number;
-  /** Circular correlation of `displayHue` between mated pairs over the window. */
-  readonly hueAssortment: number;
+  /**
+   * Pearson correlation of latent `diet` between mated pairs over the window.
+   * The magic trait's assortment signal. `null` with fewer than two pairs or
+   * zero variance — "no matings" and "measured random mating" are different
+   * states (Gate A-1 defect 13); `matings` carries the pair count.
+   */
+  readonly assortmentIndex: number | null;
+  /** Circular correlation of `displayHue` between mated pairs over the window; `null` as above. */
+  readonly hueAssortment: number | null;
 
   readonly resources: ResourceSample;
   readonly popgen: PopgenSample;
@@ -94,8 +99,13 @@ export interface ResourceSample {
 export interface PopgenSample {
   /** Effective size from the demographic formula (sex ratio and offspring variance). */
   readonly neDemographic: number;
-  /** Effective size from allele-frequency change at neutral markers between rows. P14 reads this. */
-  readonly neTemporal: number;
+  /**
+   * Effective size from allele-frequency change at neutral markers. P14 reads
+   * this. `null` until a full `temporalNeWindowGenerations` window of history
+   * exists, and for non-identifiable estimates (no observed change, or
+   * F ≥ 1) — a right-censored reading is not a number (Gate A-1 defects 6–7).
+   */
+  readonly neTemporal: number | null;
   /** Weir–Cockerham Fst across the deme grid, from neutral markers only. */
   readonly fstDemes: number;
   /** Fst between the two sides of the active barrier, or null when no barrier is up. P8 reads this. */

@@ -20,7 +20,7 @@ import {
 } from '../../contracts/formulas';
 import { TRAIT_META } from '../../contracts/traits';
 import type { SimConfig, SimState, SlotIndex } from '../../contracts/types';
-import { T_ARMOR_PLATING, T_DIET, T_FORAGE_BOLDNESS, T_SIZE, trait } from './columns';
+import { T_ARMOR_PLATING, T_DIET, T_FORAGE_BOLDNESS, T_SIZE, T_WARINESS, trait } from './columns';
 import type { EcologyRuntime } from './runtime';
 
 /** Speed-fraction quantisation for the metabolic-cost memo, in steps per unit. */
@@ -89,27 +89,29 @@ export function ensureOrganismCache(runtime: EcologyRuntime, state: SimState, sl
 }
 
 /**
- * Metabolic cost for this tick, memoised on a quantised speed fraction.
+ * Metabolic cost for this tick, memoised on a quantised absolute speed.
  *
  * The policies pick from a small fixed menu of cruising speeds, so the key
  * repeats tick after tick and the `Math.pow` on body size runs about once per
- * organism per policy change rather than once per tick. The 1/64 quantisation
- * moves the cost by well under a tenth of a percent, since the speed term
- * enters as `1 + 0.03·f²`.
+ * organism per policy change rather than once per tick. The 1/64 wu/tick
+ * quantisation moves the cost by well under a tenth of a percent. Size, armor
+ * and wariness are traits — constant for the organism's lifetime — so the
+ * speed key alone identifies the cost.
  */
 export function metabolicCostFor(
   runtime: EcologyRuntime,
   state: SimState,
   slot: SlotIndex,
-  speedFraction: number,
+  speedWuPerTick: number,
 ): number {
-  const key = Math.round(speedFraction * SPEED_QUANTISATION);
+  const key = Math.round(speedWuPerTick * SPEED_QUANTISATION);
   if (runtime.memoCostKey[slot] === key) return runtime.memoCostValue[slot] ?? 0;
 
   const value = metabolicCostPerTick(
     trait(state.pop.traits, slot, T_SIZE),
     key / SPEED_QUANTISATION,
     trait(state.pop.traits, slot, T_ARMOR_PLATING),
+    trait(state.pop.traits, slot, T_WARINESS),
     state.config,
   );
   runtime.memoCostKey[slot] = key;

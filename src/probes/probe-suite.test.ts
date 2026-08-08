@@ -184,21 +184,17 @@ describe('integration determinism', () => {
   });
 
   /**
-   * KNOWN DEFECT, owned by WP-A2 (`src/sim/ecology/**`). `it.fails` passes
-   * while the bug is present and turns red the moment it is fixed — delete
-   * this test then, and the P1 row in `probe:quick` goes green with it.
+   * The regression test for the defect P1 caught at integration: K is derived
+   * state a snapshot does not carry, `decideBehavior` reads it, and
+   * `regrowResources` used to refresh it only every `RESOURCE_UPDATE_INTERVAL`
+   * ticks — so a restore between interval steps ran on generation-zero carrying
+   * capacity for up to three ticks and never rejoined the uninterrupted run.
    *
-   * `contracts/types.ts` promises `ResourceField.carryingCapacity` is
-   * "recomputed from scratch every tick by ecology's regrow stage; snapshots do
-   * not carry it". `regrowResources` (`src/sim/ecology/resources.ts`) actually
-   * recomputes it only when `tick % RESOURCE_UPDATE_INTERVAL === 0`
-   * (interval 4, `src/sim/ecology/runtime.ts`). A restore leaves K holding the
-   * generation-zero values `initFields` wrote, and `decideBehavior`
-   * (`src/sim/ecology/behavior.ts`, `sampleField(runtime, state.field.carryingCapacity, …)`)
-   * reads it — so for up to three ticks the restored world makes different
-   * behaviour decisions and the trajectory never rejoins.
+   * The snapshot tick is deliberately one that is *not* followed by an interval
+   * step (601 % 4 ≠ 0): the bug was invisible from the one restore point in
+   * four where the next tick recomputed K anyway.
    */
-  it.fails('continues from a restore exactly as an uninterrupted run would', () => {
+  it('continues from a restore exactly as an uninterrupted run would', () => {
     const source = build();
     source.step(600);
     const snapshot = source.snapshot();

@@ -407,15 +407,16 @@ export interface GeneticsConfig {
   /** Multiplier on that deviation once derived. */
   environmentDeviationScale: number;
   /**
-   * Spatial GxE: for these traits the genotypic value is scaled by
-   * `1 + gxeSensitivity · z` where `z` is the standardised local temperature
-   * anomaly at the birth location. Genuine genotype×environment interaction —
-   * different alleles are best in different places, which is what maintains
-   * variance. It is a multiplier on the *genotypic* value, never on the
-   * deviation from the population mean (that was herdloom's
-   * variance-shrinking bug).
+   * Spatial environment-of-birth effect: for these traits the latent value is
+   * shifted **additively** by `gxeSensitivity · z`, where `z` is the
+   * standardised local temperature anomaly at the birth location, in latent
+   * units. Environment shifts expression; it never scales the genotypic value
+   * or the deviation from the mean (Gate A-1 defect 1 — the multiplicative
+   * form both contracted cohort variance and contaminated recorded V_A).
+   * Genuine reaction-norm slope loci are roadmap, not v1.
    */
   gxeTraits: readonly TraitKey[];
+  /** Latent-units shift per unit of temperature-anomaly z on GxE-masked traits. */
   gxeSensitivity: number;
   /** Retunes `TRAIT_META[key].baseline` without editing the frozen trait table. */
   traitBaselineOverrides: Partial<Record<TraitKey, number>>;
@@ -467,10 +468,22 @@ export interface MetabolismConfig {
   baseRate: number;
   /** Kleiber-ish exponent on size. */
   sizeExponent: number;
-  /** Cost coefficient on speed²; the reason `speedCap` cannot run away. */
+  /**
+   * Cost coefficient on `(speed / referenceSpeedWuPerTick)²`. Charged on
+   * **absolute** speed, not on the fraction of the organism's own cap —
+   * charging the fraction made a larger `speedCap` free (Gate A-1 defect 4).
+   */
   speedCostCoef: number;
+  /** Normalising speed for the quadratic cost, wu/tick. */
+  referenceSpeedWuPerTick: number;
   /** Cost coefficient on armour thickness. */
   armorCostCoef: number;
+  /**
+   * Energy per tick per wu of `wariness`. Beyond the sensing horizon extra
+   * wariness buys nothing, and with no cost it would drift as a meaningless
+   * "moving trait"; vigilance has to be paid for (Gate A-1 defect 15).
+   */
+  vigilanceCostPerWu: number;
   /** Extra burn per °C² of thermal mismatch. */
   thermalStressCostCoef: number;
   /** Energy an organism is born with. */
@@ -701,7 +714,9 @@ export const DEFAULT_SIM_CONFIG: SimConfig = Object.freeze({
     baseRate: 0.012,
     sizeExponent: 0.75,
     speedCostCoef: 0.03,
+    referenceSpeedWuPerTick: 1.8,
     armorCostCoef: 0.045,
+    vigilanceCostPerWu: 0.0002,
     thermalStressCostCoef: 0.02,
     birthEnergy: 8,
     maxEnergyPerSize: 2.2,

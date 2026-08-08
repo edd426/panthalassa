@@ -51,11 +51,14 @@ export function softplusFloor(value: number, floor: number, softness = 0.5): num
 /**
  * Energy burned per tick.
  *
- * `c0 · size^0.75 · (1 + cs · speedFraction²) · (1 + ca · armor)`
+ * `c0 · size^0.75 · (1 + cs · (v/vRef)²) · (1 + ca · armor) + cw · wariness`
  *
- * Kleiber-ish in size, **quadratic in speed** (the reason `speedCap` cannot run
- * away: doubling cruising speed quadruples the bill), and linear in armour
- * thickness.
+ * Kleiber-ish in size and **quadratic in absolute speed** (wu/tick, normalised
+ * by `referenceSpeedWuPerTick`). Absolute, not fraction-of-cap: charging the
+ * fraction let a larger `speedCap` deliver more speed for the same bill, so
+ * the advertised receding ceiling did not exist (Gate A-1 defect 4). The
+ * vigilance term prices `wariness` so it cannot drift free above the sensing
+ * horizon (defect 15).
  *
  * `armor` is `armorPlating` in mm — a softplus-floored, non-negative trait.
  * Do **not** pass `defense` here: `defense` is an unbounded predation-kernel
@@ -66,13 +69,19 @@ export function softplusFloor(value: number, floor: number, softness = 0.5): num
  */
 export function metabolicCostPerTick(
   size: number,
-  speedFraction: number,
+  speedWuPerTick: number,
   armor: number,
+  wariness: number,
   config: SimConfig,
 ): number {
-  const { baseRate, sizeExponent, speedCostCoef, armorCostCoef } = config.metabolism;
+  const { baseRate, sizeExponent, speedCostCoef, referenceSpeedWuPerTick, armorCostCoef, vigilanceCostPerWu } =
+    config.metabolism;
   const mass = Math.pow(Math.max(0, size), sizeExponent);
-  return baseRate * mass * (1 + speedCostCoef * speedFraction * speedFraction) * (1 + armorCostCoef * Math.max(0, armor));
+  const speedTerm = speedWuPerTick / Math.max(1e-6, referenceSpeedWuPerTick);
+  return (
+    baseRate * mass * (1 + speedCostCoef * speedTerm * speedTerm) * (1 + armorCostCoef * Math.max(0, armor)) +
+    vigilanceCostPerWu * Math.max(0, wariness)
+  );
 }
 
 /**

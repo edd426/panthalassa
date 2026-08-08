@@ -594,15 +594,15 @@ class StubEcology implements EcologyApi {
     const y = pop.y[slot] ?? 0;
     const temperature = this.temperatureAt(state, x, y);
 
-    // The realised speed fraction is recovered from the velocity the engine
+    // The realised absolute speed is recovered from the velocity the engine
     // integrated, which is what `OrganismPools` exposes — ecology never needs to
     // see the engine's private steering columns.
-    const speedFraction =
-      Math.hypot(pop.vx[slot] ?? 0, pop.vy[slot] ?? 0) / Math.max(1e-3, pop.traits[base + T_SPEED] ?? 0);
+    const speedWuPerTick = Math.hypot(pop.vx[slot] ?? 0, pop.vy[slot] ?? 0);
     const burn = metabolicCostPerTick(
       pop.traits[base + T_SIZE] ?? 0,
-      speedFraction,
+      speedWuPerTick,
       pop.traits[base + T_ARMOR] ?? 0,
+      0,
       config,
     );
     pop.gutFill[slot] = Math.max(0, (pop.gutFill[slot] ?? 0) - 1);

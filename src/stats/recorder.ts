@@ -592,8 +592,8 @@ function* scalarColumns(row: SampleRow): Generator<readonly [string, number]> {
   yield ['population', row.population];
   yield ['matings', row.matings];
   yield ['crossSpeciesMatings', row.crossSpeciesMatings];
-  yield ['assortmentIndex', row.assortmentIndex];
-  yield ['hueAssortment', row.hueAssortment];
+  yield ['assortmentIndex', row.assortmentIndex ?? Number.NaN];
+  yield ['hueAssortment', row.hueAssortment ?? Number.NaN];
   yield ['quantLociWithVariance', row.quantLociWithVariance];
   for (const cause of DEATH_CAUSES) yield [`deaths.${cause}`, row.deaths[cause]];
   yield ['resources.planktonTotal', row.resources.planktonTotal];
@@ -601,7 +601,7 @@ function* scalarColumns(row: SampleRow): Generator<readonly [string, number]> {
   yield ['resources.meanTemperatureC', row.resources.meanTemperatureC];
   yield ['resources.climateOffsetC', row.resources.climateOffsetC];
   yield ['popgen.neDemographic', row.popgen.neDemographic];
-  yield ['popgen.neTemporal', row.popgen.neTemporal];
+  yield ['popgen.neTemporal', row.popgen.neTemporal ?? Number.NaN];
   yield ['popgen.fstDemes', row.popgen.fstDemes];
   yield ['popgen.fstBarrier', row.popgen.fstBarrier ?? Number.NaN];
   yield ['popgen.meanHeterozygosity', row.popgen.meanHeterozygosity];

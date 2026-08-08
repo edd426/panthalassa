@@ -265,12 +265,19 @@ export const ANTAGONISTIC_LOCI: readonly QuantLocusId[] = Object.freeze(
 
 /**
  * Analytic additive genetic variance of a trait's latent value in an
- * unselected founder population, `Σ_l 2·(w·σ_founder·scale)²`.
+ * unselected founder population: the quantitative part
+ * `Σ_l 2·(w·σ_founder·scale)²` plus, for every discrete locus with effect
+ * entries, `Var_a(δ_trait(a)) / 2` — founders draw each copy uniformly over
+ * the allele set and a copy contributes `δ/2`, so two independent copies give
+ * `2 · Var(δ/2)`. Clade macro-loci are founder-fixed and neutral markers have
+ * no effects, so both contribute zero through the same arithmetic.
  *
  * A1 uses this to size the birth environmental deviation for a target founder
- * heritability: `envSd = sqrt(Vg · (1 − h²) / h²)`. Deriving it rather than
- * authoring per-trait environment SDs means the h² target stays honest when
- * A7 retunes `founderSdScale`.
+ * heritability: `envSd = sqrt(Vg · (1 − h²) / h²)`. Omitting the discrete
+ * part put founder h² for display/preference traits far above the configured
+ * target (Gate A-1 defect 2). Deriving rather than authoring per-trait
+ * environment SDs means the h² target stays honest when A7 retunes
+ * `founderSdScale`.
  */
 export function founderGeneticVariance(trait: TraitKey, founderSdScale = 1): number {
   let variance = 0;
@@ -279,6 +286,29 @@ export function founderGeneticVariance(trait: TraitKey, founderSdScale = 1): num
     const sd = (QUANT_LOCI[entry.locusIndex]?.founderSd ?? 0) * founderSdScale;
     variance += 2 * (entry.weight * sd) ** 2;
   }
+
+  for (const locus of DISCRETE_LOCI) {
+    if (locus.kind === 'cladeMacro') continue; // founder-fixed, no sampling variance
+    let hasEffect = false;
+    let sum = 0;
+    let sumSq = 0;
+    for (let allele = 0; allele < locus.alleleCount; allele += 1) {
+      let delta = 0;
+      for (const effect of DISCRETE_EFFECTS) {
+        if (effect.locus === locus.id && effect.allele === allele && effect.trait === trait) {
+          delta += effect.delta;
+          hasEffect = true;
+        }
+      }
+      sum += delta;
+      sumSq += delta * delta;
+    }
+    if (!hasEffect) continue;
+    const mean = sum / locus.alleleCount;
+    const alleleVariance = sumSq / locus.alleleCount - mean * mean;
+    variance += alleleVariance / 2;
+  }
+
   return variance;
 }
 

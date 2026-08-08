@@ -118,11 +118,14 @@ export const TRAIT_INDEX: Readonly<Record<TraitKey, number>> = Object.freeze(
  *   increasing, and indistinguishable from the identity a few `s` above zero.
  *   NOT a clamp.
  * - `logistic` — expressed = 1/(1 + e^(−latent/s)). For allocation shares only.
- *   Note the one place arithmetic imposes a boundary the design does not: past
- *   |latent/s| ≈ 36 the float64 result rounds to exactly 0 or 1. That is ~50
- *   population SDs from the baseline and so unreachable in practice, but it is
- *   why anything measuring selection on `diet` must read `traitsLatent` rather
- *   than differencing expressed shares.
+ *   Note the one place arithmetic imposes a boundary the design does not: the
+ *   expressed value is stored in the Float32 pools, where the result rounds to
+ *   exactly 0 or 1 past |latent/s| ≈ 17.3 (not the ≈ 36 of float64). Still
+ *   many population SDs from the baseline, and a saturating share is a
+ *   deliberate property of a proportion-scale trait — but it is why anything
+ *   measuring selection on `diet` must read `traitsLatent` rather than
+ *   differencing expressed shares, and why the guild sample reports the
+ *   expressed scale alongside.
  * - `circular` — expressed = latent mod 360. For hues and hue preferences.
  */
 export type TraitLinkKind = 'identity' | 'softplus' | 'logistic' | 'circular';

@@ -59,9 +59,12 @@ export function logisticStep(
  * same steps an uninterrupted run would have taken.
  */
 export function regrowResources(runtime: EcologyRuntime, state: SimState): void {
-  if (state.tick % RESOURCE_UPDATE_INTERVAL !== 0) return;
-
+  // K every tick, unconditionally: it is derived state a snapshot does not
+  // carry, and behaviour reads it, so a restore between interval steps would
+  // otherwise diverge from the uninterrupted run (P1; found by WP-A5).
   updateCarryingCapacity(runtime, state);
+
+  if (state.tick % RESOURCE_UPDATE_INTERVAL !== 0) return;
 
   const { plankton, kelp, carryingCapacity } = state.field;
   const { cellCount, kelpK, scratch, advectSrcX, advectSrcY } = runtime;

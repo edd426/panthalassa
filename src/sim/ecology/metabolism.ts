@@ -17,7 +17,7 @@ import { senescenceHazard, temperatureHazard } from '../../contracts/formulas';
 import type { DeathSink } from '../../contracts/apis';
 import type { RandomSource, SimState, SlotIndex } from '../../contracts/types';
 import { NO_SLOT } from '../../contracts/types';
-import { T_OPT, T_SPEED_CAP, T_WIDTH, trait } from './columns';
+import { T_OPT, T_WIDTH, trait } from './columns';
 import { ensureOrganismCache, metabolicCostFor } from './derived';
 import { localTemperatureC } from './fields';
 import type { EcologyRuntime } from './runtime';
@@ -45,11 +45,10 @@ export function metabolismAndHazards(
   const tWidth = trait(traits, slot, T_WIDTH);
   const vx = pop.vx[slot] ?? 0;
   const vy = pop.vy[slot] ?? 0;
-  const speedFraction =
-    Math.sqrt(vx * vx + vy * vy) / Math.max(1e-6, trait(traits, slot, T_SPEED_CAP));
+  const speedWuPerTick = Math.sqrt(vx * vx + vy * vy);
 
   ensureOrganismCache(runtime, state, slot);
-  let burn = metabolicCostFor(runtime, state, slot, speedFraction);
+  let burn = metabolicCostFor(runtime, state, slot, speedWuPerTick);
   const excess = Math.max(0, Math.abs(temperature - tOpt) - Math.max(0, tWidth));
   burn += config.metabolism.thermalStressCostCoef * excess * excess;
 

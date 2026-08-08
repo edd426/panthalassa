@@ -1375,6 +1375,7 @@ class PanthalassaSim implements SimHandleInternal {
 
     const traits = unpackTraits(pools.traits, slot);
     const traitsLatent = unpackTraits(pools.traitsLatent, slot);
+    const traitsGenotypic = unpackTraits(pools.traitsGenotypic, slot);
     const traitPercentiles = this.traitPercentiles(slot);
 
     const quantLoci: GenomeLocusDump[] = QUANT_LOCI.map((locus) => ({
@@ -1427,6 +1428,7 @@ class PanthalassaSim implements SimHandleInternal {
       fatherId: pools.fatherId[slot] ?? NO_ORGANISM,
       traits,
       traitsLatent,
+      traitsGenotypic,
       traitPercentiles,
       quantLoci,
       discreteLoci,

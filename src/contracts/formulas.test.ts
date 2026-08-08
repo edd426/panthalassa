@@ -16,29 +16,38 @@ import { DEFAULT_SIM_CONFIG as CONFIG, resolveSimConfig } from './types';
 
 describe('metabolicCostPerTick', () => {
   it('increases in speed fraction', () => {
-    let last = metabolicCostPerTick(12, 0, 0.6, CONFIG);
+    let last = metabolicCostPerTick(12, 0, 0.6, 0, CONFIG);
     for (const speed of [0.2, 0.4, 0.6, 0.8, 1]) {
-      const cost = metabolicCostPerTick(12, speed, 0.6, CONFIG);
+      const cost = metabolicCostPerTick(12, speed, 0.6, 0, CONFIG);
       expect(cost).toBeGreaterThan(last);
       last = cost;
     }
   });
 
   it('is quadratic in speed, so doubling speed more than doubles the extra bill', () => {
-    const base = metabolicCostPerTick(12, 0, 0.6, CONFIG);
-    const half = metabolicCostPerTick(12, 0.5, 0.6, CONFIG) - base;
-    const full = metabolicCostPerTick(12, 1, 0.6, CONFIG) - base;
+    const base = metabolicCostPerTick(12, 0, 0.6, 0, CONFIG);
+    const half = metabolicCostPerTick(12, 0.5, 0.6, 0, CONFIG) - base;
+    const full = metabolicCostPerTick(12, 1, 0.6, 0, CONFIG) - base;
     expect(full / half).toBeCloseTo(4, 6);
   });
 
+  it('charges for absolute speed: same speed costs the same regardless of any cap, and wariness is billed', () => {
+    // The Gate A-1 defect was fraction-of-cap pricing, which made a bigger
+    // speedCap deliver more wu/tick for the same bill. Absolute pricing means
+    // the bill depends only on realised speed.
+    const atSpeed = (v: number) => metabolicCostPerTick(12, v, 0.6, 0, CONFIG) - metabolicCostPerTick(12, 0, 0.6, 0, CONFIG);
+    expect(atSpeed(3.6)).toBeCloseTo(16 * atSpeed(0.9), 6);
+    expect(metabolicCostPerTick(12, 1, 0.6, 80, CONFIG)).toBeGreaterThan(metabolicCostPerTick(12, 1, 0.6, 40, CONFIG));
+  });
+
   it('increases in size and in armour', () => {
-    expect(metabolicCostPerTick(20, 0.5, 0.6, CONFIG)).toBeGreaterThan(metabolicCostPerTick(12, 0.5, 0.6, CONFIG));
-    expect(metabolicCostPerTick(12, 0.5, 2, CONFIG)).toBeGreaterThan(metabolicCostPerTick(12, 0.5, 0.6, CONFIG));
+    expect(metabolicCostPerTick(20, 0.5, 0.6, 0, CONFIG)).toBeGreaterThan(metabolicCostPerTick(12, 0.5, 0.6, 0, CONFIG));
+    expect(metabolicCostPerTick(12, 0.5, 2, 0, CONFIG)).toBeGreaterThan(metabolicCostPerTick(12, 0.5, 0.6, 0, CONFIG));
   });
 
   it('scales sublinearly with size (Kleiber-ish), so mass is not a pure penalty', () => {
-    const small = metabolicCostPerTick(10, 0, 0, CONFIG);
-    const big = metabolicCostPerTick(20, 0, 0, CONFIG);
+    const small = metabolicCostPerTick(10, 0, 0, 0, CONFIG);
+    const big = metabolicCostPerTick(20, 0, 0, 0, CONFIG);
     expect(big / small).toBeLessThan(2);
     expect(big / small).toBeCloseTo(Math.pow(2, 0.75), 6);
   });
@@ -46,7 +55,7 @@ describe('metabolicCostPerTick', () => {
   it('never returns a negative cost', () => {
     for (const armor of [0, 0.5, 5]) {
       for (const size of [0, 1, 40]) {
-        expect(metabolicCostPerTick(size, 1, armor, CONFIG)).toBeGreaterThanOrEqual(0);
+        expect(metabolicCostPerTick(size, 1, armor, -5, CONFIG)).toBeGreaterThanOrEqual(0);
       }
     }
   });
