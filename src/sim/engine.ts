@@ -79,7 +79,7 @@ import type {
 import { SAMPLE_SLICE, SAMPLE_SLICE_STRIDE } from '../contracts/protocol';
 import type { AncestryRecord, PhylogenyNode, SampleRow } from '../contracts/stats';
 import type { TraitKey } from '../contracts/traits';
-import { TRAIT_COUNT, TRAIT_KEYS, unpackTraits } from '../contracts/traits';
+import { TRAIT_COUNT, TRAIT_INDEX, TRAIT_KEYS, unpackTraits } from '../contracts/traits';
 import type {
   BarrierSpec,
   BarrierState,
@@ -619,13 +619,15 @@ class PanthalassaSim implements SimHandleInternal {
     return serializeSnapshot(this.state, this.store, this.configOverrides, species, this.stateHash());
   }
 
-  sampleSlice(maxOrganisms?: number, recycle?: Float32Array): SampleSlice {
+  sampleSlice(maxOrganisms?: number, recycle?: Float32Array, traitKey?: TraitKey): SampleSlice {
     const pools = this.store;
     const config = this.state.config;
     const limit = maxOrganisms === undefined ? this.state.liveCount : Math.max(0, Math.floor(maxOrganisms));
     const count = Math.min(this.state.liveCount, limit);
     const length = count * SAMPLE_SLICE_STRIDE;
     const buffer = recycle !== undefined && recycle.length === length ? recycle : new Float32Array(length);
+    const traitIndex = traitKey === undefined ? -1 : TRAIT_INDEX[traitKey];
+    const traitValues = traitIndex >= 0 ? new Float32Array(count) : undefined;
 
     let written = 0;
     for (let slot = 0; slot < pools.capacity && written < count; slot += 1) {
@@ -641,10 +643,14 @@ class PanthalassaSim implements SimHandleInternal {
       buffer[base + SAMPLE_SLICE.archetype] = pools.archetype[slot] ?? 0;
       buffer[base + SAMPLE_SLICE.energyFraction] =
         (pools.energy[slot] ?? 0) / energyCapacityOf(pools, slot, config);
+      if (traitValues !== undefined) traitValues[written] = pools.traits[slot * TRAIT_COUNT + traitIndex] ?? 0;
       written += 1;
     }
 
-    return { tick: this.state.tick, count: written, buffer };
+    if (traitValues === undefined || traitKey === undefined) {
+      return { tick: this.state.tick, count: written, buffer };
+    }
+    return { tick: this.state.tick, count: written, buffer, traitKey, traitValues };
   }
 
   select(x: number, y: number, radiusWu: number): OrganismDump | null {

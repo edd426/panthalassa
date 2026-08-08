@@ -418,7 +418,7 @@ export interface SimHandle {
   snapshot(): SimSnapshot;
 
   /** Render feed. `recycle` may be reused if it is the right length. */
-  sampleSlice(maxOrganisms?: number, recycle?: Float32Array): SampleSlice;
+  sampleSlice(maxOrganisms?: number, recycle?: Float32Array, traitKey?: TraitKey): SampleSlice;
 
   select(x: number, y: number, radiusWu: number): OrganismDump | null;
 

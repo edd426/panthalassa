@@ -65,6 +65,14 @@ export interface SampleSlice {
   readonly count: number;
   /** Length `count * SAMPLE_SLICE_STRIDE`. Transferred; the sender must not read it afterwards. */
   readonly buffer: Float32Array;
+  /** Echo of the requested trait channel, when one was asked for. */
+  readonly traitKey?: TraitKey;
+  /**
+   * Expressed values of `traitKey`, length `count`, same organism order as
+   * `buffer`. Transferred. Lets the renderer colour dots by any trait (v1.4,
+   * from the user's first watch: identity colours alone say nothing).
+   */
+  readonly traitValues?: Float32Array;
 }
 
 // ---------------------------------------------------------------------------
@@ -178,6 +186,8 @@ export interface SampleSliceRequestMessage {
   readonly maxOrganisms?: number;
   /** Buffer handed back for reuse; the worker may ignore it. */
   readonly recycle?: Float32Array;
+  /** Also deliver this trait's expressed values per organism (`SampleSlice.traitValues`). */
+  readonly traitKey?: TraitKey;
 }
 
 export interface SelectMessage {
