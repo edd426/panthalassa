@@ -1,6 +1,8 @@
 # Status — pickup state
 
-_Last updated 2026-08-08 evening, at the user's wind-down order. This is the
+_Last updated 2026-08-09 (roadmap + Gate A-2 agenda item added after the
+user's 2,000-generation watch; project remains paused). Originally written
+2026-08-08 evening, at the user's wind-down order. This is the
 handoff for a fresh session: the session that wrote it ran Phase A waves 1–2,
 Gate A-1 + fix wave, the A6 watchability upgrades, and the A7 tuning campaign
 through its discriminator phase. The user's instruction at close: **do not
@@ -111,6 +113,12 @@ Where the second A7 session left it:
      remaining 2× is model decisions — DESIGN.md "Fix wave F0–F4" lever c).
    - Whether the suite may demand P6 and P9 green simultaneously (evidence
      now says yes, via mutation input — confirm the dose-batch result).
+   - Whether speed's cost is fully paid. In the user's 2,000-generation watch
+     (DESIGN.md "Deep time"), `speedCap` ran away ~8× in a predator-free world
+     where its only benefit is foraging. Cost charges *realized* speed, so the
+     cap itself is free until used — same shape as the defense-pricing
+     question. Sol rules whether this is honest selection or a cheap-trait
+     leak.
 3. **Gate A-3**: the user watches ~30 min at mixed speeds (`npm run dev`,
    port 5183). They already did an informal watch and found it "more
    interesting than this morning"; their two requests (trait colour modes,
@@ -118,6 +126,43 @@ Where the second A7 session left it:
    Only after their formal verdict does Phase B (PixiJS creature rendering)
    begin — plan at `~/.claude/plans/okay-so-i-ve-been-fluffy-frost.md`.
    **Phase B is explicitly NOT to be started without the user's go.**
+
+## Roadmap — brainstorm endorsed by the user (2026-08-09)
+
+After a 2,000-generation watch (DESIGN.md "Deep time"), the user endorsed
+these ideas **and this ordering**. Nothing here starts before the A7 resume,
+Gate A-2, and Gate A-3 — it is the queue for model work after those. Each item
+that lands needs probe coverage in the project's usual way (a disturbance
+probe, a kelp-channel probe, …); none is exempt from the suite.
+
+1. **Predator persistence** — not new work: it IS the open front (P9) and the
+   resume-point dose batch targets it. Recorded here because the deep-time run
+   showed everything downstream hangs on it: the arms race, variance
+   maintenance via frequency-dependent predation, defense meaning anything,
+   and kelp mattering at all.
+2. **A disturbance regime** *(new)* — rare spontaneous shocks: marine
+   heatwaves, plankton crashes, storms that mow kelp down, disease outbreaks,
+   century-scale climate excursions. Today nothing fires spontaneously (the
+   meteor is a god command; `catas 0` after 2,000 generations) and the climate
+   walk wobbled ±0.02 °C. This is the direct answer to "trends get predictable
+   in deep time": punctuated equilibrium — stasis, shock, visible
+   re-adaptation — and shocks regenerate the variance quiet eras consume.
+3. **Kelp as an ecological actor** *(new)* — combinable options: a second food
+   channel (grazers vs. plankton-filterers, making the genome's diet
+   disruptive selection spatially visible); kelp dynamics (storms clear it,
+   regrowth fronts); flee-behavior that actually seeks cover (today no policy
+   reads kelp at all). Falls out nearly free once predators persist.
+4. **Density regulation that isn't cap-and-starve** *(new)* — the deep-time
+   population rode the 4,096 slot cap in a fill-and-starve sawtooth with
+   starvation at 82% of deaths. Softer resource-driven regulation so the
+   population curve tells an ecological story instead of bouncing off a
+   ceiling. May largely fix itself if predation carries real weight again.
+5. **Visible geography and speciation** — partly existing work (P8's per-deme
+   instrument is on the Gate A-2 agenda); the new part is spontaneous
+   geography (a ridge rising, sea level shifting) so allopatric divergence
+   happens as theater, not only as a probe scenario.
+
+The user's stated priority: 1 and 2 together are the game.
 
 ## Conventions that made this work (keep them)
 

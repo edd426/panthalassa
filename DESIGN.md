@@ -752,6 +752,53 @@ probes should accept the toggle variants of their scenario, or the runner
 should refuse a scenario no selected probe can read instead of burning 40
 minutes of compute to produce an empty table.
 
+## Deep time — the user's 2,000-generation watch (2026-08-09)
+
+The user ran the app sim (`seed=colour-test`) to generation ~1,998 — 3–6×
+past what the probe suite certifies (300–600 generations) — and shared the
+trend panel. It is the longest run this project has, and it recorded a clean
+three-act story worth keeping:
+
+1. **Predator bloom and collapse.** The predator fraction spiked toward 1.0
+   early, overshot its prey base, and crashed to ~0 within roughly the first
+   10% of the run. It never recovered. Final tallies: predation 110k of 4.85M
+   deaths (2.3%); starvation 82%.
+2. **Relaxed selection on defense, visible over ~1,500 generations.** Defense
+   rose fast under predation, then decayed slowly and monotonically for the
+   rest of the run — vestigialization: armor costs metabolism and nothing was
+   attacking. The charts caught a textbook phenomenon. Attack stayed at the
+   floor throughout.
+3. **The aftermath economy.** `speedCap` ran away ~8× (its only benefit in a
+   predator-free world is foraging); heterozygosity eroded 0.87 → ~0.1 (the
+   frequency-dependent predation that pumps variance died with the predators —
+   consistent with the marginal-contribution table's hue row); population rode
+   the 4,096 slot cap in a fill-and-starve sawtooth, then crashed late to ~538.
+   `species 1, clades 1` after 2,000 generations.
+
+The read: real dynamics unfolded, but the engine of ongoing surprise —
+predator–prey coevolution — died at ~generation 150, and 90% of the run was
+aftermath. This is P9's open front observed at depth, and it is why the user
+found the trends "a bit predictable."
+
+**Kelp is inert, verified in code.** Its only coupling to organisms is the
+predation shield: `kelpCoverAt` discounts kill probability at the victim's
+position, further discounted by the victim's forage boldness
+(`predation.ts:186`). It is not food, it does not affect mating, and no
+behavior policy reads it — nothing seeks kelp, even when fleeing. In a
+predator-free world it therefore does exactly nothing, which is what the user
+noticed.
+
+**`catas 0` is expected, not a bug.** The catastrophe death cause is reachable
+only through the `meteor` protocol command (a god tool); no disturbance fires
+spontaneously. The climate walk wobbled ±0.02 °C the whole run.
+
+**Audit question raised, not adjudicated:** is speed's cost fully paid?
+Metabolic cost charges *realized* speed, so an evolving `speedCap` is free
+until used — an 8× runaway in a world selecting only on foraging is either
+honest (fast foragers out-eat their burn) or a cheap-trait leak, the same
+shape as the defense-pricing question already on the Gate A-2 agenda. Added
+there.
+
 ## Superseded or rejected directions
 
 Directions we tried, considered seriously, or inherited and then abandoned —
