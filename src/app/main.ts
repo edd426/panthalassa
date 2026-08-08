@@ -314,6 +314,11 @@ client
     applySpeed();
     window.setInterval(pollSeries, SERIES_POLL_MS);
     window.setInterval(pollField, FIELD_POLL_MS);
-    window.requestAnimationFrame(frame);
   })
   .catch(fail);
+
+// Drawing starts before the world does, so a worker that never reports `ready`
+// leaves the HUD on screen saying so instead of a black page with nothing on
+// it. Every send is gated on `live`, so an early frame just paints empty water.
+note(`seeding ${seed}…`);
+window.requestAnimationFrame(frame);

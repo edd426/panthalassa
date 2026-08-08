@@ -57,6 +57,10 @@ export class SimClient {
       this.receive(event.data);
     });
     this.worker.addEventListener('error', (event: ErrorEvent) => {
+      // A worker that fails to boot answers nothing, so every outstanding
+      // request would hang — including the `init` the whole page waits on, which
+      // is a blank screen with no explanation. Fail them all instead.
+      this.rejectAll(new Error(`worker failed: ${event.message}`));
       handlers.onError({ type: 'error', requestId: null, message: event.message });
     });
   }
@@ -134,6 +138,12 @@ export class SimClient {
       this.pending.set(requestId, { resolve, reject });
       this.worker.postMessage(message, transfer);
     });
+  }
+
+  private rejectAll(error: Error): void {
+    const pending = [...this.pending.values()];
+    this.pending.clear();
+    for (const entry of pending) entry.reject(error);
   }
 
   private receive(message: WorkerToMainMessage): void {
