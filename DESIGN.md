@@ -395,6 +395,50 @@ happens before generation 12.
 |---|---|---|---|---|---|
 | 2026-08-08 | `predation.sizeRatioOptimum` + `predation.baseLogit` | 0.55 → 0.88, −3.2 → −4.45 | 3 seeds × 300 gens: predator guild present in **0% / 0% / 1%** of samples, starvation 76/83/80%, predation 6/0/3%; P7 and P9 WARN on all three | 3 seeds × 300 gens: guild present **92% / 19% / 86%** (predators 84/4/82% of the population), predation 6/7/10% of deaths, starvation 67/75/72%; P7 **PASS** on s1 (0.055) and P9 **PASS** on s1 (0.750); P3 1.00 on all three; P13 0.71/0.41/0.61; P14 0.108/0.206/0.141 | Moved together because the pair is one mechanism and neither half works alone: 0.88 alone is extinct on 2 of 3 seeds, and a lower `baseLogit` alone only deepens the monoculture. The window fix adds ~1.25 logits of mean kill probability at the realised size CV, and the `baseLogit` offset hands them back — so predation keeps its **intensity** and changes its **shape**, from "uniformly impossible" to "decided by how much bigger you are than your neighbour". Size is a trait the model actually charges for (metabolic cost ∝ size^0.75), unlike defense, so this puts the arms race on a costed axis. Not yet a 3-seed P9 pass: s2 still falls into the poor basin, and P6 drops to 0.63–0.77 because a 5.8–6.6 SD defense sweep drags linked loci. |
 
+### Structural finding for a human or Sol: what the defense loci buy
+
+A7 was told to stop and report rather than edit `genome.ts` if the conclusion
+was "the table gives defense too much un-paid-for input and no knob fixes it".
+The measured answer is narrower than that, and worth stating precisely because
+the loose version would licence a table edit that the evidence does not.
+
+**A knob did fix the headline failure.** Guild persistence went from 0–1% to
+82–92% on two of three seeds without touching `genome.ts`, because the binding
+problem was a mis-sized *config* default (the size-ratio window), not the
+genome.
+
+**What no config knob reached.** Two facts about `W` that A7 can measure but
+not change:
+
+1. `defense` carries **1.5× the genetic input mass of `attack`** — Σ|w| of 2.06
+   across 9 loci against 1.38 across 5. A trait with more input responds faster
+   to the same selection, which is one reason the race is lopsided in every run.
+2. **8 of the 9 defense loci carry no `armorPlating` load at all** (only q07
+   pairs them, +0.20 defense with +0.10 armour). The contract note above says
+   "armour is the thing you pay for; defense is the outcome armour and several
+   other loci buy" — that is not what the table implements. Whatever those
+   other eight loci charge for defense, it is not the metabolic armour bill the
+   design record describes, and the mismatch between the note and the table is
+   itself worth a reviewer's attention.
+
+**What A7 tried and could not make work.** The only config knob that reaches
+the defense payoff directly is `attackDefenseCoef`, and cutting it to 0.35
+emptied the world by generation 9 — defense is also the founders' only
+protection from each other, so the knob that slows the escape also removes the
+thing keeping 600 mutual half-predators alive. Every other lever changed the
+*shape* of predation rather than the price of defense.
+
+**The residue, stated as a hypothesis rather than a conclusion.** At the
+accepted config, defense moves +5.8…+6.6 SD while attack moves +0.75…+2.3 SD,
+and the two probes still red on all seeds are the two a large sweep would
+predict: P6 (63–77% of quantitative loci retain variance, against an 80% bar)
+and P4 (V_A ratios 0.18–0.27 against a 0.25 floor). A7 could not separate "the
+defense sweep is eating the variance" from "mutation input is short at this
+selection intensity" with the levers it owns — both predict the same two
+breaches. Distinguishing them is the first question for whoever picks this up,
+and the cheapest discriminator is a `no-mutation` versus baseline comparison at
+matched selection intensity, not another knob sweep.
+
 ### Threshold ratchet
 
 "A probe that has never failed is not testing anything." Ratcheted against the
@@ -413,18 +457,50 @@ seeds passed with margin.
 
 ### Mechanism marginal contributions
 
-Toggle-off runs measuring what each variance mechanism actually buys. Filled in
-by A7; a mechanism that shows no marginal contribution is a mechanism to delete,
-not to keep for comfort.
+Toggle-off runs measuring what each variance mechanism actually buys. A
+mechanism that shows no marginal contribution is a mechanism to delete, not to
+keep for comfort.
 
-| Mechanism | Toggle | V_A(size) ratio with | without | Verdict |
-|---|---|---|---|---|
-| Spatial GxE | `enableSpatialGxE` | | | |
-| Frequency-dependent predation | `enableFrequencyDependentPredation` | | | |
-| Climate red-noise walk | `enableClimateWalk` | | | |
-| Mutation input | `enableMutation` | | | |
-| Seasonality | `enableSeasonality` | | | |
-| Assortative mating | `enableAssortativeMating` | | | |
+**Read the caveat before the table.** These are **one seed** (s1), 300
+generations, at the accepted config, and the seed-to-seed spread of P4's own
+V_A ratio at a *fixed* config spans 0.18–7.58. So a 2× difference between two
+rows here is inside the noise. Only two mechanisms separate from it, and the
+table says so rather than assigning six confident verdicts. Promoting the rest
+needs three seeds each — 18 runs, ~2 hours — which is the honest price of this
+table and was not payable in this session.
+
+V_A ratio is late/early additive variance on P4's own windows (generations
+20–50 against 250–300). "Loci alive" is P6's fraction of the 48 quantitative
+loci still above the variance floor at generation 300.
+
+| Mechanism | Toggle | V_A(size) | V_A(diet) | V_A(defense) | Loci alive | Predators | Verdict |
+|---|---|---|---|---|---|---|---|
+| *(all on — reference)* | — | 1.38 | 0.18 | 0.21 | 0.625 | 95% | |
+| Spatial GxE | `enableSpatialGxE` | 0.71 | 0.41 | 1.10 | 0.875 | 83% | Not separable at n=1 |
+| Frequency-dependent predation | `enableFrequencyDependentPredation` | **28.1** | 0.07 | 0.72 | 0.771 | 83% | **Measured.** Turning it off lets `displayHue` run directionally (+0.90 SD against +0.25 SD with it on) and blows the size-variance ratio out by ~20×. The mechanism is doing its advertised job — penalising the common morph — and it is load-bearing for hue. |
+| Climate red-noise walk | `enableClimateWalk` | 0.72 | 0.06 | 0.55 | 0.875 | 99% | Not separable at n=1 |
+| Mutation input | `enableMutation` | 0.28 | 0.11 | **0.05** | **0.438** | **0%** | **Measured, and the largest single effect.** Loci alive fall from 0.625 to 0.438, V_A(defense) collapses to 0.05, and the predator guild goes extinct — without mutation the world cannot hold the diet variance a second guild needs. |
+| Seasonality | `enableSeasonality` | 0.85 | 0.65 | 0.87 | 0.833 | 91% | Not separable at n=1 |
+| Assortative mating | `enableAssortativeMating` | 0.37 | 0.94 | 0.20 | 0.958 | 91% | Not separable at n=1, but note `displayHue` moves −1.01 SD with it off against +0.25 SD on — the signal drifts freely once nothing is choosing on it. |
+
+**The finding nobody expected, and it matters for the open front:** *five of
+six toggle-off runs keep MORE loci alive than the reference* (0.77–0.96 against
+0.625). Turning mechanisms off makes P6 look better. The reference run is the
+one with the fiercest selection — a +6.57 SD defense sweep and 95% predators —
+and selection that intense consumes variance and drags linked loci. So P6's
+current breach is not evidence that a variance mechanism is missing; it is the
+cost of the aliveness the other probes are asking for. Anyone tempted to fix P6
+by adding variance input should read this row first.
+
+**A runner gap found while measuring this** (reported, not fixed — it is A5's
+file): every aliveness probe carries `scenario: 'baseline'` in its
+`ProbeDefinition`, so `--scenario=no-mutation` runs the sim and writes the
+series but evaluates **no probes at all** ("P3 (needs baseline)"). The six
+toggle scenarios exist specifically for this table and no probe can read them.
+The numbers above were computed from the JSONL series directly. Either the
+probes should accept the toggle variants of their scenario, or the runner
+should refuse a scenario no selected probe can read instead of burning 40
+minutes of compute to produce an empty table.
 
 ## Superseded or rejected directions
 

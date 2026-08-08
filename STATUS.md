@@ -13,14 +13,39 @@ fix wave). 237 tests green, deterministic exit codes. Probe gates: P1
 and P2 green; P12 at warn severity, 1.05×10⁶ org-ticks/s against the
 original 2×10⁶ (adjudication of that number is a Gate A-2 agenda item).
 
-**WP-A7 (tuning) is IN PROGRESS and is the next thing to resume.** The
-campaign brief lives at the session scratchpad but its essentials are in
-DESIGN.md: untuned baseline collapses to extinction by generation ~6
-(diet expresses 0.5 for every founder → the population hunts itself;
-median death age 420 vs maturity 600). A7 owns DEFAULT_SIM_CONFIG
-values, probe thresholds/severities, and the DESIGN.md tuning log — one
-knob change = one measured row = one commit. Check `git log` for how far
-it got; the tuning log is the authoritative campaign state.
+**WP-A7 (tuning) is IN PROGRESS and is the next thing to resume.** A7 owns
+DEFAULT_SIM_CONFIG values, probe thresholds/severities, and the DESIGN.md
+tuning log — one knob change = one measured row = one commit. **The tuning
+log is the authoritative campaign state**; `git log` gives the sequence.
+
+Where the second A7 session left it:
+
+- The world now survives 300 generations on three seeds and carries a
+  predator guild on two of them (82–92% of samples, from 0–1% before).
+  The lever was a mis-sized config default, not the genome: the predation
+  size-ratio window peaked at 0.55 while realised size CV is 6–10%, so it
+  paid 0.3 of its 2.0 logits. Fixed at 0.88 with `baseLogit` −4.45 giving
+  the mean kill probability back — a shape change at constant intensity.
+- **P1 was red and is fixed** (`d9d1839`): F4's memos returned a double on
+  a miss and a float32 on a hit, so the first tick after a restore diverged.
+  Every seed diverged; P1 caught it on one.
+- Ratcheted: **P3, P5, P13 are gates now**; P14's ceiling tightened. P4, P6,
+  P7, P9 stay warn because they are still red — they are the open front.
+- **Still open**: P9 on s2 (that seed still falls into the filterer-monoculture
+  basin), P7's starvation ceiling on 2 of 3 seeds, and P6/P4, which a
+  5.8–6.6 SD defense sweep predicts. DESIGN.md "Structural finding for a
+  human or Sol" states what A7 could and could not attribute, and names the
+  cheapest next discriminator.
+- **`probe:full` no longer fits its ~40-minute budget** — see the note in the
+  tuning log. It was budgeted when worlds died at generation 5; now they
+  survive, and 3 seeds × 4 scenarios × up to 600 generations is hours. This
+  needs an orchestrator decision before the endgame gate can be run.
+- P8 and P10 ran for the first time on a surviving world: **P10 passes**
+  (injected allele crossed 0.5 in 56 generations), **P8 half-passes** — Fst
+  0.063 → 0.723 across the ridge, but cross/within mate acceptance is 1.03,
+  i.e. no reproductive isolation. `mating.prefSigmaBaseDeg` is 70°, wide
+  enough that no achievable hue divergence would register; that is the
+  untried knob for P8.
 
 ## Remaining Phase A sequence
 
