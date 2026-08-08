@@ -64,9 +64,18 @@ export class Welford {
   }
 }
 
-/** Pearson correlation of the first `count` entries; 0 when either side is constant. */
-export function pearson(xs: ArrayLike<number>, ys: ArrayLike<number>, count: number): number {
-  if (count < 2) return 0;
+/**
+ * Pearson correlation of the first `count` entries.
+ *
+ * **Null, not zero**, with fewer than two pairs or when either side has no
+ * variance. Zero is the value the estimator reports for measured independence,
+ * so returning it for "there was nothing to measure" makes two different states
+ * indistinguishable in the series — the assortment column would read as
+ * demonstrated random mating through a generation with no matings at all
+ * (Gate A-1 defect 13).
+ */
+export function pearson(xs: ArrayLike<number>, ys: ArrayLike<number>, count: number): number | null {
+  if (count < 2) return null;
   let meanX = 0;
   let meanY = 0;
   for (let index = 0; index < count; index += 1) {
@@ -87,7 +96,7 @@ export function pearson(xs: ArrayLike<number>, ys: ArrayLike<number>, count: num
     varianceY += dy * dy;
   }
   const denominator = Math.sqrt(varianceX * varianceY);
-  return denominator > 0 ? covariance / denominator : 0;
+  return denominator > 0 ? covariance / denominator : null;
 }
 
 /** Ordinary-least-squares slope of y on x over the first `count` entries; NaN when x is constant. */
@@ -132,9 +141,17 @@ export function circularMean(angles: ArrayLike<number>, count: number): number {
  * 1 for a perfectly matched pairing, ≈ 0 for independent angles. Used for
  * `SampleRow.hueAssortment`, where a plain Pearson would report nonsense for a
  * pair straddling 0°/360°.
+ *
+ * Null under the same conditions as {@link pearson}, and for the same reason:
+ * a monomorphic hue has no assortment to measure, which is not the same claim
+ * as measured random mating.
  */
-export function circularCorrelation(alpha: ArrayLike<number>, beta: ArrayLike<number>, count: number): number {
-  if (count < 2) return 0;
+export function circularCorrelation(
+  alpha: ArrayLike<number>,
+  beta: ArrayLike<number>,
+  count: number,
+): number | null {
+  if (count < 2) return null;
   const meanAlpha = circularMean(alpha, count);
   const meanBeta = circularMean(beta, count);
   let covariance = 0;
@@ -148,7 +165,7 @@ export function circularCorrelation(alpha: ArrayLike<number>, beta: ArrayLike<nu
     varianceBeta += db * db;
   }
   const denominator = Math.sqrt(varianceAlpha * varianceBeta);
-  return denominator > 0 ? covariance / denominator : 0;
+  return denominator > 0 ? covariance / denominator : null;
 }
 
 // ---------------------------------------------------------------------------

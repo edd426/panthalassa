@@ -48,14 +48,16 @@ export const MIN_MIDPARENT_PAIRS = 50;
 export const MIDPARENT_WINDOW_PAIRS = 4096;
 
 /**
- * Ceiling on a reported temporal Ne, as a multiple of census size.
+ * Individuals a deme must hold before it can carry an Fst variance component.
  *
- * When no allele frequency moved at all the estimator's answer is "unbounded",
- * which is true and useless. Reporting `10 × N` keeps the series plottable and
- * still fails P14's `Ne ≤ 1.2 N` loudly, which is the correct outcome for a run
- * where drift has genuinely stopped.
+ * Two is the arithmetic minimum: Weir & Cockerham's within-group term divides by
+ * `n̄ − 1`. Deliberately a local constant rather than `speciation.minSpeciesSize`
+ * — an estimator whose estimand moves when an unrelated speciation knob is
+ * retuned is an estimator whose series cannot be compared across runs (Gate A-1
+ * risk 4). A thin corner deme contributes almost nothing to the summed
+ * components either way; what mattered was the coupling, not the threshold.
  */
-export const TEMPORAL_NE_CAP_MULTIPLE = 10;
+export const MIN_DEME_ORGANISMS = 2;
 
 /** Everyone who could have bred during a window, for the demographic-Ne denominator. */
 export interface BreederSource {
@@ -209,37 +211,63 @@ export function neiTajimaF(
 }
 
 /**
- * Effective size from F_c over `generationsElapsed` generations.
+ * Effective size from F_c over `generationsElapsed` generations, or **null when
+ * the estimate is not identifiable**.
  *
  * Under drift alone, `E[F_c] = 1 − (1 − 1/(2Ne))^t`, so inverting gives
  * `Ne = 1 / (2·(1 − (1 − F)^(1/t)))`, which reduces to the familiar
- * `Ne ≈ t/(2F)` for small F but stays finite and correctly signed when F is
- * large. No sampling correction is applied: the recorder scores **every** living
- * organism, so the frequencies are a complete enumeration and carry no binomial
- * sampling error of their own — the `censusSize` argument is used only to bound
- * a degenerate answer (see {@link TEMPORAL_NE_CAP_MULTIPLE}).
+ * `Ne ≈ t/(2F)` for small F. No sampling correction is applied: the recorder
+ * scores **every** living organism, so the frequencies are a complete
+ * enumeration and carry no binomial sampling error of their own.
+ *
+ * Null in three cases, all of them "this window cannot answer the question"
+ * rather than "the answer is small" (Gate A-1 defect 5):
+ *
+ * - `F ≤ 0` — no frequency change was observed, so Ne is unbounded above. The
+ *   previous version reported `10 × census`, a number that plots nicely, fails
+ *   P14 loudly, and is entirely fabricated: a right-censored reading is not a
+ *   measurement, and P14 now excludes these instead of averaging them in.
+ * - `F ≥ 1` — more change than drift from any finite Ne can produce in `t`
+ *   generations, i.e. the drift model does not fit. Substituting `Ne = 0.5`
+ *   turned a model violation into the smallest imaginable population.
+ * - No informative locus (`F` is NaN), or a non-positive elapsed time.
  *
  * Assumes the neutral markers really are neutral (the genome contract enforces
  * that they appear in no effect table), that the two time points are separated
  * by whole generations of the same population, and that migration is not
  * reintroducing variation from outside — the last is why the estimate reads low
  * under strong spatial structure.
+ *
+ * **Overlapping generations.** Panthalassa's organisms breed repeatedly across
+ * an age-structured life history, while the temporal method assumes discrete
+ * Wright–Fisher generations. Age structure inflates F_c at short separations, so
+ * what this returns is best read as a **drift index** — a quantity that tracks
+ * the rate of neutral variance loss and is comparable across runs of the same
+ * config — rather than a strict Ne with a demographic interpretation. P14's
+ * thresholds are broad for exactly this reason (adjudicated at Gate A-1:
+ * document, do not correct).
  */
-export function temporalNeFromF(fStatistic: number, generationsElapsed: number, censusSize: number): number {
-  if (!(generationsElapsed > 0) || Number.isNaN(fStatistic)) return Number.NaN;
-  const cap = Math.max(1, censusSize) * TEMPORAL_NE_CAP_MULTIPLE;
-  if (!(fStatistic > 0)) return cap;
-  if (fStatistic >= 1) return 0.5;
+export function temporalNeFromF(fStatistic: number, generationsElapsed: number): number | null {
+  if (!(generationsElapsed > 0) || Number.isNaN(fStatistic)) return null;
+  if (!(fStatistic > 0) || fStatistic >= 1) return null;
   const perGeneration = 1 - Math.pow(1 - fStatistic, 1 / generationsElapsed);
-  if (!(perGeneration > 0)) return cap;
-  return Math.min(cap, 1 / (2 * perGeneration));
+  if (!(perGeneration > 0)) return null;
+  return 1 / (2 * perGeneration);
 }
 
 // ---------------------------------------------------------------------------
 // Demographic Ne
 // ---------------------------------------------------------------------------
 
-/** Wright's sex-ratio effective size, `4·Nm·Nf/(Nm + Nf)`. Equals N when the sexes are even. */
+/**
+ * Wright's sex-ratio effective size, `4·Nm·Nf/(Nm + Nf)`. Equals N when the
+ * sexes are even.
+ *
+ * Kept as the **reference limit**, not as a correction factor: it is what
+ * {@link combineSexNe} returns when offspring numbers are Poisson within each
+ * sex, so a run whose breeding is otherwise unremarkable should reproduce it.
+ * It is no longer multiplied into the estimate (Gate A-1 defect 6).
+ */
 export function sexRatioNe(males: number, females: number): number {
   const total = males + females;
   return total > 0 ? (4 * males * females) / total : Number.NaN;
@@ -263,31 +291,93 @@ export function varianceNeStationary(breeders: number, varianceOffspring: number
  * at a fixed size: k̄ drifts above 2 while the population grows into a good
  * climate and below 2 while it crashes, and pinning k̄ = 2 would attribute that
  * demography to breeding structure.
+ *
+ * Applied **per sex** by {@link PopgenEngine.demographicNe}, where `breeders` is
+ * the number of one sex and `k̄` its gametes per parent (each offspring takes
+ * exactly one gamete from each sex, so k̄ is that sex's offspring-per-parent).
+ * A single breeder of a sex is a meaningful input — it is the case that drives
+ * Ne toward 4 — so one, not two, is the floor.
+ *
+ * Note the denominator is a co-parentage term: at k̄ far from 2 it measures how
+ * often two gametes drawn from the pool share a parent, and it can exceed 2N
+ * for a sex whose parents each contributed about one gamete with little
+ * variance. That inflated sex never drives the combined answer, which
+ * {@link combineSexNe} pins near four times the *smaller* of the two.
  */
 export function varianceNeGeneral(breeders: number, meanOffspring: number, varianceOffspring: number): number {
-  if (breeders < 2 || !(meanOffspring > 0)) return Number.NaN;
+  if (breeders < 1 || !(meanOffspring > 0)) return Number.NaN;
+  // With two gametes or fewer from this sex the numerator is zero or negative
+  // and the formula reports a zero or *negative* effective size — arithmetic
+  // running out of data in a window that held almost no reproduction, not a
+  // measurement of a tiny population. A collapsing run reaches this.
+  const gametes = meanOffspring * breeders;
+  if (!(gametes > 2)) return Number.NaN;
   const denominator = meanOffspring - 1 + varianceOffspring / meanOffspring;
-  return denominator > 0 ? (meanOffspring * breeders - 2) / denominator : Number.NaN;
+  return denominator > 0 ? (gametes - 2) / denominator : Number.NaN;
 }
 
 /**
- * Combine the two corrections multiplicatively, as proportional reductions from
- * the breeder count: `Ne = B · (Ne_sex/B) · (Ne_var/B)`.
+ * Combine sex-specific effective sizes, `Ne = 4·Ne_m·Ne_f/(Ne_m + Ne_f)`.
  *
- * Each correction answers a different question — the sex ratio asks how many
- * individuals are eligible to contribute, the offspring variance asks how evenly
- * they did — and the product is exact only if the two are independent, i.e. if
- * males and females have the same offspring-number variance. When they do not
- * (a strongly polygynous run, where male variance far exceeds female), this
- * **over**-estimates Ne, because the sex-ratio term already absorbed part of the
- * same inequality. With an even sex ratio the expression collapses to the
- * variance formula, and with Poisson offspring numbers to Wright's.
+ * Each offspring draws one gamete from each sex, so the two gamete pools drift
+ * independently and their variances average with weight ½ each:
+ * `Var(Δp) = ¼[Var(Δp_m) + Var(Δp_f)]`, which is `1/Ne = ¼(1/Ne_m + 1/Ne_f)`.
+ * That is the whole derivation, and it is also where Wright's sex-ratio formula
+ * comes from — {@link sexRatioNe} is this expression evaluated at `Ne_s = N_s`,
+ * which is what Poisson offspring numbers within each sex give.
+ *
+ * This **replaces** the previous multiplicative composition of a sex-ratio
+ * correction with a combined-sex offspring-variance correction (Gate A-1 defect
+ * 6). Pooling both sexes into one Vk counts the between-sex disparity twice:
+ * once as the sex ratio, and again as the variance the disparity creates in the
+ * pooled offspring distribution. On a 4-male / 36-female window with every male
+ * fathering ten offspring, that double count reported Ne ≈ 6 against a true
+ * value near 17 — it read a *deficit* of males as if it were also a lottery
+ * among them, when the males in fact contributed perfectly evenly.
  */
-export function combineNe(breeders: number, neSex: number, neVariance: number): number {
-  if (!(breeders > 0)) return Number.NaN;
-  const sexFactor = Number.isFinite(neSex) ? neSex / breeders : 1;
-  const varianceFactor = Number.isFinite(neVariance) ? neVariance / breeders : 1;
-  return breeders * sexFactor * varianceFactor;
+export function combineSexNe(neMale: number, neFemale: number): number {
+  const total = neMale + neFemale;
+  if (!Number.isFinite(total) || !(total > 0)) return Number.NaN;
+  return (4 * neMale * neFemale) / total;
+}
+
+/**
+ * Mean and variance of offspring number over one sex's breeders.
+ *
+ * Vk carries the `N − 1` divisor, and the choice is load-bearing rather than
+ * cosmetic. Substituting the population variance `Σ(k − k̄)²/N` makes
+ * {@link varianceNeGeneral} collapse to `T(T − 2)/(Σk² − T)` in the window's
+ * total offspring `T` — the breeder count cancels *exactly*, and the estimator
+ * stops being able to see childless adults at all. That would quietly make the
+ * whole pedigree-backed breeder set inert, along with the maturity eligibility
+ * this package just tightened: two organisms that never bred would read the
+ * same as twenty. With `N − 1` the denominator keeps its say.
+ *
+ * A single breeder of a sex has no dispersion to estimate, so Vk is zero there
+ * rather than `0/0`; that is the one-male case, and it lands where it should
+ * (`Ne_m → 1`, combined `Ne → 4`).
+ *
+ * Iterates the id set in insertion order, which is pedigree birth order
+ * followed by parentage-log order — both deterministic functions of
+ * (config, seed).
+ */
+function offspringMoments(
+  ids: ReadonlySet<OrganismId>,
+  offspring: ReadonlyMap<OrganismId, number>,
+): { mean: number; variance: number } {
+  const count = ids.size;
+  if (count === 0) return { mean: Number.NaN, variance: Number.NaN };
+
+  let total = 0;
+  for (const id of ids) total += offspring.get(id) ?? 0;
+  const mean = total / count;
+
+  let sumSquares = 0;
+  for (const id of ids) {
+    const delta = (offspring.get(id) ?? 0) - mean;
+    sumSquares += delta * delta;
+  }
+  return { mean, variance: count > 1 ? sumSquares / (count - 1) : 0 };
 }
 
 // ---------------------------------------------------------------------------
@@ -469,9 +559,17 @@ export class PopgenEngine implements PopgenEstimators {
   }
 
   /**
-   * Cache one organism's latent phenotype the first time it is seen alive, and
-   * form a midparent–offspring pair if both its parents are already cached.
-   * `latent` is a packed pool column and `offset` the organism's base index.
+   * Cache one organism's latent phenotype the first time it is seen, and form a
+   * midparent–offspring pair if both its parents are already cached. `latent` is
+   * a packed pool column and `offset` the organism's base index; the values are
+   * copied, so a borrowed view of a recycling slot is safe to pass.
+   *
+   * Driven from two places, and the order matters. `StatsRecorder.onBirth` calls
+   * it as each organism is born — the path that keeps offspring dying before
+   * their first census in the regression — and the sample walk calls it for
+   * everyone alive, which catches anyone introduced without a latent view. The
+   * first-seen guard makes the second call a no-op for ids already held, so no
+   * pair is counted twice.
    */
   observe(id: OrganismId, motherId: OrganismId, fatherId: OrganismId, latent: Float32Array, offset: number): void {
     if (this.traits.has(id)) return;
@@ -490,13 +588,17 @@ export class PopgenEngine implements PopgenEstimators {
   /**
    * Weir–Cockerham Fst over the neutral markers.
    *
-   * Groups below `speciation.minSpeciesSize` are **excluded** rather than
+   * Groups below {@link MIN_DEME_ORGANISMS} are **excluded** rather than
    * nullifying the whole statistic: a nearly empty deme carries no information
    * and blows up the small-sample terms, but on a twelve-deme grid one thin
    * corner would otherwise suppress the series for the whole run. Null comes
    * back only when fewer than two groups survive that filter — which for
-   * `'barrier'` is exactly the contract's "a group below minSpeciesSize", since
-   * there are only ever two.
+   * `'barrier'` means one side of the barrier has emptied out, since there are
+   * only ever two.
+   *
+   * The threshold is the estimator's own constant, not `minSpeciesSize`: the
+   * contract's doc-comment still names the speciation knob, and that sentence is
+   * stale as of Gate A-1 risk 4.
    */
   fst(state: SimState, grouping: 'deme' | 'barrier'): number | null {
     const assign = grouping === 'deme' ? demeAssigner(this.config) : barrierAssigner(state);
@@ -536,7 +638,7 @@ export class PopgenEngine implements PopgenEstimators {
 
     const kept: number[] = [];
     for (let group = 0; group < groupCount; group += 1) {
-      if ((individuals[group] ?? 0) >= this.config.speciation.minSpeciesSize) kept.push(group);
+      if ((individuals[group] ?? 0) >= MIN_DEME_ORGANISMS) kept.push(group);
     }
     if (kept.length < 2) return null;
 
@@ -554,13 +656,35 @@ export class PopgenEngine implements PopgenEstimators {
     return this.regressions.slope(TRAIT_INDEX[trait]);
   }
 
+  /**
+   * The frozen `PopgenEstimators` entry point, which predates the nullable
+   * reading and cannot return null. NaN is the only "not identifiable" value a
+   * `number` can carry, so that is what a caller holding the interface gets;
+   * {@link temporalNeOrNull} is what the recorder calls, and what the contract's
+   * nullable `PopgenSample.neTemporal` is built from.
+   *
+   * The interface's fourth argument, `censusSize`, is simply not accepted here:
+   * nothing is bounded by census size any more now that the fabricated
+   * `10 × N` ceiling is gone (Gate A-1 defect 5), and a method that ignores an
+   * argument should say so by not taking it. Callers through the interface pass
+   * it and TypeScript is satisfied — a shorter parameter list implements a
+   * longer one.
+   */
   temporalNe(
     earlier: readonly (readonly number[])[],
     later: readonly (readonly number[])[],
     generationsElapsed: number,
-    censusSize: number,
   ): number {
-    return temporalNeFromF(neiTajimaF(earlier, later), generationsElapsed, censusSize);
+    return this.temporalNeOrNull(earlier, later, generationsElapsed) ?? Number.NaN;
+  }
+
+  /** Temporal Ne, or null where the window cannot identify one. See {@link temporalNeFromF}. */
+  temporalNeOrNull(
+    earlier: readonly (readonly number[])[],
+    later: readonly (readonly number[])[],
+    generationsElapsed: number,
+  ): number | null {
+    return temporalNeFromF(neiTajimaF(earlier, later), generationsElapsed);
   }
 
   /**
@@ -576,6 +700,12 @@ export class PopgenEngine implements PopgenEstimators {
    *
    * Anyone who appears as a parent is added regardless, so a run without a
    * pedigree source still produces a defensible (if optimistic) number.
+   *
+   * The two sexes are then treated **separately** — k̄ and Vk computed within
+   * each, a Crow & Denniston effective size per sex, combined by
+   * {@link combineSexNe} — rather than pooled and corrected twice. NaN when
+   * either sex is empty or nothing bred in the window: with no offspring there
+   * was no gamete sampling, so the window measures nothing.
    */
   demographicNe(state: SimState): number {
     const windowStart = state.tick - this.config.time.generationTicks;
@@ -610,29 +740,13 @@ export class PopgenEngine implements PopgenEstimators {
       }
     });
 
-    const breeders = males.size + females.size;
-    if (breeders < 2) return Number.NaN;
+    if (males.size < 1 || females.size < 1) return Number.NaN;
 
-    let total = 0;
-    for (const id of males) total += offspring.get(id) ?? 0;
-    for (const id of females) total += offspring.get(id) ?? 0;
-    const meanOffspring = total / breeders;
-
-    let sumSquares = 0;
-    for (const id of males) {
-      const delta = (offspring.get(id) ?? 0) - meanOffspring;
-      sumSquares += delta * delta;
-    }
-    for (const id of females) {
-      const delta = (offspring.get(id) ?? 0) - meanOffspring;
-      sumSquares += delta * delta;
-    }
-    const varianceOffspring = sumSquares / (breeders - 1);
-
-    return combineNe(
-      breeders,
-      sexRatioNe(males.size, females.size),
-      varianceNeGeneral(breeders, meanOffspring, varianceOffspring),
+    const male = offspringMoments(males, offspring);
+    const female = offspringMoments(females, offspring);
+    return combineSexNe(
+      varianceNeGeneral(males.size, male.mean, male.variance),
+      varianceNeGeneral(females.size, female.mean, female.variance),
     );
   }
 
@@ -647,8 +761,13 @@ export class PopgenEngine implements PopgenEstimators {
    * — the magic trait's assortment signal. 1 when like pairs with like, 0 under
    * random mating. Pairs where either partner was never observed at a sample
    * boundary are skipped.
+   *
+   * Null when fewer than two resolvable pairs remain or the trait is
+   * monomorphic among them: an unmeasurable window and a measured zero are
+   * different claims, and `SampleRow.matings` carries the pair count that tells
+   * them apart (Gate A-1 defects 10/13).
    */
-  assortmentIndex(sinceTick: number, trait: TraitKey = 'diet'): number {
+  assortmentIndex(sinceTick: number, trait: TraitKey = 'diet'): number | null {
     const traitIndex = TRAIT_INDEX[trait];
     const mothers: number[] = [];
     const fathers: number[] = [];
@@ -662,8 +781,8 @@ export class PopgenEngine implements PopgenEstimators {
     return pearson(mothers, fathers, mothers.length);
   }
 
-  /** Circular correlation of expressed `displayHue` between mated partners over the window. */
-  hueAssortment(sinceTick: number): number {
+  /** Circular correlation of expressed `displayHue` between mated partners over the window; null as above. */
+  hueAssortment(sinceTick: number): number | null {
     const traitIndex = TRAIT_INDEX.displayHue;
     const mothers: number[] = [];
     const fathers: number[] = [];
@@ -762,6 +881,16 @@ function demeAssigner(config: SimConfig): (x: number, y: number) => number {
  * "Active" is the least permeable spec, ties broken by position in
  * `barriers.specs` — deterministic, and it picks the ridge P8 raised rather than
  * some decorative reef if both exist. A fully permeable spec is not a barrier.
+ *
+ * **Only ridges define sides.** A `rect` has an interior and an exterior, and
+ * the exterior is one connected region wrapping the block: two organisms on
+ * opposite sides of a rectangular reef are in the same group, and every
+ * organism *inside* it — a handful, since the point of a barrier is that few
+ * cross it — is the other. "Fst between the two sides of the active barrier" is
+ * not a quantity that partition computes, so rect returns null rather than a
+ * number measuring something else (Gate A-1 defect 9). P8 raises ridges; if a
+ * rect barrier ever needs a divergence statistic it wants a different estimator,
+ * not this one with a looser comment.
  */
 function barrierAssigner(state: SimState): ((x: number, y: number) => number) | null {
   let active: BarrierSpec | null = null;
@@ -778,8 +907,7 @@ function barrierAssigner(state: SimState): ((x: number, y: number) => number) | 
     case 'horizontalRidge':
       return (_x, y) => (y < shape.yWu ? 0 : 1);
     case 'rect':
-      return (x, y) =>
-        x >= shape.xWu && x < shape.xWu + shape.widthWu && y >= shape.yWu && y < shape.yWu + shape.heightWu ? 0 : 1;
+      return null;
   }
 }
 

@@ -237,9 +237,22 @@ export class SpeciesDetector {
    * The raw cross-mating count is not comparable across unequal groups: a 10/90
    * split produces far fewer cross pairings than a 50/50 one even under complete
    * panmixia. Dividing the observed cross and within fractions by their expected
-   * fractions (`2f₀f₁` and `f₀² + f₁²`) removes that, leaving a quantity that is
-   * 1 under random mating and 0 under complete isolation — which is what
+   * fractions removes that, leaving a quantity that is 1 under random mating and
+   * 0 under complete isolation — which is what
    * `speciation.crossMatingThreshold` is written against.
+   *
+   * The expectation is **directed**, computed from the two sexes' margins
+   * separately: a mating is one female and one male, so under random pairing
+   * `P(cross) = f_f(1 − f_m) + (1 − f_f)f_m` where `f_f` is the fraction of
+   * mothers in the first group and `f_m` the fraction of fathers. The pooled
+   * `2f(1 − f)` this replaces assumes both partners are drawn from the same
+   * margin (Gate A-1 defect 11). They are not, and the error is not small where
+   * it matters: a cluster pair with, say, most females in one group and most
+   * males in the other has a pooled f near ½ — expected cross ½ — while the
+   * directed expectation is near 1. Every cross mating those two produce is
+   * then read as evidence of panmixia against an expectation that random pairing
+   * could never have reached, and a real barrier fails to split. Sex-biased
+   * dispersal across a ridge produces exactly that geometry.
    *
    * Only matings where **both** partners are currently alive contribute, since a
    * candidate cluster is only defined for living individuals. That biases the
@@ -250,8 +263,8 @@ export class SpeciesDetector {
   crossMatingEvidence(side: ReadonlyMap<OrganismId, number>, sinceTick: number): CrossMatingEvidence {
     let within = 0;
     let cross = 0;
-    let inFirst = 0;
-    let participants = 0;
+    let mothersInFirst = 0;
+    let fathersInFirst = 0;
 
     this.matings.forEachSince(sinceTick, (motherId, fatherId) => {
       const motherSide = side.get(motherId);
@@ -259,17 +272,17 @@ export class SpeciesDetector {
       if (motherSide === undefined || fatherSide === undefined) return;
       if (motherSide === fatherSide) within += 1;
       else cross += 1;
-      participants += 2;
-      if (motherSide === 0) inFirst += 1;
-      if (fatherSide === 0) inFirst += 1;
+      if (motherSide === 0) mothersInFirst += 1;
+      if (fatherSide === 0) fathersInFirst += 1;
     });
 
     const total = within + cross;
-    if (total === 0 || participants === 0) return { ratio: Number.NaN, within, cross };
+    if (total === 0) return { ratio: Number.NaN, within, cross };
 
-    const fractionFirst = inFirst / participants;
-    const expectedCross = 2 * fractionFirst * (1 - fractionFirst);
-    const expectedWithin = fractionFirst * fractionFirst + (1 - fractionFirst) * (1 - fractionFirst);
+    const femaleFirst = mothersInFirst / total;
+    const maleFirst = fathersInFirst / total;
+    const expectedCross = femaleFirst * (1 - maleFirst) + (1 - femaleFirst) * maleFirst;
+    const expectedWithin = femaleFirst * maleFirst + (1 - femaleFirst) * (1 - maleFirst);
     if (expectedCross <= 0 || expectedWithin <= 0) return { ratio: Number.NaN, within, cross };
 
     const crossRate = cross / total / expectedCross;

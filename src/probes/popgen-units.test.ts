@@ -18,6 +18,7 @@
 import fc from 'fast-check';
 import { describe, expect, it } from 'vitest';
 
+import type { PopgenEstimators } from '../contracts/apis';
 import type { AncestryRecord } from '../contracts/stats';
 import {
   DISCRETE_LOCUS_BY_ID,
@@ -44,10 +45,11 @@ import type {
 } from '../contracts/types';
 import { SeededRng } from '../sim/rng';
 import {
+  MIN_DEME_ORGANISMS,
   MIN_INFORMATIVE_MATINGS,
   PopgenEngine,
   StatsRecorder,
-  combineNe,
+  combineSexNe,
   neiTajimaF,
   sexRatioNe,
   temporalNeFromF,
@@ -329,13 +331,14 @@ describe('Weir–Cockerham Fst', () => {
     expect(Math.abs((barrierFst ?? 0) - (engine.fst(state, 'deme') ?? 0))).toBeLessThan(1e-9);
   });
 
-  it('is null when one side of the barrier is below minSpeciesSize', () => {
-    const state = makeState(config, 500);
+  /** 400 organisms on the left of a mid-world ridge, `thinSide` on the right. */
+  function buildLopsidedBarrier(sizeConfig: SimConfig, thinSide: number): SimState {
+    const state = makeState(sizeConfig, 500);
     const specs: OrganismSpec[] = [];
     for (let index = 0; index < 400; index += 1) {
       specs.push({ id: index + 1, x: 100, y: 600, genome: genomeWithMarkers([[index % 2, 0]]) });
     }
-    for (let index = 0; index < 5; index += 1) {
+    for (let index = 0; index < thinSide; index += 1) {
       specs.push({ id: 500 + index, x: 1900, y: 600, genome: genomeWithMarkers([[1, 1]]) });
     }
     place(state, specs);
@@ -345,7 +348,72 @@ describe('Weir–Cockerham Fst', () => {
       permeability: 0,
       raisedTick: 0,
     });
+    return state;
+  }
+
+  it('is null only when a group falls below the estimator’s own minimum, not the speciation knob', () => {
+    // Gate A-1 risk 4: the group filter used to be `speciation.minSpeciesSize`,
+    // so retuning an unrelated speciation knob silently changed what Fst was
+    // measured over. Five organisms is far below the configured minSpeciesSize
+    // of 25 and still carries a variance component, so it is kept.
+    expect(config.speciation.minSpeciesSize).toBeGreaterThan(MIN_DEME_ORGANISMS);
+    const thin = new PopgenEngine(config).fst(buildLopsidedBarrier(config, 5), 'barrier');
+    expect(thin).not.toBeNull();
+
+    // And the answer must not move when the speciation knob does.
+    const retuned = makeConfig({ world: { demeCols: 2, demeRows: 1 }, speciation: { minSpeciesSize: 4 } });
+    const sameFst = new PopgenEngine(retuned).fst(buildLopsidedBarrier(retuned, 5), 'barrier');
+    expect(sameFst).toBeCloseTo(thin ?? Number.NaN, 12);
+
+    // One organism cannot carry Weir–Cockerham's within-group term, which
+    // divides by n̄ − 1. That is the estimator's own arithmetic floor.
+    expect(MIN_DEME_ORGANISMS).toBe(2);
+    expect(new PopgenEngine(config).fst(buildLopsidedBarrier(config, 1), 'barrier')).toBeNull();
+    expect(new PopgenEngine(config).fst(buildLopsidedBarrier(config, 0), 'barrier')).toBeNull();
+  });
+
+  it('refuses a rect barrier, which has no two sides to compare', () => {
+    // Gate A-1 defect 9. A rect gives an interior and an exterior, and the
+    // exterior is one connected region wrapping the block: the two populations
+    // the reef actually separates land in the *same* group, while the handful
+    // of stragglers inside it become the other. Here that partition is not
+    // empty — it would happily return a number — and the number would answer a
+    // question nobody asked.
+    const state = makeState(config, 500);
+    const specs: OrganismSpec[] = [];
+    for (let index = 0; index < 200; index += 1) {
+      // West of the reef, fixed for allele 0.
+      specs.push({ id: index + 1, x: config.world.widthWu * 0.1, y: 600, genome: genomeWithMarkers([[0, 0]]) });
+      // East of it, fixed for allele 1 — a total divergence the estimator will
+      // never see, because both sides are "exterior".
+      specs.push({ id: 300 + index, x: config.world.widthWu * 0.9, y: 600, genome: genomeWithMarkers([[1, 1]]) });
+    }
+    for (let index = 0; index < 20; index += 1) {
+      specs.push({
+        id: 900 + index,
+        x: config.world.widthWu * 0.5,
+        y: 600,
+        genome: genomeWithMarkers([[index % 2, 0]]),
+      });
+    }
+    place(state, specs);
+    state.barriers.specs.push({
+      id: 'reef',
+      shape: {
+        kind: 'rect',
+        xWu: config.world.widthWu * 0.4,
+        yWu: 0,
+        widthWu: config.world.widthWu * 0.2,
+        heightWu: config.world.heightWu,
+      },
+      permeability: 0,
+      raisedTick: 0,
+    });
     expect(new PopgenEngine(config).fst(state, 'barrier')).toBeNull();
+
+    // The deme grouping still works, and shows what the barrier partition threw
+    // away: west and east are fixed for different alleles.
+    expect(new PopgenEngine(config).fst(state, 'deme') ?? 0).toBeGreaterThan(0.5);
   });
 });
 
@@ -395,7 +463,7 @@ describe('temporal-method Ne', () => {
         frequencies = wrightFisherStep(frequencies, populationSize, rng);
       }
 
-      const estimate = new PopgenEngine(config).temporalNe(earlier, frequencies, generations, populationSize);
+      const estimate = new PopgenEngine(config).temporalNe(earlier, frequencies, generations);
       expect(estimate).toBeGreaterThan(0.7 * populationSize);
       expect(estimate).toBeLessThan(1.4 * populationSize);
     }
@@ -410,23 +478,82 @@ describe('temporal-method Ne', () => {
       for (let generation = 0; generation < generations; generation += 1) {
         frequencies = wrightFisherStep(frequencies, populationSize, rng);
       }
-      return new PopgenEngine(config).temporalNe(earlier, frequencies, generations, populationSize);
+      return new PopgenEngine(config).temporalNe(earlier, frequencies, generations);
     });
     expect(estimates[1] ?? 0).toBeGreaterThan(2 * (estimates[0] ?? 0));
   });
 
-  it('inverts F exactly at the defining relation and caps a frozen population', () => {
+  it('inverts F exactly at the defining relation', () => {
     // F = 1 − (1 − 1/2N)^t is the drift accumulated over t generations, so
     // feeding it back must return N.
     const populationSize = 250;
     const generations = 30;
     const f = 1 - Math.pow(1 - 1 / (2 * populationSize), generations);
-    expect(temporalNeFromF(f, generations, populationSize)).toBeCloseTo(populationSize, 6);
+    expect(temporalNeFromF(f, generations)).toBeCloseTo(populationSize, 6);
+  });
 
-    // Identical frequencies: no drift observed, so Ne is unbounded above and is
-    // reported at the documented cap rather than as Infinity.
+  it('is null for every reading it cannot identify, rather than a fabricated number', () => {
+    // Gate A-1 defect 5. Identical frequencies: no drift was observed, so Ne is
+    // unbounded above. The old code answered `10 × census` — a number that
+    // plots, fails P14's Ne ≤ 1.2N loudly, and was never measured. P14 now
+    // excludes these instead of folding them into a median.
     const still = [[0.5, 0.5]];
-    expect(temporalNeFromF(neiTajimaF(still, still), 10, 100)).toBe(1000);
+    expect(neiTajimaF(still, still)).toBe(0);
+    expect(temporalNeFromF(neiTajimaF(still, still), 10)).toBeNull();
+
+    // F ≥ 1 is more change than drift from any finite Ne produces in t
+    // generations: the model does not fit the data. The old code answered
+    // Ne = 0.5, turning a model violation into the smallest possible population.
+    expect(temporalNeFromF(1, 10)).toBeNull();
+    expect(temporalNeFromF(1.4, 10)).toBeNull();
+
+    // No informative locus, and no elapsed time.
+    expect(temporalNeFromF(neiTajimaF([[1, 0]], [[1, 0]]), 10)).toBeNull();
+    expect(temporalNeFromF(0.2, 0)).toBeNull();
+
+    // The frozen `PopgenEstimators.temporalNe` signature cannot return null, so
+    // a caller holding the interface — census-size argument and all — gets the
+    // same verdict as NaN. The recorder reads the nullable core instead.
+    const engine = new PopgenEngine(config);
+    expect(engine.temporalNeOrNull(still, still, 10)).toBeNull();
+    const throughContract: PopgenEstimators = engine;
+    expect(Number.isNaN(throughContract.temporalNe(still, still, 10, 100))).toBe(true);
+  });
+
+  it('reports nothing until a full window of history exists', () => {
+    // Gate A-1 defect 5, the recorder half: the baseline used to fall back to
+    // the oldest snapshot held, which measures drift over whatever span exists
+    // while labelling it with the configured window — a wildly low Ne for the
+    // first generations of every run, then a silent change of estimand once
+    // history catches up.
+    const windowed = makeConfig({ sampling: { temporalNeWindowGenerations: 2 } });
+    const generationTicks = windowed.time.generationTicks;
+    const recorder = new StatsRecorder({ config: windowed });
+    const state = makeState(windowed, 220);
+    place(
+      state,
+      Array.from({ length: 200 }, (_value, index) => ({
+        id: index + 1,
+        x: 500,
+        y: 500,
+        genome: genomeWithMarkers([[index % 2, index % 2]]),
+      })),
+    );
+
+    expect(recorder.sample(state, 0).popgen.neTemporal).toBeNull();
+
+    // Move twenty of the two hundred onto the other allele, so a fallback
+    // baseline would have something to report: 0.50 → 0.45 over one generation
+    // gives F = 0.01 and an Ne near 50. It must still be null — one generation
+    // of history is not the two the config asked for.
+    for (let slot = 0; slot < 20; slot += 1) state.pop.genomes[slot] = genomeWithMarkers([[1, 1]]);
+    expect(recorder.sample(state, generationTicks).popgen.neTemporal).toBeNull();
+
+    // Two generations on, the tick-0 snapshot is a full window back and the
+    // same F = 0.01 is now spread over t = 2: Ne = 1/(2(1 − √0.99)) ≈ 99.7.
+    const full = recorder.sample(state, 2 * generationTicks).popgen.neTemporal;
+    expect(full).not.toBeNull();
+    expect(full ?? 0).toBeCloseTo(1 / (2 * (1 - Math.sqrt(0.99))), 3);
   });
 
   it('gives the same F for a biallelic locus from either allele', () => {
@@ -505,7 +632,68 @@ describe('midparent heritability', () => {
 // 4. Demographic Ne
 // ---------------------------------------------------------------------------
 
+interface BreederWindow {
+  readonly recorder: StatsRecorder;
+  readonly state: SimState;
+  readonly males: OrganismId[];
+  readonly females: OrganismId[];
+  /** One birth inside the window, from a named mother and father. */
+  beget(motherId: OrganismId, fatherId: OrganismId): void;
+  /** One more founder-generation individual, born and (optionally) dead when asked. */
+  add(sex: Sex, birthTick: number, deathTick: number | null): OrganismId;
+}
+
 describe('demographic Ne', () => {
+  const config = makeConfig({ time: { generationTicks: 900, maturityTicks: 600 } });
+  const tick = 10_000;
+
+  /**
+   * Mature males and females born at tick 0, and a birth clock inside the
+   * window that opens at 9100.
+   *
+   * Offspring are born from 9500 on, which is late enough that none of them has
+   * matured by `tick` — so the breeder denominator is exactly the founders the
+   * test named, and nothing else has to be reasoned about.
+   */
+  function openWindow(maleCount: number, femaleCount: number): BreederWindow {
+    const recorder = new StatsRecorder({ config });
+    const state = makeState(config, 16, tick);
+    let nextId = 1;
+    let birthTick = 9500;
+
+    const add = (sex: Sex, born: number, died: number | null): OrganismId => {
+      const id = nextId;
+      nextId += 1;
+      recorder.onBirth(makeRecord(id, NO_ORGANISM, NO_ORGANISM, born, sex));
+      if (died !== null) recorder.onDeath(id, died, 'senescence');
+      return id;
+    };
+
+    const males = Array.from({ length: maleCount }, () => add('male', 0, null));
+    const females = Array.from({ length: femaleCount }, () => add('female', 0, null));
+
+    const beget = (motherId: OrganismId, fatherId: OrganismId): void => {
+      recorder.onBirth(makeRecord(nextId, motherId, fatherId, birthTick, nextId % 2 === 0 ? 'female' : 'male'));
+      nextId += 1;
+      birthTick += 2;
+    };
+
+    return { recorder, state, males, females, beget, add };
+  }
+
+  /** Four males against thirty-six females, every male fathering ten offspring. */
+  function skewedWindow(): BreederWindow {
+    const world = openWindow(4, 36);
+    for (let index = 0; index < 40; index += 1) {
+      world.beget(world.females[index % 36] ?? 0, world.males[index % 4] ?? 0);
+    }
+    return world;
+  }
+
+  // Thirty-six mothers share forty offspring — four with two and thirty-two
+  // with one — so k̄_f = 10/9 and Vk_f = (4·(8/9)² + 32·(1/9)²)/35 = 32/315.
+  const skewedNeFemale = varianceNeGeneral(36, 10 / 9, 32 / 315);
+
   it('matches Wright and Kimura–Crow on textbook inputs', () => {
     // Wright: 4·Nm·Nf/(Nm+Nf). Ten males to ninety females costs almost two
     // thirds of the census.
@@ -520,114 +708,143 @@ describe('demographic Ne', () => {
     // Crow & Denniston at k̄ = 2 differs from Kimura–Crow by one gene copy.
     expect(varianceNeGeneral(100, 2, 2)).toBeCloseTo(99, 10);
 
-    // Multiplicative composition of the two proportional reductions.
-    expect(combineNe(100, 36, 99)).toBeCloseTo(35.64, 10);
+    // The sexes combine harmonically, 4·Ne_m·Ne_f/(Ne_m + Ne_f) — the same
+    // shape as Wright's formula, because Wright's formula *is* this expression
+    // evaluated at Ne_s = N_s, which is what Poisson breeding within each sex
+    // gives.
+    expect(combineSexNe(50, 50)).toBeCloseTo(100, 10);
+    expect(combineSexNe(10, 90)).toBeCloseTo(36, 10);
+    // One male pins Ne near four however many females he is offered.
+    expect(combineSexNe(1, 500)).toBeCloseTo(2000 / 501, 10);
+    expect(combineSexNe(1, 500)).toBeLessThan(4);
+  });
+
+  it('reduces to ≈ N with symmetric sexes and Poisson offspring numbers', () => {
+    // Analytically: N/2 breeders of each sex in a stationary population give
+    // k̄ = 2, Poisson numbers give Vk = 2, so per sex
+    //   Ne_s = (2·(N/2) − 2)/(2 − 1 + 2/2) = (N − 2)/2,
+    // and two equal sexes combine to 4·Ne_s²/(2·Ne_s) = 2·Ne_s = N − 2.
+    for (const census of [200, 1000]) {
+      const perSex = varianceNeGeneral(census / 2, 2, 2);
+      expect(combineSexNe(perSex, perSex)).toBeCloseTo(census - 2, 10);
+    }
+
+    // End to end, with each birth drawing its parents uniformly — the random
+    // union of gametes that makes offspring numbers Poisson. Nothing about the
+    // breeding is unusual, so the estimator must hand back the census.
+    for (const seed of ['poisson-a', 'poisson-b', 'poisson-c']) {
+      const rng = new SeededRng(seed);
+      const world = openWindow(100, 100);
+      for (let birth = 0; birth < 200; birth += 1) {
+        world.beget(world.females[rng.int(0, 99)] ?? 0, world.males[rng.int(0, 99)] ?? 0);
+      }
+      const ne = world.recorder.estimators.demographicNe(world.state);
+      expect(ne).toBeGreaterThan(0.8 * 200);
+      expect(ne).toBeLessThan(1.2 * 200);
+    }
+  });
+
+  it('reports nothing, not a negative size, for a window that held almost no births', () => {
+    // Seen on a real collapsing run: forty breeders and a single birth give
+    // k̄ = 1/40 and Vk ≈ 1/40, so the denominator stays positive while the
+    // numerator k̄N − 2 goes to −1 and the formula answers Ne = −40.
+    const meanOffspring = 1 / 40;
+    const varianceOffspring = 0.025;
+    const denominator = meanOffspring - 1 + varianceOffspring / meanOffspring;
+    expect(denominator).toBeGreaterThan(0);
+    expect((meanOffspring * 40 - 2) / denominator).toBeCloseTo(-40, 6);
+    expect(Number.isNaN(varianceNeGeneral(40, meanOffspring, varianceOffspring))).toBe(true);
+
+    const world = openWindow(4, 36);
+    world.beget(world.females[0] ?? 0, world.males[0] ?? 0);
+    expect(Number.isNaN(world.recorder.estimators.demographicNe(world.state))).toBe(true);
   });
 
   it('reads sex ratio and offspring variance off a constructed parentage table', () => {
-    const config = makeConfig({ time: { generationTicks: 900, maturityTicks: 600 } });
-    const tick = 10_000;
-    const recorder = new StatsRecorder({ config });
-    const state = makeState(config, 16, tick);
-
-    // 20 males and 20 females mature well before the window opens. Every female
-    // leaves exactly two offspring; half the males leave four and half leave
-    // none — a deliberately lopsided male distribution, which is the whole
-    // reason variance effective size is not the census.
-    const males: OrganismId[] = [];
-    const females: OrganismId[] = [];
-    let nextId = 1;
-    const founder = (sex: Sex): OrganismId => {
-      const id = nextId;
-      nextId += 1;
-      recorder.onBirth(makeRecord(id, NO_ORGANISM, NO_ORGANISM, 0, sex));
-      return id;
-    };
-    for (let index = 0; index < 20; index += 1) males.push(founder('male'));
-    for (let index = 0; index < 20; index += 1) females.push(founder('female'));
-
-    const offspringCount = new Map<OrganismId, number>();
-    for (const id of [...males, ...females]) offspringCount.set(id, 0);
-    // Inside the window (opens at 9100) but too young to be breeders themselves
-    // by `tick`, so the denominator is exactly the 40 founders.
-    let birthTick = 9600;
+    // Every female leaves exactly two offspring; the first ten males leave four
+    // each and the other ten leave none — a deliberately lopsided male
+    // distribution, which is the whole reason variance effective size is not
+    // the census.
+    const world = openWindow(20, 20);
     for (let index = 0; index < 40; index += 1) {
-      const mother = females[index % 20] ?? 0;
-      // Only the first ten males breed, four times each.
-      const father = males[Math.floor(index / 4)] ?? 0;
-      recorder.onBirth(makeRecord(nextId, mother, father, birthTick, index % 2 === 0 ? 'female' : 'male'));
-      nextId += 1;
-      birthTick += 8;
-      offspringCount.set(mother, (offspringCount.get(mother) ?? 0) + 1);
-      offspringCount.set(father, (offspringCount.get(father) ?? 0) + 1);
+      world.beget(world.females[index % 20] ?? 0, world.males[Math.floor(index / 4)] ?? 0);
     }
 
-    const breeders = males.length + females.length;
-    const counts = [...offspringCount.values()];
-    const meanOffspring = counts.reduce((sum, value) => sum + value, 0) / breeders;
-    const varianceOffspring =
-      counts.reduce((sum, value) => sum + (value - meanOffspring) ** 2, 0) / (breeders - 1);
+    // Males: k̄ = 40/20 = 2 and Vk = (10·2² + 10·2²)/19 = 80/19, so
+    //   Ne_m = (2·20 − 2)/(2 − 1 + (80/19)/2) = 38·19/59 = 722/59 ≈ 12.24.
+    // Females: k̄ = 2 with no variance at all, so Ne_f = 38/(2 − 1) = 38.
+    const neMale = varianceNeGeneral(20, 2, 80 / 19);
+    const neFemale = varianceNeGeneral(20, 2, 0);
+    expect(neMale).toBeCloseTo(722 / 59, 10);
+    expect(neFemale).toBeCloseTo(38, 10);
 
-    expect(meanOffspring).toBeCloseTo(2, 10);
-    expect(varianceOffspring).toBeCloseTo(80 / 39, 10);
-
-    const expected = combineNe(
-      breeders,
-      sexRatioNe(males.length, females.length),
-      varianceNeGeneral(breeders, meanOffspring, varianceOffspring),
-    );
-    expect(expected).toBeCloseTo(38.506, 3);
-    expect(recorder.estimators.demographicNe(state)).toBeCloseTo(expected, 6);
+    // 4·(722/59)·38/((722/59) + 38) = 109744/2964 ≈ 37.03.
+    const expected = combineSexNe(neMale, neFemale);
+    expect(expected).toBeCloseTo(109_744 / 2964, 10);
+    expect(world.recorder.estimators.demographicNe(world.state)).toBeCloseTo(expected, 6);
   });
 
-  it('falls below the census when the sex ratio is skewed', () => {
-    const config = makeConfig({ time: { generationTicks: 900, maturityTicks: 600 } });
-    const tick = 10_000;
-    const recorder = new StatsRecorder({ config });
-    const state = makeState(config, 16, tick);
+  it('falls below the census when the sex ratio is skewed, without counting the skew twice', () => {
+    const world = skewedWindow();
 
-    let nextId = 1;
-    const males: OrganismId[] = [];
-    const females: OrganismId[] = [];
-    for (let index = 0; index < 4; index += 1) {
-      recorder.onBirth(makeRecord(nextId, NO_ORGANISM, NO_ORGANISM, 0, 'male'));
-      males.push(nextId);
-      nextId += 1;
-    }
-    for (let index = 0; index < 36; index += 1) {
-      recorder.onBirth(makeRecord(nextId, NO_ORGANISM, NO_ORGANISM, 0, 'female'));
-      females.push(nextId);
-      nextId += 1;
-    }
-    const offspringCount = new Map<OrganismId, number>();
-    for (const id of [...males, ...females]) offspringCount.set(id, 0);
-    for (let index = 0; index < 40; index += 1) {
-      const mother = females[index % 36] ?? 0;
-      const father = males[index % 4] ?? 0;
-      recorder.onBirth(makeRecord(nextId, mother, father, 9600 + index * 8, 'female'));
-      nextId += 1;
-      offspringCount.set(mother, (offspringCount.get(mother) ?? 0) + 1);
-      offspringCount.set(father, (offspringCount.get(father) ?? 0) + 1);
-    }
+    // Males: four of them, ten offspring each, so k̄_m = 10 and Vk_m = 0 —
+    //   Ne_m = (10·4 − 2)/(10 − 1 + 0) = 38/9 ≈ 4.22.
+    // Females: k̄_f = 10/9 and Vk_f = 32/315, so the denominator is
+    //   10/9 − 1 + (32/315)/(10/9) = 1/9 + 16/175 = 319/1575 and
+    //   Ne_f = (36·10/9 − 2)·1575/319 = 38·1575/319 ≈ 187.6.
+    const neMale = varianceNeGeneral(4, 10, 0);
+    expect(neMale).toBeCloseTo(38 / 9, 10);
+    expect(skewedNeFemale).toBeCloseTo((38 * 1575) / 319, 10);
 
-    const breeders = 40;
-    const counts = [...offspringCount.values()];
-    const meanOffspring = counts.reduce((sum, value) => sum + value, 0) / breeders;
-    const varianceOffspring =
-      counts.reduce((sum, value) => sum + (value - meanOffspring) ** 2, 0) / (breeders - 1);
-    // Four males fathering ten offspring each against thirty-six females is a
-    // brutal variance: Vk = 288/39.
-    expect(varianceOffspring).toBeCloseTo(288 / 39, 10);
+    // Combined: 4·(38/9)·(59850/319)/((38/9) + (59850/319)) ≈ 16.52. Forty
+    // breeders behave like seventeen.
+    const expected = combineSexNe(neMale, skewedNeFemale);
+    expect(expected).toBeCloseTo(16.517, 3);
+    expect(expected).toBeLessThan(40);
+    expect(world.recorder.estimators.demographicNe(world.state)).toBeCloseTo(expected, 6);
 
-    const expected = combineNe(
-      breeders,
-      sexRatioNe(4, 36),
-      varianceNeGeneral(breeders, meanOffspring, varianceOffspring),
-    );
+    // Gate A-1 defect 6. The old estimator multiplied Wright's sex-ratio
+    // correction by an offspring-variance correction taken over both sexes
+    // pooled, so the male deficit was charged twice — once as the sex ratio,
+    // and again as the variance that same deficit creates in the pooled
+    // offspring distribution. It reported 5.98 for this window. The honest
+    // answer is *above* Wright's 14.4, not a third of it: these four males
+    // contributed perfectly evenly, which is better breeding structure than the
+    // Poisson lottery Wright's formula assumes.
     expect(sexRatioNe(4, 36)).toBeCloseTo(14.4, 10);
-    expect(expected).toBeCloseTo(5.984, 3);
-    // Both corrections bite: 40 census breeders behave like six.
-    expect(recorder.estimators.demographicNe(state)).toBeCloseTo(expected, 6);
+    expect(expected).toBeGreaterThan(sexRatioNe(4, 36));
+    expect(expected).toBeGreaterThan(2 * 5.984);
+  });
+
+  it('counts adults that bred nothing, and not juveniles that never could', () => {
+    // Gate A-1 defect 7. Six males born at 9000 and dead at 9300, three hundred
+    // ticks short of the six-hundred-tick maturity. The old window rule asked
+    // only whether they would have matured by its end and whether they were
+    // still alive when it opened, so all six entered the denominator as
+    // breeders who happened to leave no offspring.
+    const withJuveniles = skewedWindow();
+    for (let index = 0; index < 6; index += 1) withJuveniles.add('male', 9000, 9300);
+
+    const expected = combineSexNe(varianceNeGeneral(4, 10, 0), skewedNeFemale);
+    expect(withJuveniles.recorder.estimators.demographicNe(withJuveniles.state)).toBeCloseTo(expected, 6);
+
+    // Miscounted, the male side would be ten breeders with k̄ = 4 and
+    // Vk = (4·6² + 6·4²)/9 = 240/9, giving Ne_m = 38/(3 + (240/9)/4) ≈ 3.93 and
+    // a combined 15.40: juvenile mortality wearing breeding structure's clothes.
+    const miscounted = combineSexNe(varianceNeGeneral(10, 4, 240 / 9), skewedNeFemale);
+    expect(miscounted).toBeCloseTo(15.401, 3);
+    expect(Math.abs(expected - miscounted)).toBeGreaterThan(1);
+
+    // The converse has to keep holding: an adult that matured, lived through
+    // the window and left nothing is a real zero and belongs in Vk. Five males
+    // with k̄ = 8 and Vk = (4·2² + 8²)/4 = 20 give Ne_m = 38/9.5 = 4 and 15.67.
+    const withChildlessAdult = skewedWindow();
+    withChildlessAdult.add('male', 0, 9500);
+    expect(withChildlessAdult.recorder.estimators.demographicNe(withChildlessAdult.state)).toBeCloseTo(
+      combineSexNe(varianceNeGeneral(5, 8, 20), skewedNeFemale),
+      6,
+    );
+    expect(combineSexNe(varianceNeGeneral(5, 8, 20), skewedNeFemale)).toBeCloseTo(15.666, 3);
   });
 });
 
@@ -956,6 +1173,89 @@ describe('species detector', () => {
     expect(result.splits).toHaveLength(0);
   });
 
+  /**
+   * The expectation the detector used to use: `2f(1 − f)` over a single pooled
+   * margin, as if both partners were drawn from the same urn.
+   */
+  function pooledRatio(within: number, cross: number, inFirst: number, participants: number): number {
+    const fraction = inFirst / participants;
+    const expectedCross = 2 * fraction * (1 - fraction);
+    const expectedWithin = fraction * fraction + (1 - fraction) * (1 - fraction);
+    const total = within + cross;
+    const withinRate = within / total / expectedWithin;
+    return withinRate > 0 ? cross / total / expectedCross / withinRate : Number.POSITIVE_INFINITY;
+  }
+
+  it('measures cross-mating against the two sexes’ margins, not one pooled margin', () => {
+    // Gate A-1 defect 11. A mating is one female and one male, so the chance a
+    // random pairing crosses the boundary is f_f(1 − f_m) + (1 − f_f)f_m. Write
+    // the margins as m ± d and that expectation is the pooled `2m(1 − m)` plus
+    // 2d²: pooling always *under*-states how much crossing random mating would
+    // have produced, so it always over-states panmixia.
+    const engine = new PopgenEngine(config);
+    const side = new Map<OrganismId, number>();
+    for (let index = 0; index < 200; index += 1) side.set(index + 1, 0);
+    for (let index = 0; index < 200; index += 1) side.set(1001 + index, 1);
+    const inFirst = (id: OrganismId): boolean => (side.get(id) ?? 1) === 0;
+
+    // 100 matings: 10 within the first group, 15 within the second, and 75
+    // crossing — 70 of them with the mother in the first group and only 5 the
+    // other way. Margins: f_f = 0.80 mothers and f_m = 0.15 fathers in group 0.
+    const log = (mother: OrganismId, father: OrganismId, count: number): void => {
+      for (let index = 0; index < count; index += 1) engine.recordMating(mother, father, 100 + index);
+    };
+    log(1, 2, 10);
+    log(1001, 1002, 15);
+    log(1, 1002, 70);
+    log(1001, 2, 5);
+
+    const evidence = engine.detector.crossMatingEvidence(side, 0);
+    expect(evidence.within).toBe(25);
+    expect(evidence.cross).toBe(75);
+    expect([...side.keys()].filter(inFirst)).toHaveLength(200);
+
+    // Directed: expected cross = 0.8·0.85 + 0.2·0.15 = 0.71, expected within =
+    // 0.29, so the ratio is (75/100)/0.71 ÷ (25/100)/0.29 = 1.225.
+    expect(evidence.ratio).toBeCloseTo((0.75 / 0.71) / (0.25 / 0.29), 10);
+    expect(evidence.ratio).toBeCloseTo(1.2254, 4);
+
+    // Pooled, the same log expects only 2·0.475·0.525 = 0.499 cross matings and
+    // therefore reads 3.0 — two and a half times as panmictic as the data are.
+    const pooled = pooledRatio(25, 75, 80 + 15, 100 + 100);
+    expect(pooled).toBeCloseTo(3.015, 3);
+    expect(evidence.ratio).toBeLessThan(pooled);
+  });
+
+  it('refuses to merge two clusters whose only matings are female-here, male-there', () => {
+    // The decision this flips. Every mating pairs a female of cluster A with a
+    // male of cluster B — sex-biased dispersal across a ridge produces exactly
+    // this log. Random pairing given those margins predicts 100% cross matings,
+    // so the observation says nothing at all about reproductive isolation and
+    // the detector must abstain.
+    const world = buildTwoClusters(config, 120, 'sex-asymmetric', 1);
+    world.state.nextSpeciesTag = 2;
+    const engine = new PopgenEngine(config);
+    const mothers = world.clusterA.filter((_id, index) => index % 2 === 0);
+    const fathers = world.clusterB.filter((_id, index) => index % 2 === 1);
+    for (let index = 0; index < 40; index += 1) {
+      engine.recordMating(mothers[index] ?? 0, fathers[index] ?? 0, 19_500);
+    }
+    expect(40).toBeGreaterThanOrEqual(MIN_INFORMATIVE_MATINGS);
+
+    // Pooled, half the participants sit in each group, so `2f(1 − f)` expects
+    // half the matings to cross, 100% did, and no mating fell inside a group:
+    // the ratio is +∞ and the merge pass dissolves cluster B into cluster A.
+    expect(pooledRatio(0, 40, 40, 80)).toBe(Number.POSITIVE_INFINITY);
+    expect(pooledRatio(0, 40, 40, 80)).toBeGreaterThan(config.speciation.crossMatingThreshold);
+
+    // Directed, the expected within-group fraction is zero, so there is no
+    // ratio to compute and no evidence to act on. Both tags survive.
+    const result = engine.detectSpecies(world.state);
+    expect(distinctTags(result.assignments)).toEqual([0, 1]);
+    expect(result.extinctions).toHaveLength(0);
+    expect(result.splits).toHaveLength(0);
+  });
+
   it('is deterministic: two engines given identical input agree exactly', () => {
     const build = (): { assignments: Int32Array; splits: number } => {
       const world = buildTwoClusters(config, 120, 'determinism-world');
@@ -1017,7 +1317,10 @@ describe('assortment index', () => {
       seedTrait(engine, fatherId, 'diet', rng.normal(0, 1.5));
       engine.recordMating(motherId, fatherId, 100 + pair);
     }
-    expect(Math.abs(engine.assortmentIndex(0))).toBeLessThan(0.1);
+    // A genuine measurement of random mating: a number near zero, not a null.
+    const measured = engine.assortmentIndex(0);
+    expect(measured).not.toBeNull();
+    expect(Math.abs(measured ?? 1)).toBeLessThan(0.1);
   });
 
   it('reports negative assortment when opposites pair', () => {
@@ -1058,17 +1361,63 @@ describe('assortment index', () => {
       seedTrait(random, fatherId, 'displayHue', rng2.next() * 360);
       random.recordMating(motherId, fatherId, 100 + pair);
     }
-    expect(Math.abs(random.hueAssortment(0))).toBeLessThan(0.1);
+    const randomHue = random.hueAssortment(0);
+    expect(randomHue).not.toBeNull();
+    expect(Math.abs(randomHue ?? 1)).toBeLessThan(0.1);
   });
 
-  it('ignores matings whose partners were never observed', () => {
-    const engine = new PopgenEngine(config);
-    seedTrait(engine, 1, 'diet', 1);
-    seedTrait(engine, 2, 'diet', 1);
-    engine.recordMating(1, 2, 10);
-    engine.recordMating(1, 999, 10);
-    // The unresolvable pair is dropped rather than counted as zero.
-    expect(engine.assortmentIndex(0)).toBe(0);
+  it('is null where there is nothing to measure, and zero only where zero was measured', () => {
+    // Gate A-1 defects 10/13. Zero is the value assortment takes under measured
+    // random mating, so reporting it for an unmeasurable window makes "nobody
+    // bred" indistinguishable from "everybody bred at random" in the series.
+    const empty = new PopgenEngine(config);
+    expect(empty.assortmentIndex(0)).toBeNull();
+    expect(empty.hueAssortment(0)).toBeNull();
+
+    // One resolvable pair is not a correlation. Here the second mating names a
+    // partner that was never observed, so it is dropped and one pair remains.
+    const single = new PopgenEngine(config);
+    seedTrait(single, 1, 'diet', 1);
+    seedTrait(single, 2, 'diet', 1);
+    single.recordMating(1, 2, 10);
+    single.recordMating(1, 999, 10);
+    expect(single.assortmentIndex(0)).toBeNull();
+
+    // Monomorphic: five hundred pairs, every one of them at the same diet.
+    // There is no variance for a correlation to be about.
+    const monomorphic = new PopgenEngine(config);
+    for (let pair = 0; pair < 500; pair += 1) {
+      const motherId = pair * 2 + 1;
+      const fatherId = pair * 2 + 2;
+      seedTrait(monomorphic, motherId, 'diet', 0.75);
+      seedTrait(monomorphic, fatherId, 'diet', 0.75);
+      monomorphic.recordMating(motherId, fatherId, 100 + pair);
+    }
+    expect(monomorphic.assortmentIndex(0)).toBeNull();
+
+    // Two pairs with variance on both sides is the minimum that measures
+    // something, and it comes back a number.
+    const two = new PopgenEngine(config);
+    seedTrait(two, 1, 'diet', -1);
+    seedTrait(two, 2, 'diet', 1);
+    seedTrait(two, 3, 'diet', 2);
+    seedTrait(two, 4, 'diet', -2);
+    two.recordMating(1, 2, 10);
+    two.recordMating(3, 4, 11);
+    expect(typeof two.assortmentIndex(0)).toBe('number');
+  });
+
+  it('carries the nulls through to the sample row', () => {
+    const recorder = new StatsRecorder({ config });
+    const state = makeState(config, 8, 4000);
+    place(state, [{ id: 1, x: 100, y: 100, genome: genomeWithMarkers([[0, 0]]), latent: { diet: 0.5 } }]);
+
+    // No matings in the window at all: both assortment columns are null, and
+    // `matings` is the count that says why.
+    const quiet = recorder.sample(state, 4000);
+    expect(quiet.matings).toBe(0);
+    expect(quiet.assortmentIndex).toBeNull();
+    expect(quiet.hueAssortment).toBeNull();
   });
 });
 
@@ -1183,6 +1532,113 @@ describe('recorder sampling', () => {
     state.pop.traitsLatent[2 * TRAIT_COUNT + TRAIT_INDEX.size] = 13;
     recorder.sample(state, 4200);
     expect(recorder.estimators.regressions.size).toBe(1);
+  });
+
+  it('takes the offspring phenotype at birth, so a juvenile death still reaches the regression', () => {
+    // Gate A-1 defect 8. An offspring used to enter the midparent regression
+    // only if it was still alive at a sample boundary, and it cannot be
+    // recovered afterwards: the pool's free list is LIFO, so the slot is
+    // overwritten within a tick or two.
+    const recorder = new StatsRecorder({ config });
+    const state = makeState(config, 8, 4000);
+    place(state, [
+      { id: 1, x: 100, y: 100, genome: genomeWithMarkers([[0, 0]]), latent: { size: 10 } },
+      { id: 2, x: 120, y: 100, genome: genomeWithMarkers([[0, 0]]), latent: { size: 14 } },
+    ]);
+    recorder.sample(state, 4000);
+    expect(recorder.estimators.regressions.size).toBe(0);
+
+    // Born at 4050 into a slot that is never alive at a boundary, dead at 4100,
+    // with the next row not due until 4200.
+    const base = 2 * TRAIT_COUNT;
+    state.pop.traitsLatent[base + TRAIT_INDEX.size] = 13;
+    recorder.onBirth(makeRecord(3, 1, 2, 4050, 'female'), state.pop.traitsLatent, base);
+    recorder.onDeath(3, 4100, 'predation');
+    expect(recorder.estimators.regressions.size).toBe(1);
+
+    // The view is borrowed, so what the cache holds has to be a copy of it.
+    state.pop.traitsLatent[base + TRAIT_INDEX.size] = -999;
+    expect(recorder.estimators.traits.get(3, TRAIT_INDEX.size)).toBeCloseTo(13, 5);
+
+    // And an organism that does survive to a boundary is not counted twice.
+    state.pop.alive[2] = 1;
+    state.pop.id[2] = 3;
+    state.pop.motherId[2] = 1;
+    state.pop.fatherId[2] = 2;
+    state.pop.traitsLatent[base + TRAIT_INDEX.size] = 13;
+    recorder.sample(state, 4200);
+    expect(recorder.estimators.regressions.size).toBe(1);
+  });
+
+  it('records no phenotype when the birth hook is called without a latent view', () => {
+    // The staged-optional form of the contract. Nothing observed is better than
+    // something invented; P13 shows the gap as a missing regression.
+    const recorder = new StatsRecorder({ config });
+    recorder.onBirth(makeRecord(1, NO_ORGANISM, NO_ORGANISM, 0, 'female'));
+    expect(recorder.estimators.traits.size).toBe(0);
+    expect(recorder.ancestry(1)).toBeDefined();
+  });
+
+  it('recovers the true slope under trait-dependent juvenile mortality; survivors alone do not', () => {
+    // Offspring size is the midparent value plus an independent deviation, so
+    // the true regression slope is 1 by construction. Then every offspring
+    // below the parental mean dies before it could reach a census row —
+    // truncation on the *dependent* variable, which attenuates an OLS slope.
+    // For these variances (midparent SD √2, deviation SD 0.5, so r = 0.943)
+    // truncating y at its mean predicts a slope near 0.77 among survivors.
+    const pairs = 400;
+    const rng = new SeededRng('juvenile-mortality');
+    const atBirth = new StatsRecorder({ config });
+    const survivorsOnly = new StatsRecorder({ config });
+    const pool = new Float32Array((pairs * 3 + 1) * TRAIT_COUNT);
+    const sizeIndex = TRAIT_INDEX.size;
+    const write = (id: OrganismId, size: number): number => {
+      const offset = (id - 1) * TRAIT_COUNT;
+      pool[offset + sizeIndex] = size;
+      return offset;
+    };
+
+    let nextId = 1;
+    let survivors = 0;
+    for (let pair = 0; pair < pairs; pair += 1) {
+      const motherId = nextId;
+      const fatherId = nextId + 1;
+      const childId = nextId + 2;
+      nextId += 3;
+
+      const motherSize = rng.normal(12, 2);
+      const fatherSize = rng.normal(12, 2);
+      const childSize = (motherSize + fatherSize) / 2 + rng.normal(0, 0.5);
+      const motherBase = write(motherId, motherSize);
+      const fatherBase = write(fatherId, fatherSize);
+      const childBase = write(childId, childSize);
+
+      for (const recorder of [atBirth, survivorsOnly]) {
+        recorder.onBirth(makeRecord(motherId, NO_ORGANISM, NO_ORGANISM, 0, 'female'), pool, motherBase);
+        recorder.onBirth(makeRecord(fatherId, NO_ORGANISM, NO_ORGANISM, 0, 'male'), pool, fatherBase);
+      }
+
+      const child = makeRecord(childId, motherId, fatherId, 100, 'female');
+      atBirth.onBirth(child, pool, childBase);
+      // The pre-fix path: the birth is logged, but the phenotype only lands if
+      // the offspring is still alive when the sample walk comes round.
+      survivorsOnly.onBirth(child);
+      if (childSize > 12) {
+        survivors += 1;
+        survivorsOnly.estimators.observe(childId, motherId, fatherId, pool, childBase);
+      }
+    }
+
+    expect(atBirth.estimators.regressions.size).toBe(pairs);
+    expect(survivorsOnly.estimators.regressions.size).toBe(survivors);
+    expect(survivors).toBeLessThan(pairs);
+
+    const honest = atBirth.estimators.midparentHeritability('size') ?? Number.NaN;
+    const conditioned = survivorsOnly.estimators.midparentHeritability('size') ?? Number.NaN;
+    expect(honest).toBeCloseTo(1, 1);
+    expect(conditioned).toBeGreaterThan(0.6);
+    expect(conditioned).toBeLessThan(0.9);
+    expect(conditioned).toBeLessThan(honest - 0.1);
   });
 
   it('raises a sweep event once, through drainRaisedEvents rather than SimState', () => {

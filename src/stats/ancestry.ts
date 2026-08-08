@@ -167,8 +167,19 @@ export class AncestryStore {
   }
 
   /**
-   * Visit everyone who was a *potential* breeder during `[windowStart, endTick]`
-   * — mature by the end of the window and not already dead when it opened.
+   * Visit everyone who was a *potential* breeder during `[windowStart, endTick]`.
+   *
+   * Three conditions, all necessary:
+   *
+   * 1. **Matured by the end of the window** — `birthTick + maturityTicks ≤ endTick`.
+   * 2. **Survived to its own maturity tick** — dying at six hundred ticks minus
+   *    one never made an individual a breeder who happened to leave no
+   *    offspring; it made it a juvenile. Counting it as a zero inflates the
+   *    denominator and Vk together and drags Ne down by however hard juvenile
+   *    mortality is biting, which is a demographic fact the *census* should
+   *    carry, not the breeding structure (Gate A-1 defect 7).
+   * 3. **Not already dead when the window opened** — an adult that died before
+   *    `windowStart` had no chance to breed inside it.
    *
    * This is the denominator demographic Ne needs: an adult that lived through
    * the window and left no offspring is as much a part of the offspring-number
@@ -188,8 +199,9 @@ export class AncestryStore {
     visit: (id: OrganismId, sex: Sex) => void,
   ): void {
     for (const entry of this.records.values()) {
-      if (entry.birthTick + maturityTicks > endTick) continue;
-      if (entry.deathTick !== null && entry.deathTick < windowStart) continue;
+      const maturesAt = entry.birthTick + maturityTicks;
+      if (maturesAt > endTick) continue;
+      if (entry.deathTick !== null && (entry.deathTick < maturesAt || entry.deathTick < windowStart)) continue;
       visit(entry.id, entry.sex);
     }
   }

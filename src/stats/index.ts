@@ -26,11 +26,11 @@ export type { AncestryTotals, LineageSummary, SpeciesObservation } from './ances
 
 export {
   MIDPARENT_WINDOW_PAIRS,
+  MIN_DEME_ORGANISMS,
   MIN_MIDPARENT_PAIRS,
   MidparentRegressions,
   PopgenEngine,
-  TEMPORAL_NE_CAP_MULTIPLE,
-  combineNe,
+  combineSexNe,
   discreteAlleleFrequencies,
   meanExpectedHeterozygosity,
   neiTajimaF,

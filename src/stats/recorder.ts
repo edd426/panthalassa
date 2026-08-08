@@ -133,9 +133,29 @@ export class StatsRecorder implements StatsRecorderApi {
 
   // -- hooks ----------------------------------------------------------------
 
-  onBirth(record: AncestryRecord): void {
+  /**
+   * Pedigree entry, parentage log, and the newborn's phenotype.
+   *
+   * The phenotype is taken **here**, at the birth, rather than the first time
+   * the organism turns up alive in a `sample()` walk. Waiting conditioned the
+   * midparent regression on surviving two hundred ticks, and juvenile mortality
+   * in this model is trait-dependent, so the slope was an estimate of
+   * heritability among survivors — biased by exactly the selection P13 exists
+   * to notice (Gate A-1 defect 8). Nor can the phenotype be recovered later:
+   * the pool's free list is LIFO, so a dead juvenile's slot is overwritten
+   * within a tick or two.
+   *
+   * `traitsLatent`/`traitOffset` are a borrowed view of a live pool column,
+   * valid only for this call; `observe` copies out of it. Absent — the staged
+   * optional form, and the god-mutant path until the engine's riders land — no
+   * phenotype is recorded rather than a fabricated one, and the sample walk
+   * remains the fallback for anyone still alive at the next boundary.
+   */
+  onBirth(record: AncestryRecord, traitsLatent?: Float32Array, traitOffset?: number): void {
     this.ancestryStore.record(record);
     this.estimators.recordBirth(record.id, record.motherId, record.fatherId, record.birthTick);
+    if (traitsLatent === undefined || traitOffset === undefined) return;
+    this.estimators.observe(record.id, record.motherId, record.fatherId, traitsLatent, traitOffset);
   }
 
   onDeath(id: OrganismId, tick: number, cause: DeathCause): void {
@@ -260,6 +280,9 @@ export class StatsRecorder implements StatsRecorderApi {
         }
       }
 
+      // The fallback path. `onBirth` is where a phenotype normally enters, so
+      // this is a no-op for anyone already cached; it exists for organisms the
+      // engine introduced without a latent view.
       this.estimators.observe(id, pop.motherId[slot] ?? 0, pop.fatherId[slot] ?? 0, pop.traitsLatent, base);
     }
 
@@ -294,7 +317,7 @@ export class StatsRecorder implements StatsRecorderApi {
     }
 
     const neutralFrequencies = neutralAlleleFrequencies(state);
-    const popgen = this.popgenSample(state, tick, population, neutralFrequencies);
+    const popgen = this.popgenSample(state, tick, neutralFrequencies);
     this.pushFrequencySnapshot(tick, neutralFrequencies);
     this.raiseSweepEvents(tick, discreteAlleleFreq);
 
@@ -408,21 +431,16 @@ export class StatsRecorder implements StatsRecorderApi {
   private popgenSample(
     state: SimState,
     tick: number,
-    population: number,
     neutralFrequencies: readonly (readonly number[])[],
   ): PopgenSample {
+    // Null until a full window of history exists, and null again for any window
+    // the estimator cannot identify an Ne from. `population` is no longer part
+    // of it: nothing here is bounded by census size any more (Gate A-1 defect 5).
     const baseline = this.temporalBaseline(tick);
-    let neTemporal = Number.NaN;
+    let neTemporal: number | null = null;
     if (baseline !== null) {
       const generationsElapsed = (tick - baseline.tick) / this.config.time.generationTicks;
-      if (generationsElapsed > 0) {
-        neTemporal = this.estimators.temporalNe(
-          baseline.frequencies,
-          neutralFrequencies,
-          generationsElapsed,
-          Math.max(1, population),
-        );
-      }
+      neTemporal = this.estimators.temporalNeOrNull(baseline.frequencies, neutralFrequencies, generationsElapsed);
     }
 
     return {
@@ -479,16 +497,23 @@ export class StatsRecorder implements StatsRecorderApi {
     return this.config.sampling.temporalNeWindowGenerations * this.config.time.generationTicks;
   }
 
-  /** Newest snapshot at least the window back, else the oldest one we still hold. */
+  /**
+   * Newest snapshot at least a full `temporalNeWindowGenerations` back, or null.
+   *
+   * No short-window fallback. Substituting the oldest snapshot we happen to hold
+   * measured drift over whatever span existed — a couple of sample intervals
+   * early in a run — while labelling it with the configured window, which reads
+   * as a wildly low Ne for the first several generations of every run and then
+   * silently changes estimand once history catches up (Gate A-1 defect 5).
+   * `PopgenSample.neTemporal` is nullable so this can say "not yet".
+   */
   private temporalBaseline(tick: number): FrequencySnapshot | null {
     const target = tick - this.temporalWindowTicks();
     let best: FrequencySnapshot | null = null;
     for (const snapshot of this.frequencyHistory) {
       if (snapshot.tick <= target) best = snapshot;
     }
-    if (best !== null) return best;
-    const oldest = this.frequencyHistory[0];
-    return oldest !== undefined && oldest.tick < tick ? oldest : null;
+    return best;
   }
 
   /**
