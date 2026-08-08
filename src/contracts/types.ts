@@ -740,7 +740,7 @@ export const DEFAULT_SIM_CONFIG: SimConfig = Object.freeze({
     energyPerPreySize: 0.9,
   }),
   senescence: Object.freeze({
-    gompertzA: 2.2e-5,
+    gompertzA: 9e-5,
     gompertzB: 0.0022,
     onsetTicks: 900,
   }),
