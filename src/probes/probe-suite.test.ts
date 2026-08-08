@@ -50,7 +50,9 @@ describe('probe registry', () => {
     // P1 and P2 gate from day one. P12 was demoted to `warn` pending Gate A-2
     // (see probes/performance.ts). Everything else earns `gate` by passing on
     // three seeds during the A7 campaign; extend this list as each is ratcheted.
-    expect(gates).toEqual(['P1', 'P2']);
+    // P3, P5 and P13 were ratcheted in by A7 — see DESIGN.md "Threshold
+    // ratchet" for the three-seed readings each one earned it with.
+    expect(gates).toEqual(['P1', 'P2', 'P3', 'P5', 'P13']);
   });
 
   it('names a scenario that exists, or builds its own', () => {
@@ -155,9 +157,11 @@ describe('suite reports', () => {
     }
 
     // A four-generation run cannot clear a thirty-generation burn-in, so every
-    // warn probe must report "could not evaluate" rather than a number.
+    // probe must report "could not evaluate" rather than a number. P3 breaches
+    // at `fail` rather than `warn` since A7 ratcheted it to a gate: an
+    // unmeasurable window is a breach at the probe's own severity.
     const viability = report.reports.find((probe) => probe.probeId === 'P3');
-    expect(viability?.status).toBe('warn');
+    expect(viability?.status).toBe('fail');
     expect(Number.isNaN(viability?.value ?? 0)).toBe(true);
   });
 });
