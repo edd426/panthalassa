@@ -450,6 +450,85 @@ the field pass; the rest is per-organism work, which points at F4's lever (b)
 — three separate neighbour queries per organism per tick (behaviour r=90,
 predation r=45, mating r=120) — and that is a model change, not a knob.
 
+### The suite asks for two things this model trades against each other
+
+This is the campaign's most load-bearing result and it belongs in front of
+Gate A-2, whose question is "aliveness or tuned-to-pass?".
+
+Across every configuration measured on three seeds, **a live predator guild and
+retained locus variance move in opposite directions**:
+
+| Config | P9 guild present | P6 loci alive | P4 V_A ratio |
+|---|---|---|---|
+| Food-only (before the size window) | 0% / 0% / 1% | 0.896 / 0.854 / 0.833 | 0.201 / 7.20 / 7.58 |
+| **Accepted** (size window + `baseLogit`) | **92% / 19% / 86%** | 0.625 / 0.771 / 0.771 | 0.179 / 0.272 / 0.214 |
+| `attemptRadiusWu` 75 | 0% / 0% / 7% | 0.917 / 0.792 / 0.875 | 0.155 / 5.39 / 6.87 |
+
+Single-seed screens land in the same ordering: `sizeRatioOptimum` 0.88 alone
+gave 100% guild and P6 0.708; `energyPerPreySize` 2.2 gave 98% guild and P6
+0.583. **Every config with a living predator guild has P6 ≤ 0.771; every config
+without one has P6 ≥ 0.79.** The mechanism-table result says the same thing from
+the other side: five of six toggle-off runs keep more loci alive than the
+reference, and the reference is the run with the fiercest selection.
+
+The causal story is consistent across all of it. A live guild means intense
+predation, intense predation means a large defense sweep (+5.8…+6.6 SD), and a
+sweep of that size drags linked loci and eats variance ratios. So P6 and P9
+cannot both be green until defense is expensive enough that the guild does not
+have to buy it with a sweep — which is the genome-table question below, not a
+knob. **A7 recommends Gate A-2 treat "P6 and P9 green simultaneously" as
+unproven-until-shown rather than as a tuning target**, and decide whether the
+suite should assert both at once at all.
+
+### `attemptRadiusWu` 75 — rejected, and it is the cleanest demonstration
+
+Reasoning was: s2 loses its guild in generations 50–120 while it is the
+*poorer* world at that moment (population 1061 against 1632 and 1376 on the
+seeds that keep theirs) and while its defense is *lower* (+3.52 against +3.91
+and +4.73) — so the guild dies of prey scarcity, not of defense escaping, and a
+wider attempt radius should raise predator income without adding food.
+
+It did the opposite: guild present 0% / 0% / 7%, starvation 80/80/73%. Raising
+encounter rate raised early predation hard enough to push every seed into the
+poor basin. P6 rose to 0.917 / 0.792 / 0.875 and P4 passed on two seeds — the
+trade above, running in the direction nobody wanted. Also non-monotone at the
+cliff, as ever: `attemptRadiusWu` 60 is extinct on s1 at generation 10.7 while
+75 survives on all three.
+
+### P8's acceptance criterion: the diagnosis was wrong, and the real one is worse
+
+A7's first reading was that `mating.prefSigmaBaseDeg` 70° is simply too wide —
+the Gaussian acceptance kernel needs 82° of hue divergence to halve, and
+narrowing to 32° would need only 38°. Measured on the barrier scenario at 300
+generations, that is **not** what is happening:
+
+| `prefSigmaBaseDeg` | Fst across the ridge | cross/within acceptance |
+|---|---|---|
+| 70 (default) | 0.063 → 0.723 | 1.03 |
+| 45 | 0.161 → 0.760 | 1.01 |
+| 32 | 0.144 → 0.798 | 1.04 |
+
+Acceptance does not move at all. A ratio pinned at 1.0 under a Gaussian kernel
+means the cross-side hue-to-preference distances *equal* the within-side ones —
+i.e. **`displayHue` is not diverging across the barrier**, after 250
+generations of complete isolation with Fst at 0.72–0.80. The preference window
+is not the binding constraint; there is nothing for it to discriminate.
+
+The likely cause is the same frequency-dependent predation the mechanism table
+just credited: it penalises the locally common morph, which is *balancing*
+selection holding both sides' hue distributions at the same spread around the
+same centre. The toggle-off run supports it — with frequency dependence off,
+`displayHue` moves +0.90 SD directionally against +0.25 SD with it on.
+
+So P8's second criterion and the hue-variance mechanism are in direct conflict,
+which is the same shape of finding as the P6/P9 trade above. Narrowing
+preference also costs: at 45° P14 fell to 0.092, under its 0.10 floor, because
+choosier mating skews reproductive success and lowers Ne. **Knob not moved.**
+Whoever takes this next should test the hypothesis directly — run the barrier
+scenario with `enableFrequencyDependentPredation` off and see whether
+cross-side acceptance finally separates — rather than narrowing the window
+further.
+
 ### Structural finding for a human or Sol: what the defense loci buy
 
 A7 was told to stop and report rather than edit `genome.ts` if the conclusion

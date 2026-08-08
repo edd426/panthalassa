@@ -43,9 +43,16 @@ Where the second A7 session left it:
 - P8 and P10 ran for the first time on a surviving world: **P10 passes**
   (injected allele crossed 0.5 in 56 generations), **P8 half-passes** — Fst
   0.063 → 0.723 across the ridge, but cross/within mate acceptance is 1.03,
-  i.e. no reproductive isolation. `mating.prefSigmaBaseDeg` is 70°, wide
-  enough that no achievable hue divergence would register; that is the
-  untried knob for P8.
+  i.e. no reproductive isolation. Narrowing `mating.prefSigmaBaseDeg` from 70°
+  to 45° and 32° was measured and **does not move it** (1.01, 1.04):
+  `displayHue` is not diverging across the barrier at all, most likely because
+  frequency-dependent predation is balancing selection holding both sides at
+  the same hue distribution. Test that before touching the preference window.
+- **Read DESIGN.md "The suite asks for two things this model trades against
+  each other" before the next tuning attempt.** Every config with a living
+  predator guild has P6 ≤ 0.771; every config without one has P6 ≥ 0.79. P6/P4
+  and P7/P9 pull in opposite directions, and no knob found so far separates
+  them.
 
 ## Remaining Phase A sequence
 
