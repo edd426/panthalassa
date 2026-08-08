@@ -128,3 +128,13 @@ Where the second A7 session left it:
 - Implementers are Opus agents with self-contained brief files naming
   artifact + machine-checkable probe; Sol (codex exec, read-only
   sandbox, brief on stdin) for cross-lineage review gates.
+- **Run `probe:full` detached from the agent's shell.** It takes ~3 hours, and
+  an agent's own polling loop timing out sends SIGTERM to its process group,
+  which kills the suite with it — A7 lost two runs to this before noticing the
+  `exit=143`. `scripts/`-style launch is not enough; the run needs its own
+  session (`os.setsid()` after a fork, since macOS has no `setsid(1)`). Verify
+  with `ps -eo pid,pgid` that the run's pgid differs from the shell's.
+- Long runs are also **timing-sensitive**: P12 is a stopwatch probe inside
+  `probe:full`, and a busy machine moves it ~35% (1.0×10⁶ idle against
+  6.8×10⁵ with three concurrent sims). Measure P12 on a quiet machine, or
+  discount the number and say so.
