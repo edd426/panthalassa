@@ -208,7 +208,7 @@ export interface ResourceField {
   readonly plankton: Float32Array;
   /** Kelp cover per cell in [0,1]; grows near reefs and shelters prey. */
   readonly kelp: Float32Array;
-  /** Per-cell K, recomputed from scratch by `updateFields` every tick; snapshots do not carry it. */
+  /** Per-cell K, recomputed from scratch every tick by ecology's regrow stage; snapshots do not carry it. */
   readonly carryingCapacity: Float32Array;
   /**
    * Per-cell water temperature, °C, written by ecology's `updateFields` every
