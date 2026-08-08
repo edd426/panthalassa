@@ -18,7 +18,7 @@ import type { OrganismDump } from '../contracts/protocol';
 import { TRAIT_KEYS, TRAIT_META } from '../contracts/traits';
 import type { DeathCause } from '../contracts/types';
 import { DEATH_CAUSES } from '../contracts/types';
-import type { FieldOverlay } from './crudeRenderer';
+import type { ColourLegend, FieldOverlay } from './crudeRenderer';
 
 /**
  * What the banner says when the run is over. Extinction is the one state the
@@ -52,6 +52,12 @@ export interface HudModel {
   readonly events: readonly string[];
   /** null while anything is still alive. */
   readonly extinction: ExtinctionNotice | null;
+  /**
+   * What the dots are coloured by. Printed as words because a ramp that is only
+   * a ramp says nothing: the reader needs the quantity and its endpoints.
+   */
+  readonly colour: ColourLegend;
+  readonly chartsOpen: boolean;
 }
 
 const TRAIT_LABEL_WIDTH = 14;
@@ -118,8 +124,10 @@ export class Hud {
       `species ${model.speciesCount}   clades ${model.cladeCount}`,
       `deaths ${deathTotal}   ${deathLine}`,
       `matings ${model.matings}   (tallies from sample rows, last t${model.lastRowTick})`,
+      `colour ${model.colour.mode} — ${model.colour.description}`,
+      `       ${model.colour.stops.join('  |  ')}`,
       '',
-      'space pause · 1-9 speed 1..256x · f field overlay · click inspect',
+      `space pause · 1-9 speed 1..256x · f field · c colour · t trends${model.chartsOpen ? ' (open)' : ''} · click inspect`,
     ];
 
     if (model.events.length > 0) {

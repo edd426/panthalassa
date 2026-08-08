@@ -82,12 +82,33 @@
       #banner[hidden] {
         display: none;
       }
+
+      /*
+        Trend strip. Opaque and pointer-catching on purpose: it covers the
+        bottom of the sea, so a click there must not select a fish hidden
+        behind it.
+      */
+      #charts {
+        position: fixed;
+        left: 0;
+        right: 0;
+        bottom: 0;
+        height: 34vh;
+        display: block;
+        background: rgba(3, 21, 29, 0.94);
+        border-top: 1px solid rgba(150, 210, 230, 0.25);
+      }
+
+      #charts[hidden] {
+        display: none;
+      }
     </style>
   </head>
   <body>
     <canvas id="world"></canvas>
     <pre id="status"></pre>
     <pre id="panel"></pre>
+    <canvas id="charts" hidden></canvas>
     <div id="banner" hidden></div>
     <script type="module" src="/src/app/main.ts"></script>
   </body>

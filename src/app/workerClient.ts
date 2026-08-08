@@ -26,6 +26,7 @@ import type {
   TickedMessage,
   WorkerToMainMessage,
 } from '../contracts/protocol';
+import type { TraitKey } from '../contracts/traits';
 import type { SimConfigOverrides } from '../contracts/types';
 
 export interface SimClientHandlers {
@@ -77,13 +78,18 @@ export class SimClient {
     return this.expect((requestId) => ({ type: 'step', requestId, ticks }), 'ticked');
   }
 
-  /** `recycle` is transferred, so the caller must not touch that buffer again. */
-  async sampleSlice(maxOrganisms: number, recycle?: Float32Array): Promise<SampleSlice> {
+  /**
+   * `recycle` is transferred, so the caller must not touch that buffer again.
+   * `traitKey` asks for that trait's expressed value per organism alongside the
+   * positions, which is what lets the renderer colour by anything but hue.
+   */
+  async sampleSlice(maxOrganisms: number, recycle?: Float32Array, traitKey?: TraitKey): Promise<SampleSlice> {
     const reply = await this.expect(
-      (requestId) =>
-        recycle === undefined
-          ? { type: 'sampleSliceRequest', requestId, maxOrganisms }
-          : { type: 'sampleSliceRequest', requestId, maxOrganisms, recycle },
+      (requestId) => {
+        const base = { type: 'sampleSliceRequest', requestId, maxOrganisms } as const;
+        if (recycle === undefined) return traitKey === undefined ? base : { ...base, traitKey };
+        return traitKey === undefined ? { ...base, recycle } : { ...base, recycle, traitKey };
+      },
       'sampleSlice',
       recycle === undefined ? [] : [recycle.buffer as ArrayBuffer],
     );

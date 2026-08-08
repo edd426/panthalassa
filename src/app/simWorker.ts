@@ -249,8 +249,12 @@ function dispatch(message: MainToWorkerMessage): void {
 
     case 'sampleSliceRequest': {
       const sim = requireHandle();
-      const slice = sim.sampleSlice(message.maxOrganisms, message.recycle);
-      post({ type: 'sampleSlice', requestId: message.requestId, slice }, [slice.buffer.buffer as ArrayBuffer]);
+      const slice = sim.sampleSlice(message.maxOrganisms, message.recycle, message.traitKey);
+      // Both arrays are transferred, so both must be listed; a transfer list
+      // that misses one silently structured-clones it instead.
+      const transfer: Transferable[] = [slice.buffer.buffer as ArrayBuffer];
+      if (slice.traitValues !== undefined) transfer.push(slice.traitValues.buffer as ArrayBuffer);
+      post({ type: 'sampleSlice', requestId: message.requestId, slice }, transfer);
       return;
     }
 

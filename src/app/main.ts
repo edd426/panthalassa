@@ -17,6 +17,7 @@ import { SPEED_MULTIPLIERS } from '../contracts/protocol';
 import type {
   ErrorMessage,
   EventsMessage,
+  FieldSliceField,
   OrganismDump,
   PhylogenyMessage,
   SimCommand,
@@ -25,8 +26,9 @@ import type {
 } from '../contracts/protocol';
 import type { DeathCause, SimConfigOverrides } from '../contracts/types';
 import { DEATH_CAUSES, resolveSimConfig } from '../contracts/types';
-import { CrudeRenderer, FIELD_OVERLAYS } from './crudeRenderer';
-import type { FieldOverlay, FieldRaster, SliceView } from './crudeRenderer';
+import { COLOUR_MODES, CrudeRenderer, FIELD_OVERLAYS, traitKeyForMode } from './crudeRenderer';
+import type { ColourMode, FieldOverlay, FieldRaster, SliceView } from './crudeRenderer';
+import { TrendCharts, appendTrendRow, createTrendSeries, resetTrendSeries } from './charts';
 import { Hud, describeEvent } from './hud';
 import { SimClient } from './workerClient';
 
@@ -54,6 +56,9 @@ const MAX_FEED_LINES = 8;
  * cancels it by touching any key.
  */
 const AUTO_RESTART_MS = 30_000;
+
+/** Minimum gap between chart redraws. Rows land every 200 ticks; faster is redundant. */
+const CHART_REDRAW_MS = 700;
 
 /**
  * The god tools have no key binding in Phase A — the keyboard is deliberately
@@ -87,6 +92,8 @@ function requireElement<T extends Element>(id: string, kind: new () => T): T {
 
 const canvas = requireElement('world', HTMLCanvasElement);
 const renderer = new CrudeRenderer(canvas, config);
+const chartCanvas = requireElement('charts', HTMLCanvasElement);
+const charts = new TrendCharts(chartCanvas);
 const hud = new Hud(
   requireElement('status', HTMLElement),
   requireElement('panel', HTMLElement),
@@ -135,6 +142,18 @@ let sliceInFlight = false;
 
 let field: FieldRaster | null = null;
 let selection: OrganismDump | null = null;
+
+let colourMode: ColourMode = 'identity';
+/**
+ * Temperature raster kept for `adaptedness`, which needs the water a dot is
+ * sitting in whether or not temperature happens to be the visible overlay.
+ */
+let temperatureField: FieldRaster | null = null;
+
+const trends = createTrendSeries();
+let chartsOpen = false;
+let chartsDirty = false;
+let chartsDrawnAt = 0;
 
 let lastRowTick = -1;
 let matings = 0;
@@ -239,8 +258,9 @@ function requestSlice(): void {
   const forEpoch = epoch;
   const handBack = recyclable;
   recyclable = undefined;
+  const wantTrait = traitKeyForMode(colourMode);
   client
-    .sampleSlice(MAX_DOTS, handBack)
+    .sampleSlice(MAX_DOTS, handBack, wantTrait ?? undefined)
     .then((next) => {
       sliceInFlight = false;
       if (forEpoch !== epoch) return;
@@ -248,7 +268,12 @@ function requestSlice(): void {
       // has replaced it; the worker transfers it away, so handing back the live
       // one would detach the array mid-frame.
       if (slice !== null) recyclable = slice.buffer;
-      slice = { count: next.count, buffer: next.buffer };
+      slice = {
+        count: next.count,
+        buffer: next.buffer,
+        ...(next.traitValues === undefined ? {} : { traitValues: next.traitValues }),
+        ...(next.traitKey === undefined ? {} : { traitKey: next.traitKey }),
+      };
     })
     .catch((error: unknown) => {
       sliceInFlight = false;
@@ -270,30 +295,53 @@ function pollSeries(): void {
         matings += row.matings;
         speciesCount = row.populationBySpecies.length;
         cladeCount = row.populationByClade.length;
+        // The same rows feed the charts, flattened into number columns on
+        // arrival so a long run holds arrays of floats rather than the objects.
+        appendTrendRow(trends, row);
+        chartsDirty = true;
       }
     })
     .catch(fail);
 }
 
-function pollField(): void {
-  if (!live || overlay === 'off') return;
-  const requested = overlay;
+function fetchField(which: FieldSliceField, assign: (raster: FieldRaster) => void): void {
   const forEpoch = epoch;
   client
-    .fieldSlice(requested)
+    .fieldSlice(which)
     .then((reply) => {
-      // The key may have cycled while this was in flight; a late reply must not
-      // paint plankton over a temperature overlay.
-      if (overlay !== requested || forEpoch !== epoch) return;
-      field = {
+      if (forEpoch !== epoch) return;
+      assign({
         field: reply.field,
         cols: reply.cols,
         rows: reply.rows,
         cellSizeWu: reply.cellSizeWu,
         values: reply.values,
-      };
+      });
     })
     .catch(fail);
+}
+
+function pollField(): void {
+  if (!live) return;
+
+  if (overlay !== 'off') {
+    const requested = overlay;
+    // The key may have cycled while this was in flight; a late reply must not
+    // paint plankton over a temperature overlay.
+    fetchField(requested, (raster) => {
+      if (overlay === requested) field = raster;
+    });
+  }
+
+  // Adaptedness compares each organism's tOpt against the water it is actually
+  // in, so it needs the temperature grid even when the visible overlay is
+  // plankton or nothing at all. Fetched separately rather than aliased to the
+  // overlay raster, which would break the moment the overlay key was pressed.
+  if (colourMode === 'adaptedness') {
+    fetchField('temperature', (raster) => {
+      temperatureField = raster;
+    });
+  }
 }
 
 function frame(timestamp: number): void {
@@ -319,7 +367,18 @@ function frame(timestamp: number): void {
     // after its occupant dies — following one would eventually ring a different
     // animal while the panel described the dead one.
     selected: selection === null ? null : { x: selection.x, y: selection.y },
+    colourMode,
+    temperature: temperatureField,
   });
+
+  // Charts redraw on new data at a few frames per second, not per frame: the
+  // underlying rows only land every 200 ticks, so anything faster is redrawing
+  // an identical picture.
+  if (chartsOpen && chartsDirty && timestamp - chartsDrawnAt > CHART_REDRAW_MS) {
+    charts.draw(trends);
+    chartsDirty = false;
+    chartsDrawnAt = timestamp;
+  }
 
   hud.render({
     seed,
@@ -336,6 +395,8 @@ function frame(timestamp: number): void {
     framesPerSecond,
     lastRowTick,
     events: feed,
+    colour: renderer.colourLegend,
+    chartsOpen,
     extinction:
       extinctionTick === null
         ? null
@@ -353,6 +414,10 @@ function frame(timestamp: number): void {
 
 window.addEventListener('resize', () => {
   renderer.resize();
+  if (chartsOpen) {
+    charts.resize();
+    charts.draw(trends);
+  }
 });
 
 canvas.addEventListener('click', (event: MouseEvent) => {
@@ -376,6 +441,26 @@ function cycleOverlay(): void {
   else pollField();
 }
 
+function cycleColourMode(): void {
+  const next = (COLOUR_MODES.indexOf(colourMode) + 1) % COLOUR_MODES.length;
+  colourMode = COLOUR_MODES[next] ?? 'identity';
+  // The next slice carries the new trait channel; ask for the water grid now so
+  // adaptedness is not blank for the first half second.
+  if (colourMode === 'adaptedness' && temperatureField === null) pollField();
+}
+
+function toggleCharts(): void {
+  chartsOpen = !chartsOpen;
+  chartCanvas.hidden = !chartsOpen;
+  if (chartsOpen) {
+    // The canvas has no layout box while hidden, so it can only be sized once
+    // it is on screen.
+    charts.resize();
+    charts.draw(trends);
+    chartsDirty = false;
+  }
+}
+
 window.addEventListener('keydown', (event: KeyboardEvent) => {
   // R is deliberately inert while anything is alive: it wipes a world, and the
   // one thing worse than a run that ends unannounced is a run ended by a
@@ -392,9 +477,12 @@ window.addEventListener('keydown', (event: KeyboardEvent) => {
       autoRestartAt = 0;
       note('auto-restart cancelled — press R when you want a new world');
     }
-    // The field overlays still read on a dead ocean: watching the plankton
-    // recover once the grazers are gone is worth looking at.
+    // The field overlays and the trends still read on a dead ocean — watching
+    // the plankton recover once the grazers are gone, or reading back the
+    // trajectory that ended in this banner, is most of the post-mortem.
     if (event.key === 'f' || event.key === 'F') cycleOverlay();
+    else if (event.key === 'c' || event.key === 'C') cycleColourMode();
+    else if (event.key === 't' || event.key === 'T') toggleCharts();
     return;
   }
 
@@ -411,6 +499,8 @@ window.addEventListener('keydown', (event: KeyboardEvent) => {
     return;
   }
   if (event.key === 'f' || event.key === 'F') cycleOverlay();
+  else if (event.key === 'c' || event.key === 'C') cycleColourMode();
+  else if (event.key === 't' || event.key === 'T') toggleCharts();
 });
 
 /**
@@ -441,8 +531,13 @@ function startWorld(nextSeed: string): void {
   recyclable = undefined;
   sliceInFlight = false;
   field = null;
+  temperatureField = null;
   selection = null;
   hud.showSelection(null);
+  // The trend columns describe the dead world; keeping them would draw the new
+  // one as a continuation of a population that no longer exists.
+  resetTrendSeries(trends);
+  chartsDirty = true;
 
   lastRowTick = -1;
   matings = 0;
