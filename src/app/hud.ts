@@ -125,14 +125,19 @@ function formatDump(dump: OrganismDump): string {
     `position ${fixed(dump.x, 1)}, ${fixed(dump.y, 1)}`,
     `mother ${dump.motherId}   father ${dump.fatherId}`,
     '',
-    `${pad('trait', TRAIT_LABEL_WIDTH)}${padStart('expressed', 11)}${padStart('latent', 11)}${padStart('pct', 6)}  unit`,
+    `${pad('trait', TRAIT_LABEL_WIDTH)}${padStart('expressed', 11)}${padStart('latent', 11)}${padStart('genotypic', 11)}${padStart('pct', 6)}  unit`,
   ];
 
+  // Three scales, deliberately side by side: expressed is what the ecology
+  // reads, latent is what selection acts on, and genotypic is the breeding
+  // value with the birth environment excluded. Seeing latent and genotypic
+  // diverge is seeing V_E, which is the whole reason the dump carries both.
   for (const trait of TRAIT_KEYS) {
     lines.push(
       pad(trait, TRAIT_LABEL_WIDTH) +
         padStart(fixed(dump.traits[trait], 3), 11) +
         padStart(fixed(dump.traitsLatent[trait], 3), 11) +
+        padStart(fixed(dump.traitsGenotypic[trait], 3), 11) +
         padStart(fixed(dump.traitPercentiles[trait] * 100, 0), 6) +
         `  ${TRAIT_META[trait].unit}`,
     );

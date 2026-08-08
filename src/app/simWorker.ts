@@ -287,6 +287,33 @@ function dispatch(message: MainToWorkerMessage): void {
       return;
     }
 
+    case 'fieldSliceRequest': {
+      const sim = requireHandle();
+      const field = sim.state.field;
+      const source =
+        message.field === 'plankton'
+          ? field.plankton
+          : message.field === 'kelp'
+            ? field.kelp
+            : field.temperature;
+      // A copy, as the contract specifies: the live column keeps being written
+      // every tick, and transferring it would tear the field out of the sim.
+      const values = new Float32Array(source);
+      post(
+        {
+          type: 'fieldSlice',
+          requestId: message.requestId,
+          field: message.field,
+          cols: field.cols,
+          rows: field.rows,
+          cellSizeWu: field.cellSizeWu,
+          values,
+        },
+        [values.buffer as ArrayBuffer],
+      );
+      return;
+    }
+
     case 'command': {
       const sim = requireHandle();
       sim.command(message.command);
@@ -294,7 +321,24 @@ function dispatch(message: MainToWorkerMessage): void {
       postTicked(message.requestId, []);
       return;
     }
+
+    default:
+      return assertHandled(message);
   }
+}
+
+/**
+ * Compile-time exhaustiveness over `MainToWorkerMessage`.
+ *
+ * Without this the switch simply falls through when the protocol grows a
+ * message — which is precisely what happened when contracts v1.3 added
+ * `fieldSliceRequest`: the worker typechecked, dropped the request, and left
+ * the caller's promise pending forever. A silent hang is the worst failure
+ * this seam can produce, so an unknown message is now a build error here and a
+ * rejected request at runtime.
+ */
+function assertHandled(message: never): never {
+  throw new Error(`unhandled main→worker message: ${JSON.stringify(message)}`);
 }
 
 scope.addEventListener('message', (event: MessageEvent<MainToWorkerMessage>) => {

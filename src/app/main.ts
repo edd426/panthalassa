@@ -37,12 +37,11 @@ const MAX_DOTS = 4096;
 const SERIES_POLL_MS = 400;
 
 /**
- * Field-underlay refresh. The overlay rides on `snapshotRequest` because that
- * is the only message carrying `plankton`/`kelp`, and a snapshot serialises
- * every pool column and genome — hence seconds, not frames, and only while an
- * overlay is actually up.
+ * Field-underlay refresh. Contracts v1.3 gave overlays their own
+ * `fieldSliceRequest`, so this is one raster rather than a whole snapshot and
+ * can run often enough to watch grazing pressure move across the field.
  */
-const FIELD_POLL_MS = 2500;
+const FIELD_POLL_MS = 500;
 
 /** Click tolerance, screen pixels, converted to world units at the current zoom. */
 const SELECT_RADIUS_PX = 16;
@@ -194,20 +193,20 @@ function pollSeries(): void {
 
 function pollField(): void {
   if (!live || overlay === 'off') return;
+  const requested = overlay;
   client
-    .snapshot()
+    .fieldSlice(requested)
     .then((reply) => {
-      const cellSizeWu = Math.max(1, config.world.fieldCellSizeWu);
-      const cols = Math.max(1, Math.ceil(config.world.widthWu / cellSizeWu));
-      const rows = Math.max(1, Math.ceil(config.world.heightWu / cellSizeWu));
-      if (reply.snapshot.plankton.length !== cols * rows) {
-        // The snapshot does not carry the grid shape, so this is the check that
-        // keeps a config mismatch from painting a plausible-looking lie.
-        field = null;
-        note('field overlay unavailable: resource grid shape does not match config');
-        return;
-      }
-      field = { cols, rows, cellSizeWu, plankton: reply.snapshot.plankton, kelp: reply.snapshot.kelp };
+      // The key may have cycled while this was in flight; a late reply must not
+      // paint plankton over a temperature overlay.
+      if (overlay !== requested) return;
+      field = {
+        field: reply.field,
+        cols: reply.cols,
+        rows: reply.rows,
+        cellSizeWu: reply.cellSizeWu,
+        values: reply.values,
+      };
     })
     .catch(fail);
 }

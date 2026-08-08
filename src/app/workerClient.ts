@@ -14,6 +14,8 @@ import type { SampleRow } from '../contracts/stats';
 import type {
   EventsMessage,
   ErrorMessage,
+  FieldSliceField,
+  FieldSliceMessage,
   MainToWorkerMessage,
   OrganismDump,
   PhylogenyMessage,
@@ -92,6 +94,11 @@ export class SimClient {
   async series(sinceTick: number): Promise<readonly SampleRow[]> {
     const reply = await this.expect((requestId) => ({ type: 'seriesRequest', requestId, sinceTick }), 'series');
     return reply.rows;
+  }
+
+  /** One overlay raster. Cheap next to `snapshot()`, which serialises every pool column. */
+  fieldSlice(field: FieldSliceField): Promise<FieldSliceMessage> {
+    return this.expect((requestId) => ({ type: 'fieldSliceRequest', requestId, field }), 'fieldSlice');
   }
 
   snapshot(): Promise<SnapshotMessage> {

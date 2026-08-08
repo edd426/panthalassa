@@ -11,12 +11,13 @@
  */
 
 import { SAMPLE_SLICE, SAMPLE_SLICE_STRIDE } from '../contracts/protocol';
+import type { FieldSliceField } from '../contracts/protocol';
 import type { SimConfig } from '../contracts/types';
 
 /** Field underlays the `f` key cycles through. */
-export type FieldOverlay = 'off' | 'plankton' | 'kelp';
+export type FieldOverlay = 'off' | FieldSliceField;
 
-export const FIELD_OVERLAYS: readonly FieldOverlay[] = ['off', 'plankton', 'kelp'];
+export const FIELD_OVERLAYS: readonly FieldOverlay[] = ['off', 'plankton', 'kelp', 'temperature'];
 
 /** A sample slice held on the main thread; `buffer` is the transferred one. */
 export interface SliceView {
@@ -25,16 +26,16 @@ export interface SliceView {
 }
 
 /**
- * Resource cells lifted out of a snapshot. `SimSnapshot` carries `plankton` and
- * `kelp` but not the grid shape, so the caller derives it from the same config
- * the worker was initialised with and checks the length before trusting it.
+ * One overlay raster, straight off a `fieldSlice` reply. The message carries
+ * its own grid shape, so nothing here re-derives the field geometry from
+ * config — the worker is the only party that knows it.
  */
 export interface FieldRaster {
+  readonly field: FieldSliceField;
   readonly cols: number;
   readonly rows: number;
   readonly cellSizeWu: number;
-  readonly plankton: Float32Array;
-  readonly kelp: Float32Array;
+  readonly values: Float32Array;
 }
 
 export interface Frame {
@@ -133,7 +134,9 @@ export class CrudeRenderer {
     context.fillStyle = water;
     context.fillRect(0, 0, widthWu, heightWu);
 
-    if (frame.overlay !== 'off' && frame.field !== null) this.drawField(frame.overlay, frame.field);
+    if (frame.overlay !== 'off' && frame.field !== null && frame.field.field === frame.overlay) {
+      this.drawField(frame.field);
+    }
     if (frame.slice !== null) this.drawOrganisms(frame.slice);
     if (frame.selected !== null) this.drawSelection(frame.selected.x, frame.selected.y);
 
@@ -143,23 +146,37 @@ export class CrudeRenderer {
     context.restore();
   }
 
-  private drawField(overlay: FieldOverlay, field: FieldRaster): void {
-    const context = this.context;
-    const cells = overlay === 'plankton' ? field.plankton : field.kelp;
-    let peak = 0;
+  private drawField(field: FieldRaster): void {
+    const cells = field.values;
+    let low = Infinity;
+    let high = -Infinity;
     for (let index = 0; index < cells.length; index += 1) {
       const value = cells[index] ?? 0;
-      if (value > peak) peak = value;
+      if (value < low) low = value;
+      if (value > high) high = value;
     }
-    if (peak <= 0) return;
+    if (!Number.isFinite(low) || !Number.isFinite(high)) return;
 
+    const context = this.context;
     const size = field.cellSizeWu;
-    const base = overlay === 'plankton' ? '86, 214, 132' : '26, 128, 96';
+    // Temperature is a diverging axis and is rescaled to whatever range the
+    // field currently spans: the climate walk shifts the whole sea, and a fixed
+    // scale would wash the gradient out exactly when it starts moving.
+    const span = high - low;
+    const resourceBase = field.field === 'plankton' ? '86, 214, 132' : '26, 128, 96';
+
     for (let row = 0; row < field.rows; row += 1) {
       for (let col = 0; col < field.cols; col += 1) {
         const value = cells[row * field.cols + col] ?? 0;
-        if (value <= 0) continue;
-        context.fillStyle = `rgba(${base}, ${((value / peak) * 0.32).toFixed(3)})`;
+        if (field.field === 'temperature') {
+          const t = span > 1e-6 ? (value - low) / span : 0.5;
+          const red = Math.round(40 + t * 190);
+          const blue = Math.round(230 - t * 190);
+          context.fillStyle = `rgba(${red}, 70, ${blue}, 0.3)`;
+        } else {
+          if (high <= 0 || value <= 0) continue;
+          context.fillStyle = `rgba(${resourceBase}, ${((value / high) * 0.32).toFixed(3)})`;
+        }
         context.fillRect(col * size, row * size, size, size);
       }
     }
