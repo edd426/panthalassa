@@ -1,17 +1,21 @@
 # Status — pickup state
 
-_Last updated 2026-08-09 (roadmap + Gate A-2 agenda item added after the
-user's 2,000-generation watch; project remains paused). Originally written
-2026-08-08 evening, at the user's wind-down order. This is the
-handoff for a fresh session: the session that wrote it ran Phase A waves 1–2,
-Gate A-1 + fix wave, the A6 watchability upgrades, and the A7 tuning campaign
-through its discriminator phase. The user's instruction at close: **do not
-start the next phase** (no Gate A-2, no Phase B) until they say so._
+_Last updated 2026-08-09 morning: **the pause is lifted** — after a second
+overnight watch (same world, 5,277 generations; DESIGN.md "Deep time"), the
+user gave the go: "It's time to get to work on all those things you mentioned
+would make the simulation even more interesting to watch." **Gate A-3 is
+passed** — two multi-thousand-generation watches with screenshot reviews
+answer that gate's question far past its 30-minute spec. Execution order:
+dose batch → probe:full → Gate A-2 (Sol) → roadmap items 1+2. Phase B
+(PixiJS) still awaits its own explicit go. Originally written 2026-08-08
+evening at the user's wind-down order, after Phase A waves 1–2, Gate A-1 +
+fix wave, the A6 watchability upgrades, and the A7 campaign through its
+discriminator phase._
 
 ## Resume HERE
 
-**Next action: the one-batch mutation dose search** (knob phase reopened for
-exactly this, then closed). Bracket `quantMutationRate` ≈ 2.0/2.2/2.4e-3,
+**IN FLIGHT as of 2026-08-09 morning: the one-batch mutation dose search**
+(knob phase reopened for exactly this, then closed). Bracket `quantMutationRate` ≈ 2.0/2.2/2.4e-3,
 3 seeds. **Cliff-screen first**: 45 generations × 3 seeds per dose (~2 min)
 before any spec-length run — every knob this campaign was bound by the
 founding transient, and the screen rejects doomed doses for the price of a
@@ -119,13 +123,15 @@ Where the second A7 session left it:
      cap itself is free until used — same shape as the defense-pricing
      question. Sol rules whether this is honest selection or a cheap-trait
      leak.
-3. **Gate A-3**: the user watches ~30 min at mixed speeds (`npm run dev`,
-   port 5183). They already did an informal watch and found it "more
-   interesting than this morning"; their two requests (trait colour modes,
-   trend charts) are BUILT and committed, plus extinction banner/reseed.
-   Only after their formal verdict does Phase B (PixiJS creature rendering)
-   begin — plan at `~/.claude/plans/okay-so-i-ve-been-fluffy-frost.md`.
-   **Phase B is explicitly NOT to be started without the user's go.**
+3. **Gate A-3: PASSED 2026-08-09.** In place of the formal 30-minute watch,
+   the user ran the same world overnight twice (2,000 then 5,277 generations,
+   seed=colour-test), reviewed both via screenshots, called the dots
+   "fascinating to watch", and gave the go to build the roadmap. The gate's
+   question — is watching rewarding before graphics spend begins — is
+   answered at 100× the spec'd dose. Phase B (PixiJS creature rendering,
+   plan at `~/.claude/plans/okay-so-i-ve-been-fluffy-frost.md`) **still
+   requires its own explicit go** — the user's instruction green-lit the
+   roadmap's model work, not the render spend.
 
 ## Roadmap — brainstorm endorsed by the user (2026-08-09)
 

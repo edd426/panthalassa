@@ -817,6 +817,41 @@ honest (fast foragers out-eat their burn) or a cheap-trait leak, the same
 shape as the defense-pricing question already on the Gate A-2 agenda. Added
 there.
 
+### The same run at 5,277 generations (2026-08-09, overnight)
+
+The user kept the same world running overnight to generation ~5,277 (tick
+4.75M, pop 2,716) and shared the panel again. Mostly it deepens act three —
+starvation 82.8% of 11.9M deaths, predation ~1%, `species 1, clades 1`, size
+up ~2.7× (10.2 → 27.8 cm) and `speedCap` now ~11× its floor, both still
+climbing — but two things in the late window are *new*, and they are the most
+hopeful data the project has:
+
+- **Heterozygosity partially recovered.** After bottoming near 0.1 around the
+  run's midpoint it climbs visibly in the last ~500 generations. With the
+  frequency-dependent pump dead, the remaining variance source is mutation
+  input — i.e. deep time directly demonstrates mutation input rebuilding
+  standing variance, which is exactly the lever the dose batch (tuning log)
+  raises. The dose experiment's mechanism is confirmed at depth before the
+  experiment ran.
+- **Attack rose off its floor for the first time in ~5,000 generations.**
+  Defense's vestigial decay continued as before, but attack — floor-bound
+  since act one — climbed late and converged with it, in the same window as
+  the heterozygosity recovery and with the climate walk sitting at −2.00 °C
+  (the HUD log shows it pinned there; the earlier watch saw ±0.02 °C wobble).
+  The honest reading is *not* incipient re-carnivory: predation is still ~0,
+  so rising attack is more plausibly mutation-driven drift on a
+  weakly-selected trait — and possibly an unpaid-trait leak, since the Gate
+  A-2 pricing question covers attack's cost too. But drift or not, rebuilt
+  attack variance is exactly the standing variance a guild rebirth would draw
+  on (barrier 2 of the re-evolution analysis above). The late window is the
+  most re-evolution-favorable state this world has been in since act one —
+  what is missing is the selective push, which is roadmap items 1+2's job.
+
+One more reading: at gen 5,277 the population sits at 2,716, off the slot cap
+— the late-run sawtooth-and-crash pattern from the 2,000-gen watch resolved
+into something that looks more like resource-tracking than cap-bouncing. Worth
+re-examining after roadmap item 4 rather than assuming either way.
+
 ## Superseded or rejected directions
 
 Directions we tried, considered seriously, or inherited and then abandoned —
