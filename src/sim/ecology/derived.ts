@@ -15,6 +15,7 @@
 
 import {
   dietEfficiencyPlankton,
+  dietEfficiencyCarrion,
   dietEfficiencyPrey,
   metabolicCostPerTick,
   thermalPerformance,
@@ -102,6 +103,7 @@ export function ensureOrganismCache(runtime: EcologyRuntime, state: SimState, sl
     Math.pow(Math.max(0, size) / referenceSizeCm(config), config.metabolism.sizeExponent) *
     Math.exp(trait(pop.traits, slot, T_FORAGE_BOLDNESS));
   runtime.memoPlantEfficiency[slot] = dietEfficiencyPlankton(diet, config) * bonus;
+  runtime.memoCarrionEfficiency[slot] = dietEfficiencyCarrion(diet, config);
   runtime.memoPreyEfficiency[slot] = preyEfficiency;
   runtime.memoPreyYield[slot] = preyEfficiency * bonus;
   runtime.memoMaxEnergy[slot] = maxEnergyFor(size, config);

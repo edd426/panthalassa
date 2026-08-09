@@ -45,6 +45,7 @@ export interface HudModel {
   readonly cladeCount: number;
   readonly deaths: Readonly<Record<DeathCause, number>>;
   readonly matings: number;
+  readonly carrionBiomass: number;
   readonly overlay: FieldOverlay;
   readonly framesPerSecond: number;
   /** Tick of the newest `SampleRow` folded into the tallies; −1 before the first row. */
@@ -93,6 +94,12 @@ export function describeEvent(event: SimEvent): string {
       return `t${event.tick} meteor at ${Math.round(event.x)},${Math.round(event.y)} r${Math.round(event.radiusWu)} killed ${event.killed}`;
     case 'mutantIntroduced':
       return `t${event.tick} mutant ${event.id} introduced (${event.source}) in deme ${event.deme}`;
+    case 'thermalShock':
+      return `t${event.tick} thermal shock ${event.magnitudeC >= 0 ? '+' : ''}${fixed(event.magnitudeC, 1)}°C (${event.durationTicks} ticks remaining)`;
+    case 'planktonCrash':
+      return `t${event.tick} plankton crash ×${fixed(event.productivityMultiplier, 2)} ${event.region === null ? 'global' : event.region.kind} (${event.durationTicks} ticks remaining)`;
+    case 'kelpStorm':
+      return `t${event.tick} kelp storm cleared ${fixed(event.clearFraction * 100, 0)}% ${event.region.kind} (${event.durationTicks} ticks remaining)`;
     case 'birth':
     case 'death':
       return `t${event.tick} ${event.kind} ${event.id}`;
@@ -124,6 +131,7 @@ export class Hud {
       `species ${model.speciesCount}   clades ${model.cladeCount}`,
       `deaths ${deathTotal}   ${deathLine}`,
       `matings ${model.matings}   (tallies from sample rows, last t${model.lastRowTick})`,
+      `carrion biomass ${fixed(model.carrionBiomass, 1)}`,
       `colour ${model.colour.mode} — ${model.colour.description}`,
       `       ${model.colour.stops.join('  |  ')}`,
       '',

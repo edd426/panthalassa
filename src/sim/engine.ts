@@ -86,6 +86,8 @@ import type {
   ClimateState,
   DeathCause,
   DemeId,
+  DisturbanceRegion,
+  DisturbanceState,
   MechanismToggles,
   OrganismId,
   ResourceField,
@@ -284,6 +286,7 @@ function makeField(config: SimConfig): ResourceField {
     rows,
     cellSizeWu,
     plankton: new Float32Array(cols * rows),
+    carrion: new Float32Array(cols * rows),
     kelp: new Float32Array(cols * rows),
     carryingCapacity: new Float32Array(cols * rows),
     temperature: new Float32Array(cols * rows),
@@ -300,6 +303,24 @@ function makeBarriers(config: SimConfig): BarrierState {
 
 function makeClimate(): ClimateState {
   return { meanOffsetC: 0, targetOffsetC: 0, seasonPhaseTicks: 0 };
+}
+
+function makeDisturbance(): DisturbanceState {
+  return { thermal: [], planktonCrashes: [], kelpStorms: [] };
+}
+
+function inDisturbanceRegion(region: DisturbanceRegion, x: number, y: number): boolean {
+  if (region.kind === 'disc') {
+    const dx = x - region.xWu;
+    const dy = y - region.yWu;
+    return dx * dx + dy * dy <= region.radiusWu * region.radiusWu;
+  }
+  return (
+    x >= region.xWu &&
+    y >= region.yWu &&
+    x < region.xWu + region.widthWu &&
+    y < region.yWu + region.heightWu
+  );
 }
 
 function emptyDeathCounts(): Record<DeathCause, number> {
@@ -393,6 +414,7 @@ class PanthalassaSim implements SimHandleInternal {
       pop: this.store,
       field: makeField(config),
       climate: makeClimate(),
+      disturbance: makeDisturbance(),
       barriers: makeBarriers(config),
       events: [],
       deathCounts: emptyDeathCounts(),
@@ -701,6 +723,9 @@ class PanthalassaSim implements SimHandleInternal {
         break;
       case 'trackSweep':
         this.stats.trackSweep(command.locus, command.allele, this.state.tick);
+        break;
+      case 'triggerDisturbance':
+        this.triggerDisturbance(command.shock, command.magnitude, command.durationTicks, command.region ?? null);
         break;
       case 'setToggle':
         this.setToggle(command.toggle, command.value);
@@ -1027,6 +1052,7 @@ class PanthalassaSim implements SimHandleInternal {
       const dy = pools.y[slot] ?? 0;
       const age = pools.ageTicks[slot] ?? 0;
       const speciesTag = pools.speciesTag[slot] ?? 0;
+      this.depositCarrion(dx, dy, traitAt(pools, slot, T.size));
       // `killerId` is genuinely absent for the three non-predation channels;
       // `exactOptionalPropertyTypes` means absent and `undefined` are not the
       // same thing, so the two shapes are built separately.
@@ -1372,6 +1398,81 @@ class PanthalassaSim implements SimHandleInternal {
     state.events.push({ kind: 'meteor', tick: state.tick, x, y, radiusWu, killed });
   }
 
+  private depositCarrion(x: number, y: number, biomass: number): void {
+    const state = this.state;
+    if (!state.config.toggles.enableDisturbances) return;
+    const field = state.field;
+    const col = Math.floor(x / field.cellSizeWu);
+    const row = Math.floor(y / field.cellSizeWu);
+    if (col < 0 || row < 0 || col >= field.cols || row >= field.rows) return;
+    const cell = row * field.cols + col;
+    field.carrion[cell] = (field.carrion[cell] ?? 0) + state.config.carrion.depositFraction * Math.max(0, biomass);
+  }
+
+  private triggerDisturbance(
+    shock: 'thermal' | 'planktonCrash' | 'kelpStorm',
+    magnitude: number,
+    durationTicks: number,
+    region: DisturbanceRegion | null,
+  ): void {
+    const state = this.state;
+    if (!state.config.toggles.enableDisturbances) return;
+    const duration = Math.max(1, Math.round(durationTicks));
+    if (shock === 'thermal') {
+      state.disturbance.thermal.push({
+        kind: 'thermal',
+        startedTick: state.tick,
+        magnitudeC: magnitude,
+        durationTicks: duration,
+        remainingTicks: duration,
+      });
+      state.events.push({ kind: 'thermalShock', tick: state.tick, magnitudeC: magnitude, durationTicks: duration });
+      return;
+    }
+    if (shock === 'planktonCrash') {
+      state.disturbance.planktonCrashes.push({
+        kind: 'planktonCrash',
+        startedTick: state.tick,
+        productivityMultiplier: magnitude,
+        durationTicks: duration,
+        remainingTicks: duration,
+        region,
+      });
+      state.events.push({
+        kind: 'planktonCrash',
+        tick: state.tick,
+        productivityMultiplier: magnitude,
+        durationTicks: duration,
+        region,
+      });
+      return;
+    }
+    if (region === null) throw new Error('A scripted kelp storm requires a region.');
+    state.disturbance.kelpStorms.push({
+      kind: 'kelpStorm',
+      startedTick: state.tick,
+      clearFraction: magnitude,
+      durationTicks: duration,
+      remainingTicks: duration,
+      region,
+    });
+    this.clearKelp(region, magnitude);
+    state.events.push({ kind: 'kelpStorm', tick: state.tick, clearFraction: magnitude, durationTicks: duration, region });
+  }
+
+  private clearKelp(region: DisturbanceRegion, fraction: number): void {
+    const field = this.state.field;
+    for (let row = 0; row < field.rows; row += 1) {
+      const y = (row + 0.5) * field.cellSizeWu;
+      for (let col = 0; col < field.cols; col += 1) {
+        const x = (col + 0.5) * field.cellSizeWu;
+        if (!inDisturbanceRegion(region, x, y)) continue;
+        const cell = row * field.cols + col;
+        field.kelp[cell] = (field.kelp[cell] ?? 0) * (1 - fraction);
+      }
+    }
+  }
+
   /**
    * Inject edited individuals. The genome is copied from a living organism
    * rather than freshly founded, so the edit lands on the population's current
@@ -1460,6 +1561,12 @@ class PanthalassaSim implements SimHandleInternal {
     };
     this.configOverrides = { ...this.configOverrides, toggles: merged };
     this.state.config = resolveSimConfig(this.configOverrides);
+    if (toggle === 'enableDisturbances' && !value) {
+      this.state.disturbance.thermal.length = 0;
+      this.state.disturbance.planktonCrashes.length = 0;
+      this.state.disturbance.kelpStorms.length = 0;
+      this.state.field.carrion.fill(0);
+    }
   }
 
   // -------------------------------------------------------------------------

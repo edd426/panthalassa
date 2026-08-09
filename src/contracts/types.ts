@@ -206,6 +206,8 @@ export interface ResourceField {
   readonly cellSizeWu: number;
   /** Plankton biomass per cell; logistic growth toward `carryingCapacity`. */
   readonly plankton: Float32Array;
+  /** Carrion biomass per cell; deposited by deaths and consumed by scavengers. */
+  readonly carrion: Float32Array;
   /** Kelp cover per cell in [0,1]; grows near reefs and shelters prey. */
   readonly kelp: Float32Array;
   /** Per-cell K, recomputed from scratch every tick by ecology's regrow stage; snapshots do not carry it. */
@@ -232,6 +234,42 @@ export interface ClimateState {
   targetOffsetC: number;
   /** Seasonal phase, ticks. */
   seasonPhaseTicks: number;
+}
+
+export type DisturbanceRegion =
+  | { readonly kind: 'disc'; readonly xWu: number; readonly yWu: number; readonly radiusWu: number }
+  | { readonly kind: 'rect'; readonly xWu: number; readonly yWu: number; readonly widthWu: number; readonly heightWu: number };
+
+export interface ThermalShockState {
+  readonly kind: 'thermal';
+  readonly startedTick: number;
+  readonly magnitudeC: number;
+  readonly durationTicks: number;
+  remainingTicks: number;
+}
+
+export interface PlanktonCrashState {
+  readonly kind: 'planktonCrash';
+  readonly startedTick: number;
+  readonly productivityMultiplier: number;
+  readonly durationTicks: number;
+  remainingTicks: number;
+  readonly region: DisturbanceRegion | null;
+}
+
+export interface KelpStormState {
+  readonly kind: 'kelpStorm';
+  readonly startedTick: number;
+  readonly clearFraction: number;
+  readonly durationTicks: number;
+  remainingTicks: number;
+  readonly region: DisturbanceRegion;
+}
+
+export interface DisturbanceState {
+  readonly thermal: ThermalShockState[];
+  readonly planktonCrashes: PlanktonCrashState[];
+  readonly kelpStorms: KelpStormState[];
 }
 
 export type BarrierShape =
@@ -283,6 +321,7 @@ export interface SimState {
   readonly pop: OrganismPools;
   readonly field: ResourceField;
   readonly climate: ClimateState;
+  readonly disturbance: DisturbanceState;
   readonly barriers: BarrierState;
 
   /** Events raised during the current tick; drained at the tick boundary. */
@@ -323,8 +362,10 @@ export interface SimSnapshot {
   /** Length `capacity`; `null` for free slots. */
   readonly genomes: readonly (SerializedGenome | null)[];
   readonly plankton: Float32Array;
+  readonly carrion: Float32Array;
   readonly kelp: Float32Array;
   readonly climate: ClimateState;
+  readonly disturbance: DisturbanceState;
   readonly barriers: readonly BarrierSpec[];
   readonly deathCounts: Record<DeathCause, number>;
   /**
@@ -350,7 +391,7 @@ export interface SerializedGenome {
 }
 
 /** Current snapshot format. Bump on any layout change. */
-export const SNAPSHOT_FORMAT_VERSION = 2;
+export const SNAPSHOT_FORMAT_VERSION = 3;
 
 // ---------------------------------------------------------------------------
 // SimConfig — the tuning surface
@@ -461,6 +502,36 @@ export interface ResourceConfig {
   kelpCoverMax: number;
   kelpReefRadiusWu: number;
   reefCount: number;
+}
+
+export interface DisturbanceConfig {
+  /** Poisson rates are authored per generation; the scheduler converts them per tick. */
+  thermalRatePerGeneration: number;
+  thermalMagnitudeMinC: number;
+  thermalMagnitudeMaxC: number;
+  thermalDurationMinGenerations: number;
+  thermalDurationMaxGenerations: number;
+  planktonCrashRatePerGeneration: number;
+  planktonCrashProductivityMin: number;
+  planktonCrashProductivityMax: number;
+  planktonCrashDurationMinGenerations: number;
+  planktonCrashDurationMaxGenerations: number;
+  planktonCrashRegionalProbability: number;
+  planktonCrashRadiusWu: number;
+  kelpStormRatePerGeneration: number;
+  kelpStormClearFractionMin: number;
+  kelpStormClearFractionMax: number;
+  kelpStormDurationMinGenerations: number;
+  kelpStormDurationMaxGenerations: number;
+  kelpStormSwathWidthWu: number;
+}
+
+export interface CarrionConfig {
+  depositFraction: number;
+  decayHalfLifeGenerations: number;
+  qScav: number;
+  maxIntake: number;
+  halfSaturation: number;
 }
 
 export interface MetabolismConfig {
@@ -627,6 +698,8 @@ export interface MechanismToggles {
   enableSeasonality: boolean;
   /** Female preference. Off = males are accepted at random, killing the assortative-mating speciation route. */
   enableAssortativeMating: boolean;
+  /** Coupled disturbance regime, including carrion recycling and scavenging. */
+  enableDisturbances: boolean;
 }
 
 export interface SimConfig {
@@ -635,6 +708,8 @@ export interface SimConfig {
   readonly genetics: GeneticsConfig;
   readonly thermal: ThermalConfig;
   readonly resources: ResourceConfig;
+  readonly disturbance: DisturbanceConfig;
+  readonly carrion: CarrionConfig;
   readonly metabolism: MetabolismConfig;
   readonly predation: PredationConfig;
   readonly senescence: SenescenceConfig;
@@ -709,6 +784,33 @@ export const DEFAULT_SIM_CONFIG: SimConfig = Object.freeze({
     kelpCoverMax: 1,
     kelpReefRadiusWu: 160,
     reefCount: 5,
+  }),
+  disturbance: Object.freeze({
+    thermalRatePerGeneration: 1 / 150,
+    thermalMagnitudeMinC: 2,
+    thermalMagnitudeMaxC: 5,
+    thermalDurationMinGenerations: 10,
+    thermalDurationMaxGenerations: 30,
+    planktonCrashRatePerGeneration: 1 / 200,
+    planktonCrashProductivityMin: 0.2,
+    planktonCrashProductivityMax: 0.5,
+    planktonCrashDurationMinGenerations: 5,
+    planktonCrashDurationMaxGenerations: 20,
+    planktonCrashRegionalProbability: 0.5,
+    planktonCrashRadiusWu: 350,
+    kelpStormRatePerGeneration: 1 / 250,
+    kelpStormClearFractionMin: 0.8,
+    kelpStormClearFractionMax: 1,
+    kelpStormDurationMinGenerations: 8,
+    kelpStormDurationMaxGenerations: 20,
+    kelpStormSwathWidthWu: 240,
+  }),
+  carrion: Object.freeze({
+    depositFraction: 0.3,
+    decayHalfLifeGenerations: 1,
+    qScav: 0.7,
+    maxIntake: 0.7,
+    halfSaturation: 2,
   }),
   metabolism: Object.freeze({
     baseRate: 0.012,
@@ -790,6 +892,7 @@ export const DEFAULT_SIM_CONFIG: SimConfig = Object.freeze({
     enableMutation: true,
     enableSeasonality: true,
     enableAssortativeMating: true,
+    enableDisturbances: true,
   }),
 });
 

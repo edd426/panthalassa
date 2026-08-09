@@ -15,6 +15,7 @@
 
 import type { RandomSource, SimState } from '../../contracts/types';
 import type { EcologyRuntime } from './runtime';
+import { planktonProductivityMultiplierAt, thermalShockOffsetC } from './disturbances';
 import {
   barrierPermeabilityAt,
   clamp01,
@@ -37,7 +38,7 @@ export function seasonOffsetC(state: SimState): number {
 
 /** Local temperature, °C. */
 export function temperatureAt(state: SimState, x: number, y: number): number {
-  return spatialTemperatureC(state.config, x, y) + seasonOffsetC(state) + state.climate.meanOffsetC;
+  return spatialTemperatureC(state.config, x, y) + seasonOffsetC(state) + state.climate.meanOffsetC + thermalShockOffsetC(state);
 }
 
 /**
@@ -114,7 +115,7 @@ function reportClimateExcursion(state: SimState, previous: number, next: number,
  * the spatial part is precomputed, so the per-cell cost is one addition.
  */
 export function writeTemperatureField(runtime: EcologyRuntime, state: SimState): void {
-  const offset = seasonOffsetC(state) + state.climate.meanOffsetC;
+  const offset = seasonOffsetC(state) + state.climate.meanOffsetC + thermalShockOffsetC(state);
   const temperature = state.field.temperature;
   const { baseTempC, cellCount } = runtime;
   for (let cell = 0; cell < cellCount; cell += 1) {
@@ -158,13 +159,20 @@ export function localTemperatureC(runtime: EcologyRuntime, state: SimState, x: n
 export function updateCarryingCapacity(runtime: EcologyRuntime, state: SimState): void {
   const { thermalSuitabilityWidthC, planktonOptimumC } = state.config.resources;
   const width = Math.max(1e-3, thermalSuitabilityWidthC);
-  const offset = seasonOffsetC(state) + state.climate.meanOffsetC;
+  const offset = seasonOffsetC(state) + state.climate.meanOffsetC + thermalShockOffsetC(state);
   const capacity = state.field.carryingCapacity;
   const { baseTempC, kBase, cellCount } = runtime;
 
   for (let cell = 0; cell < cellCount; cell += 1) {
     const z = ((baseTempC[cell] ?? 0) + offset - planktonOptimumC) / width;
-    capacity[cell] = (kBase[cell] ?? 0) * Math.exp(-z * z);
+    const col = cell % runtime.cols;
+    const row = Math.floor(cell / runtime.cols);
+    const productivity = planktonProductivityMultiplierAt(
+      state,
+      (col + 0.5) * runtime.cellSizeWu,
+      (row + 0.5) * runtime.cellSizeWu,
+    );
+    capacity[cell] = (kBase[cell] ?? 0) * Math.exp(-z * z) * productivity;
   }
   runtime.capacityTick = state.tick;
 }
@@ -186,7 +194,7 @@ export function ensureCarryingCapacity(runtime: EcologyRuntime, state: SimState)
 export function writeClimateFields(runtime: EcologyRuntime, state: SimState): void {
   const { thermalSuitabilityWidthC, planktonOptimumC } = state.config.resources;
   const width = Math.max(1e-3, thermalSuitabilityWidthC);
-  const offset = seasonOffsetC(state) + state.climate.meanOffsetC;
+  const offset = seasonOffsetC(state) + state.climate.meanOffsetC + thermalShockOffsetC(state);
   const temperature = state.field.temperature;
   const capacity = state.field.carryingCapacity;
   const { baseTempC, kBase, cellCount } = runtime;
@@ -195,7 +203,14 @@ export function writeClimateFields(runtime: EcologyRuntime, state: SimState): vo
     const base = baseTempC[cell] ?? 0;
     temperature[cell] = base + offset;
     const z = (base + offset - planktonOptimumC) / width;
-    capacity[cell] = (kBase[cell] ?? 0) * Math.exp(-z * z);
+    const col = cell % runtime.cols;
+    const row = Math.floor(cell / runtime.cols);
+    const productivity = planktonProductivityMultiplierAt(
+      state,
+      (col + 0.5) * runtime.cellSizeWu,
+      (row + 0.5) * runtime.cellSizeWu,
+    );
+    capacity[cell] = (kBase[cell] ?? 0) * Math.exp(-z * z) * productivity;
   }
   runtime.temperatureTick = state.tick;
   runtime.capacityTick = state.tick;

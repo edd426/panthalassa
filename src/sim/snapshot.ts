@@ -26,6 +26,7 @@ import type {
   DeathCause,
   SerializedGenome,
   SimConfigOverrides,
+  DisturbanceState,
   SimSnapshot,
   SimState,
   SlotIndex,
@@ -138,6 +139,36 @@ export function computeStateHash(state: SimState, store: OrganismStore): string 
   hasher.bytes(state.field.plankton);
   hasher.bytes(state.field.kelp);
 
+  // The off arm is deliberately byte-for-byte compatible with the pre-D-wave
+  // world hash. This makes the scheduler's marginal-contribution control a
+  // strict trajectory check, not merely a same-seed comparison.
+  if (state.config.toggles.enableDisturbances) {
+    hasher.bytes(state.field.carrion);
+    for (const shock of state.disturbance.thermal) {
+      hasher.text(shock.kind);
+      hasher.number(shock.startedTick);
+      hasher.number(shock.magnitudeC);
+      hasher.number(shock.durationTicks);
+      hasher.number(shock.remainingTicks);
+    }
+    for (const shock of state.disturbance.planktonCrashes) {
+      hasher.text(shock.kind);
+      hasher.number(shock.startedTick);
+      hasher.number(shock.productivityMultiplier);
+      hasher.number(shock.durationTicks);
+      hasher.number(shock.remainingTicks);
+      hashRegion(hasher, shock.region);
+    }
+    for (const shock of state.disturbance.kelpStorms) {
+      hasher.text(shock.kind);
+      hasher.number(shock.startedTick);
+      hasher.number(shock.clearFraction);
+      hasher.number(shock.durationTicks);
+      hasher.number(shock.remainingTicks);
+      hashRegion(hasher, shock.region);
+    }
+  }
+
   hasher.number(state.climate.meanOffsetC);
   hasher.number(state.climate.targetOffsetC);
   hasher.number(state.climate.seasonPhaseTicks);
@@ -170,6 +201,22 @@ export function computeStateHash(state: SimState, store: OrganismStore): string 
   return hasher.digest();
 }
 
+function hashRegion(hasher: WorldHasher, region: import('../contracts/types').DisturbanceRegion | null): void {
+  if (region === null) {
+    hasher.byte(0);
+    return;
+  }
+  hasher.byte(1);
+  hasher.text(region.kind);
+  hasher.number(region.xWu);
+  hasher.number(region.yWu);
+  if (region.kind === 'disc') hasher.number(region.radiusWu);
+  else {
+    hasher.number(region.widthWu);
+    hasher.number(region.heightWu);
+  }
+}
+
 // ---------------------------------------------------------------------------
 // Serialise
 // ---------------------------------------------------------------------------
@@ -193,6 +240,17 @@ function copyClimate(climate: ClimateState): ClimateState {
     meanOffsetC: climate.meanOffsetC,
     targetOffsetC: climate.targetOffsetC,
     seasonPhaseTicks: climate.seasonPhaseTicks,
+  };
+}
+
+function copyDisturbance(disturbance: DisturbanceState): DisturbanceState {
+  return {
+    thermal: disturbance.thermal.map((shock) => ({ ...shock })),
+    planktonCrashes: disturbance.planktonCrashes.map((shock) => ({
+      ...shock,
+      region: shock.region === null ? null : { ...shock.region },
+    })),
+    kelpStorms: disturbance.kelpStorms.map((shock) => ({ ...shock, region: { ...shock.region } })),
   };
 }
 
@@ -239,8 +297,10 @@ export function serializeSnapshot(
     columns,
     genomes,
     plankton: state.field.plankton.slice(),
+    carrion: state.field.carrion.slice(),
     kelp: state.field.kelp.slice(),
     climate: copyClimate(state.climate),
+    disturbance: copyDisturbance(state.disturbance),
     barriers: state.barriers.specs.map((spec) => ({ ...spec })),
     deathCounts: copyDeathCounts(state.deathCounts),
     species: species.map((entry) => ({ ...entry })),
@@ -292,11 +352,27 @@ export function applySnapshot(state: SimState, store: OrganismStore, snapshot: S
   state.liveCount = snapshot.liveCount;
 
   state.field.plankton.set(snapshot.plankton);
+  state.field.carrion.set(snapshot.carrion);
   state.field.kelp.set(snapshot.kelp);
 
   state.climate.meanOffsetC = snapshot.climate.meanOffsetC;
   state.climate.targetOffsetC = snapshot.climate.targetOffsetC;
   state.climate.seasonPhaseTicks = snapshot.climate.seasonPhaseTicks;
+
+  state.disturbance.thermal.splice(0, state.disturbance.thermal.length, ...snapshot.disturbance.thermal.map((shock) => ({ ...shock })));
+  state.disturbance.planktonCrashes.splice(
+    0,
+    state.disturbance.planktonCrashes.length,
+    ...snapshot.disturbance.planktonCrashes.map((shock) => ({
+      ...shock,
+      region: shock.region === null ? null : { ...shock.region },
+    })),
+  );
+  state.disturbance.kelpStorms.splice(
+    0,
+    state.disturbance.kelpStorms.length,
+    ...snapshot.disturbance.kelpStorms.map((shock) => ({ ...shock, region: { ...shock.region } })),
+  );
 
   state.barriers.specs.length = 0;
   for (const spec of snapshot.barriers) state.barriers.specs.push({ ...spec });

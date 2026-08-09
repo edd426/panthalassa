@@ -15,6 +15,7 @@ import { driftProbe, flatlineProbe, heritabilityProbe, varianceProbe } from './g
 import { barrierProbe } from './barrier';
 import { coevolutionProbe, speciationProbe, sweepProbe } from './community';
 import { performanceProbe } from './performance';
+import { disturbanceProbe, reEvolvabilityProbe } from './disturbance';
 
 export const PROBES: readonly ProbeDefinition[] = [
   determinismProbe, // P1
@@ -31,6 +32,8 @@ export const PROBES: readonly ProbeDefinition[] = [
   performanceProbe, // P12
   heritabilityProbe, // P13
   driftProbe, // P14
+  disturbanceProbe, // P15
+  reEvolvabilityProbe, // P16
 ];
 
 /** Scenarios that at least one probe reads, excluding the standalone probes' own harnesses. */

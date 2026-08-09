@@ -22,6 +22,7 @@ import type {
   BarrierShape,
   CladeId,
   DemeId,
+  DisturbanceRegion,
   OrganismId,
   SimConfigOverrides,
   SimSnapshot,
@@ -146,6 +147,15 @@ export type SimCommand =
     }
   /** Register an allele whose frequency the recorder should follow, so it can raise `sweepCrossedHalf`. */
   | { readonly kind: 'trackSweep'; readonly locus: DiscreteLocusId; readonly allele: number }
+  | {
+      readonly kind: 'triggerDisturbance';
+      readonly shock: 'thermal' | 'planktonCrash' | 'kelpStorm';
+      /** °C for thermal, productivity multiplier for crash, cleared fraction for kelp. */
+      readonly magnitude: number;
+      readonly durationTicks: number;
+      /** Null/absent means a global plankton crash; kelp storms require a region. */
+      readonly region?: DisturbanceRegion | null;
+    }
   | { readonly kind: 'setToggle'; readonly toggle: string; readonly value: boolean };
 
 // ---------------------------------------------------------------------------

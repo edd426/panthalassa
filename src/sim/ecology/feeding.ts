@@ -11,7 +11,7 @@
  * than toward its mean. Nothing in this file may soften that.
  */
 
-import { grazingIntake } from '../../contracts/formulas';
+import { carrionIntake, grazingIntake } from '../../contracts/formulas';
 import type { RandomSource, SimState, SlotIndex } from '../../contracts/types';
 import { T_METABOLIC_EFF, T_OPT, T_WIDTH, trait } from './columns';
 import { ensureOrganismCache, thermalToleranceOf } from './derived';
@@ -47,8 +47,9 @@ export function applyFeeding(
   const x = pop.x[slot] ?? 0;
   const y = pop.y[slot] ?? 0;
   const cell = fieldCellAt(runtime, x, y);
-  const resource = state.field.plankton[cell] ?? 0;
-  if (resource <= 0) return 0;
+  const plankton = state.field.plankton[cell] ?? 0;
+  const carrion = state.field.carrion[cell] ?? 0;
+  if (plankton <= 0 && (!state.config.toggles.enableDisturbances || carrion <= 0)) return 0;
 
   ensureOrganismCache(runtime, state, slot);
   const headroom = (runtime.memoMaxEnergy[slot] ?? 0) - (pop.energy[slot] ?? 0);
@@ -66,19 +67,44 @@ export function applyFeeding(
     ) * (runtime.memoThermalTax[slot] ?? 0);
   const jitter = 1 + INTAKE_JITTER_HALF_WIDTH * (2 * rng.next() - 1);
 
-  let harvested =
-    grazingIntake(runtime.memoBite[slot] ?? 0, runtime.memoPlantEfficiency[slot] ?? 0, resource, state.config) *
-    performance *
-    jitter;
-  if (harvested <= 0) return 0;
-  if (harvested > resource) harvested = resource;
+  const assimilation = Math.max(0, trait(traits, slot, T_METABOLIC_EFF));
+  let remainingHeadroom = headroom;
+  let totalGained = 0;
 
-  let gained = harvested * Math.max(0, trait(traits, slot, T_METABOLIC_EFF));
-  if (gained > headroom) {
-    harvested *= headroom / gained;
-    gained = headroom;
+  let planktonHarvest = grazingIntake(
+    runtime.memoBite[slot] ?? 0,
+    runtime.memoPlantEfficiency[slot] ?? 0,
+    plankton,
+    state.config,
+  ) * performance * jitter;
+  if (planktonHarvest > plankton) planktonHarvest = plankton;
+  if (planktonHarvest > 0 && assimilation > 0) {
+    let gained = planktonHarvest * assimilation;
+    if (gained > remainingHeadroom) {
+      planktonHarvest *= remainingHeadroom / gained;
+      gained = remainingHeadroom;
+    }
+    state.field.plankton[cell] = plankton - planktonHarvest;
+    totalGained += gained;
+    remainingHeadroom -= gained;
   }
 
-  state.field.plankton[cell] = resource - harvested;
-  return gained;
+  if (!state.config.toggles.enableDisturbances || carrion <= 0 || remainingHeadroom <= 0) return totalGained;
+  const grazingMax = state.config.resources.grazingMaxIntake;
+  const biteScale = grazingMax > 0 ? (runtime.memoBite[slot] ?? 0) / grazingMax : 0;
+  let carrionHarvest = carrionIntake(
+    biteScale,
+    runtime.memoCarrionEfficiency[slot] ?? 0,
+    carrion,
+    state.config,
+  ) * performance * jitter;
+  if (carrionHarvest > carrion) carrionHarvest = carrion;
+  if (carrionHarvest <= 0 || assimilation <= 0) return totalGained;
+  let gained = carrionHarvest * assimilation;
+  if (gained > remainingHeadroom) {
+    carrionHarvest *= remainingHeadroom / gained;
+    gained = remainingHeadroom;
+  }
+  state.field.carrion[cell] = carrion - carrionHarvest;
+  return totalGained + gained;
 }

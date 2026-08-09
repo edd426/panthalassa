@@ -14,7 +14,7 @@
 
 import type { CladeArchetype } from './genome';
 import type { DiscreteLocusId, QuantLocusId } from './genome';
-import type { BarrierSpec, CladeId, DeathCause, DemeId, OrganismId, SpeciesTag } from './types';
+import type { BarrierSpec, CladeId, DeathCause, DemeId, DisturbanceRegion, OrganismId, SpeciesTag } from './types';
 
 interface EventBase {
   readonly tick: number;
@@ -131,6 +131,26 @@ export interface MutantIntroducedEvent extends EventBase {
   readonly deme: DemeId;
 }
 
+export interface ThermalShockEvent extends EventBase {
+  readonly kind: 'thermalShock';
+  readonly magnitudeC: number;
+  readonly durationTicks: number;
+}
+
+export interface PlanktonCrashEvent extends EventBase {
+  readonly kind: 'planktonCrash';
+  readonly productivityMultiplier: number;
+  readonly durationTicks: number;
+  readonly region: DisturbanceRegion | null;
+}
+
+export interface KelpStormEvent extends EventBase {
+  readonly kind: 'kelpStorm';
+  readonly clearFraction: number;
+  readonly durationTicks: number;
+  readonly region: DisturbanceRegion;
+}
+
 export type SimEvent =
   | BirthEvent
   | DeathEvent
@@ -141,7 +161,10 @@ export type SimEvent =
   | ClimateEvent
   | BarrierChangeEvent
   | MeteorEvent
-  | MutantIntroducedEvent;
+  | MutantIntroducedEvent
+  | ThermalShockEvent
+  | PlanktonCrashEvent
+  | KelpStormEvent;
 
 export type SimEventKind = SimEvent['kind'];
 
@@ -156,6 +179,9 @@ export const SIM_EVENT_KINDS = [
   'barrierChange',
   'meteor',
   'mutantIntroduced',
+  'thermalShock',
+  'planktonCrash',
+  'kelpStorm',
 ] as const satisfies readonly SimEventKind[];
 
 /**
@@ -171,6 +197,9 @@ export const NARRATIVE_EVENT_KINDS = [
   'barrierChange',
   'meteor',
   'mutantIntroduced',
+  'thermalShock',
+  'planktonCrash',
+  'kelpStorm',
 ] as const satisfies readonly SimEventKind[];
 
 export function isNarrativeEvent(event: SimEvent): boolean {
