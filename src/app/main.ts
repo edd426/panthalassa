@@ -108,6 +108,7 @@ let seed = new URLSearchParams(window.location.search).get('seed') ?? drawSeed()
 
 let tick = 0;
 let population = 0;
+let carrionBiomass = 0;
 let speedIndex = 1;
 let paused = false;
 let overlay: FieldOverlay = 'off';
@@ -288,8 +289,10 @@ function pollSeries(): void {
     .series(lastRowTick)
     .then((rows) => {
       if (forEpoch !== epoch) return;
+      let received = false;
       for (const row of rows) {
         if (row.tick <= lastRowTick) continue;
+        received = true;
         lastRowTick = row.tick;
         for (const cause of DEATH_CAUSES) deaths[cause] += row.deaths[cause];
         matings += row.matings;
@@ -299,6 +302,15 @@ function pollSeries(): void {
         // arrival so a long run holds arrays of floats rather than the objects.
         appendTrendRow(trends, row);
         chartsDirty = true;
+      }
+      if (received) {
+        client
+          .snapshot()
+          .then((reply) => {
+            if (forEpoch !== epoch) return;
+            carrionBiomass = reply.snapshot.carrion.reduce((sum, value) => sum + value, 0);
+          })
+          .catch(fail);
       }
     })
     .catch(fail);
@@ -391,6 +403,7 @@ function frame(timestamp: number): void {
     cladeCount,
     deaths,
     matings,
+    carrionBiomass,
     overlay,
     framesPerSecond,
     lastRowTick,
@@ -517,6 +530,7 @@ function startWorld(nextSeed: string): void {
   const forEpoch = epoch;
 
   live = false;
+  carrionBiomass = 0;
   seed = nextSeed;
 
   tick = 0;

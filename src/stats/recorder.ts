@@ -48,6 +48,7 @@ import { AncestryStore, PhylogenyStore } from './ancestry';
 import type { LineageSummary, SpeciesObservation } from './ancestry';
 import { PopgenEngine, meanExpectedHeterozygosity, neutralAlleleFrequencies } from './popgen';
 import { GrowableColumn, Welford } from './shared';
+import { thermalShockOffsetC } from '../sim/ecology/disturbances';
 
 export interface StatsOptions {
   readonly config: SimConfig;
@@ -226,6 +227,7 @@ export class StatsRecorder implements StatsRecorderApi {
     const attackIndex = TRAIT_INDEX.attack;
     const defenseIndex = TRAIT_INDEX.defense;
     let predators = 0;
+    let dietSum = 0;
     let attackSum = 0;
     let defenseSum = 0;
     let population = 0;
@@ -243,7 +245,9 @@ export class StatsRecorder implements StatsRecorderApi {
       }
 
       // Expressed `diet` is the logistic share, so the guild boundary is 0.5.
-      if ((pop.traits[base + dietIndex] ?? 0) > 0.5) predators += 1;
+      const expressedDiet = pop.traits[base + dietIndex] ?? 0;
+      if (expressedDiet > 0.5) predators += 1;
+      dietSum += expressedDiet;
       attackSum += pop.traitsLatent[base + attackIndex] ?? 0;
       defenseSum += pop.traitsLatent[base + defenseIndex] ?? 0;
 
@@ -367,6 +371,12 @@ export class StatsRecorder implements StatsRecorderApi {
     };
 
     this.append(row);
+    this.appendScalar('resources.carrionTotal', carrionTotal(state));
+    this.appendScalar('disturbances.thermalCount', state.disturbance.thermal.length);
+    this.appendScalar('disturbances.planktonCrashCount', state.disturbance.planktonCrashes.length);
+    this.appendScalar('disturbances.kelpStormCount', state.disturbance.kelpStorms.length);
+    this.appendScalar('disturbances.thermalOffsetC', thermalShockOffsetC(state));
+    this.appendScalar('guilds.meanDiet', population > 0 ? dietSum / population : 0);
     return row;
   }
 
@@ -545,13 +555,17 @@ export class StatsRecorder implements StatsRecorderApi {
     this.rows.push(row);
     this.rowTicks.push(row.tick);
     for (const [name, value] of scalarColumns(row)) {
-      let column = this.columns.get(name);
-      if (column === undefined) {
-        column = new GrowableColumn();
-        this.columns.set(name, column);
-      }
-      column.push(value);
+      this.appendScalar(name, value);
     }
+  }
+
+  private appendScalar(name: string, value: number): void {
+    let column = this.columns.get(name);
+    if (column === undefined) {
+      column = new GrowableColumn();
+      this.columns.set(name, column);
+    }
+    column.push(value);
   }
 
   /** Index into `rows` of the first row strictly after `sinceTick`. */
@@ -573,6 +587,12 @@ export class StatsRecorder implements StatsRecorderApi {
 
 function sweepKey(locus: DiscreteLocusId, allele: number): string {
   return `${locus}:${allele}`;
+}
+
+function carrionTotal(state: SimState): number {
+  let total = 0;
+  for (let index = 0; index < state.field.carrion.length; index += 1) total += state.field.carrion[index] ?? 0;
+  return total;
 }
 
 function speciesObservations(bySpecies: ReadonlyMap<SpeciesTag, SpeciesAccumulator>): SpeciesObservation[] {

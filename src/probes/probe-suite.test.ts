@@ -63,7 +63,7 @@ function minimalRun(overrides: Partial<RunResult> = {}): RunResult {
 }
 
 describe('probe registry', () => {
-  it('covers P1 through P14 exactly once, in the plan’s order', () => {
+  it('covers P1 through P16 exactly once, in the plan’s order', () => {
     expect(PROBES.map((probe) => probe.id)).toEqual([
       'P1',
       'P2',
@@ -79,6 +79,8 @@ describe('probe registry', () => {
       'P12',
       'P13',
       'P14',
+      'P15',
+      'P16',
     ]);
   });
 
@@ -106,6 +108,10 @@ describe('probe registry', () => {
     });
     expect(sweepProbe.aggregate).toMatchObject({ kind: 'k-of-n', minPassFraction: 1 / 3 });
     expect(sweepProbe.companionScenarios).toEqual(['sweep-control']);
+    expect(PROBES.find((probe) => probe.id === 'P16')?.aggregate).toMatchObject({
+      kind: 'k-of-n',
+      minPassFraction: 1 / 3,
+    });
   });
 });
 

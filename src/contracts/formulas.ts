@@ -133,6 +133,23 @@ export function dietEfficiencyPrey(diet: number, config: SimConfig): number {
   return Math.pow(Math.max(0, diet), config.metabolism.dietConvexity);
 }
 
+/** Concave scavenging ramp, `diet^qScav`, in contrast to convex live-prey efficiency. */
+export function dietEfficiencyCarrion(diet: number, config: SimConfig): number {
+  return Math.pow(Math.max(0, diet), config.carrion.qScav);
+}
+
+/** Holling type-II carrion intake with its own scarce-resource economics. */
+export function carrionIntake(
+  biteScale: number,
+  dietEfficiency: number,
+  cellCarrion: number,
+  config: SimConfig,
+): number {
+  const resource = Math.max(0, cellCarrion);
+  return config.carrion.maxIntake * biteScale * dietEfficiency *
+    (resource / (config.carrion.halfSaturation + resource));
+}
+
 /**
  * Holling type-II grazing intake: `bite · dietEff · R / (Rhalf + R)`.
  *

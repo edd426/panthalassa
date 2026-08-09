@@ -124,6 +124,7 @@ export interface EcologyRuntime {
   memoSize: Float32Array;
   memoBite: Float32Array;
   memoPlantEfficiency: Float32Array;
+  memoCarrionEfficiency: Float32Array;
   memoPreyEfficiency: Float32Array;
   memoPreyYield: Float32Array;
   memoMaxEnergy: Float32Array;
@@ -220,6 +221,7 @@ function buildRuntime(state: SimState): EcologyRuntime {
     memoSize: new Float32Array(capacity).fill(Number.NaN),
     memoBite: new Float32Array(capacity),
     memoPlantEfficiency: new Float32Array(capacity),
+    memoCarrionEfficiency: new Float32Array(capacity),
     memoPreyEfficiency: new Float32Array(capacity),
     memoPreyYield: new Float32Array(capacity),
     memoMaxEnergy: new Float32Array(capacity),

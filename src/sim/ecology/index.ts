@@ -23,6 +23,7 @@ import { applyFeeding } from './feeding';
 import { metabolismAndHazards } from './metabolism';
 import { hueMorphFrequencyAt, tryPredation } from './predation';
 import { kelpCoverAt, regrowResources } from './resources';
+import { updateDisturbances } from './disturbances';
 import type { EcologyRuntime } from './runtime';
 import { ensureRuntime } from './runtime';
 
@@ -73,6 +74,7 @@ export function createEcology(): EcologyApi {
       // previous offset and again from the new one. Take the runtime, step,
       // publish once, then stamp the cache so the rest of the tick skips it.
       runtime = ensureRuntime(runtime, state);
+      updateDisturbances(state);
       stepClimate(state, rng);
       writeClimateFields(runtime, state);
       checkedState = state;

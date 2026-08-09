@@ -120,11 +120,13 @@ function makeState(overrides: SimConfigOverrides = {}, capacity = 64, seed = 'pr
       rows,
       cellSizeWu: fieldCell,
       plankton: new Float32Array(cells),
+      carrion: new Float32Array(cells),
       kelp: new Float32Array(cells),
       carryingCapacity: new Float32Array(cells),
       temperature: new Float32Array(cells),
     },
     climate: { meanOffsetC: 0, targetOffsetC: 0, seasonPhaseTicks: 0 },
+    disturbance: { thermal: [], planktonCrashes: [], kelpStorms: [] },
     barriers: {
       cols,
       rows,

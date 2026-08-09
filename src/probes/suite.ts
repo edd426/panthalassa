@@ -4,18 +4,18 @@
  *
  * Two named suites plus whatever `--scenario` asks for:
  *
- * - **quick** (~4 minutes, every change) — one seed over `baseline`, `barrier`
- *   and `sweep`, plus the three standalone gates. The generation counts in
+ * - **quick** (~4 minutes, every change) — one seed over `baseline`, `barrier`,
+ *   `sweep` and the disturbance smoke, plus the standalone probes. The generation counts in
  *   `Scenario.quickGenerations` are sized against that budget *for a healthy
  *   world*: the budget is spent in organism-ticks, so a run that collapses
  *   early finishes early and the suite comes in well under time.
- * - **full** (`LONG_SIM=1`, gates and nightly) — three seeds over those three
- *   plus `speciation`, at the plan's generation counts. Probes with a declared
+ * - **full** (`LONG_SIM=1`, gates and nightly) — three seeds over the ecological
+ *   scenarios, including P15/P16 at spec length. Probes with a declared
  *   cross-seed prevalence emit one additional suite-level row.
  *
- * The six mechanism-toggle scenarios are in neither: they exist for WP-A7's
+ * The mechanism-toggle scenarios are in neither: they exist for marginal
  * marginal-contribution measurements and are reached with `--scenario=no-…`.
- * Six more long runs would put `probe:full` past its budget for numbers nobody
+ * More long runs would put `probe:full` past its budget for numbers nobody
  * reads on a normal night.
  */
 
@@ -53,8 +53,15 @@ export interface SuiteResult {
   readonly skipped: readonly string[];
 }
 
-export const QUICK_SCENARIOS = ['baseline', 'barrier', 'sweep'] as const;
-export const FULL_SCENARIOS = ['baseline', 'barrier', 'sweep', 'speciation'] as const;
+export const QUICK_SCENARIOS = ['baseline', 'barrier', 'sweep', 'disturbance-smoke'] as const;
+export const FULL_SCENARIOS = [
+  'baseline',
+  'barrier',
+  'sweep',
+  'speciation',
+  'disturbance-smoke',
+  're-evolvability',
+] as const;
 export const QUICK_SEEDS = ['q1'] as const;
 export const FULL_SEEDS = ['s1', 's2', 's3'] as const;
 
@@ -67,6 +74,10 @@ export function defaultSuiteOptions(suite: SuiteName): Pick<SuiteOptions, 'seeds
 function generationsFor(scenarioName: string, options: SuiteOptions): number {
   if (options.generations !== undefined) return options.generations;
   const scenario = scenarioByName(scenarioName);
+  // This named smoke is intentionally short when invoked directly by the
+  // acceptance command; the full suite takes the same scripted setup to its
+  // spec-length `generations` value for P15's rate/adaptation reading.
+  if (options.suite === 'custom' && scenarioName === 'disturbance-smoke') return scenario.quickGenerations;
   return options.suite === 'quick' ? scenario.quickGenerations : scenario.generations;
 }
 

@@ -29,6 +29,16 @@ const PROPAGULE_FRACTION = 1e-3;
 /** Kelp regrows from the holdfast, so it needs a larger seed than drifting plankton. */
 const KELP_PROPAGULE_FRACTION = 5e-3;
 
+/** Exponential carrion decay over an arbitrary tick span. */
+export function decayCarrion(state: SimState, elapsedTicks: number): void {
+  if (!state.config.toggles.enableDisturbances) return;
+  const halfLifeTicks = state.config.carrion.decayHalfLifeGenerations * state.config.time.generationTicks;
+  const decay = Math.exp((-Math.LN2 * elapsedTicks) / Math.max(1e-9, halfLifeTicks));
+  for (let cell = 0; cell < state.field.carrion.length; cell += 1) {
+    state.field.carrion[cell] = (state.field.carrion[cell] ?? 0) * decay;
+  }
+}
+
 /**
  * One logistic step toward `capacity`, with a propagule term and a hard floor
  * at zero. Exported because it is the cleanest thing in the module to assert
@@ -76,6 +86,10 @@ export function regrowResources(runtime: EcologyRuntime, state: SimState): void 
 
   for (let cell = 0; cell < cellCount; cell += 1) {
     plankton[cell] = logisticStep(plankton[cell] ?? 0, carryingCapacity[cell] ?? 0, planktonRate);
+  }
+
+  if (state.config.toggles.enableDisturbances) {
+    decayCarrion(state, RESOURCE_UPDATE_INTERVAL);
   }
 
   // Semi-Lagrangian advection along the divergence-free current. Kelp is

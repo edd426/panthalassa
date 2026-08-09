@@ -438,7 +438,7 @@ export const DETERMINISM_SNAPSHOT_TICK = 600;
 const determinism: Scenario = {
   name: 'determinism',
   description: `Paired runs and a snapshot round-trip over ${DETERMINISM_TICKS} ticks. Feeds P1.`,
-  overrides: { world: { initialPopulation: 400 } },
+  overrides: { world: { initialPopulation: 400 }, toggles: { enableDisturbances: true } },
   interventions: [],
   generations: DETERMINISM_TICKS / DEFAULT_SIM_CONFIG.time.generationTicks,
   quickGenerations: DETERMINISM_TICKS / DEFAULT_SIM_CONFIG.time.generationTicks,
@@ -457,7 +457,7 @@ const determinism: Scenario = {
  * contribution by differencing a toggle-off run against `baseline`, rather than
  * arguing about which knob mattered. They are reachable through
  * `--scenario=no-mutation` and friends; no suite runs them by default, because
- * six extra long runs would put `probe:full` well past its budget.
+ * additional long runs would put `probe:full` well past its budget.
  */
 export const TOGGLE_KEYS = [
   'enableSpatialGxE',
@@ -466,6 +466,7 @@ export const TOGGLE_KEYS = [
   'enableMutation',
   'enableSeasonality',
   'enableAssortativeMating',
+  'enableDisturbances',
 ] as const satisfies readonly (keyof MechanismToggles)[];
 
 /** `enableSpatialGxE` → `no-spatialGxE`. */
@@ -486,6 +487,117 @@ function toggleScenario(toggle: keyof MechanismToggles): Scenario {
 }
 
 // ---------------------------------------------------------------------------
+// disturbance smoke / P15
+// ---------------------------------------------------------------------------
+
+export const DISTURBANCE_SMOKE_SCENARIO = 'disturbance-smoke';
+
+const disturbanceSmoke: Scenario = {
+  name: DISTURBANCE_SMOKE_SCENARIO,
+  description: 'Scripted thermal, plankton and kelp shocks; spec runs also measure the natural scheduler. Feeds P15.',
+  overrides: {},
+  interventions: [
+    {
+      atGeneration: 0.2,
+      label: 'script thermal shock',
+      apply({ sim, config, notes }) {
+        sim.command({
+          kind: 'triggerDisturbance',
+          shock: 'thermal',
+          magnitude: 3,
+          durationTicks: 5 * config.time.generationTicks,
+        });
+        notes.setNumber('scriptedThermal', 1);
+      },
+    },
+    {
+      atGeneration: 0.4,
+      label: 'script regional plankton crash',
+      apply({ sim, config, notes }) {
+        sim.command({
+          kind: 'triggerDisturbance',
+          shock: 'planktonCrash',
+          magnitude: 0.35,
+          durationTicks: 5 * config.time.generationTicks,
+          region: { kind: 'disc', xWu: config.world.widthWu / 2, yWu: config.world.heightWu / 2, radiusWu: 300 },
+        });
+        notes.setNumber('scriptedPlankton', 1);
+      },
+    },
+    {
+      atGeneration: 0.6,
+      label: 'script kelp storm',
+      apply({ sim, config, notes }) {
+        sim.command({
+          kind: 'triggerDisturbance',
+          shock: 'kelpStorm',
+          magnitude: 0.9,
+          durationTicks: 5 * config.time.generationTicks,
+          region: {
+            kind: 'rect',
+            xWu: config.world.widthWu * 0.4,
+            yWu: 0,
+            widthWu: config.world.widthWu * 0.2,
+            heightWu: config.world.heightWu,
+          },
+        });
+        notes.setNumber('scriptedKelp', 1);
+      },
+    },
+    {
+      atGeneration: 0.8,
+      label: 'capture mid-shock snapshot hash',
+      apply({ sim, notes }) {
+        const snapshot = sim.snapshot();
+        notes.setNumber('midShockSnapshotMatches', snapshot.stateHash === sim.stateHash() ? 1 : 0);
+      },
+    },
+  ],
+  generations: 600,
+  quickGenerations: 3,
+  stopOnExtinction: true,
+};
+
+// ---------------------------------------------------------------------------
+// predator re-evolvability / P16
+// ---------------------------------------------------------------------------
+
+export const REEVOLVABILITY_SCENARIO = 're-evolvability';
+export const REEVOLVABILITY_CRASH_GENERATION = 60;
+
+const reEvolvability: Scenario = {
+  name: REEVOLVABILITY_SCENARIO,
+  description: 'Filterer-side founders run quiet, then a scripted global plankton crash opens the scavenging ramp. Feeds P16.',
+  overrides: {
+    genetics: { traitBaselineOverrides: { diet: -1.4 }, founderSdScale: 0.1 },
+    disturbance: {
+      thermalRatePerGeneration: 0,
+      planktonCrashRatePerGeneration: 0,
+      kelpStormRatePerGeneration: 0,
+    },
+  },
+  interventions: [
+    {
+      atGeneration: REEVOLVABILITY_CRASH_GENERATION,
+      label: 'script P16 global plankton crash',
+      apply({ sim, config, notes }) {
+        sim.command({
+          kind: 'triggerDisturbance',
+          shock: 'planktonCrash',
+          magnitude: 0.25,
+          durationTicks: 15 * config.time.generationTicks,
+          region: null,
+        });
+        notes.setNumber('p16CrashTick', sim.state.tick);
+      },
+    },
+  ],
+  generations: 180,
+  quickGenerations: 5,
+  stopOnExtinction: true,
+};
+
+// ---------------------------------------------------------------------------
 // Registry
 // ---------------------------------------------------------------------------
 
@@ -497,6 +609,8 @@ const ALL: readonly Scenario[] = [
   speciation,
   perf,
   determinism,
+  disturbanceSmoke,
+  reEvolvability,
   ...TOGGLE_KEYS.map(toggleScenario),
 ];
 
