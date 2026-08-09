@@ -9,7 +9,9 @@ audit the probe suite and its thresholds — the instrument, not the vibes.
 
 ## State
 
-- HEAD: `a300435` on main; working tree clean.
+- HEAD: the latest commit on main (this brief's own commit); the sim code
+  and probe thresholds are unchanged since `a300435` — later commits are
+  docs and briefs only. Working tree clean.
 - The design record is `DESIGN.md` (read "Tuning log", "The two
   discriminators", "Threshold ratchet", "Mechanism marginal contributions",
   "Deep time"). The campaign state summary is `STATUS.md`.

@@ -606,6 +606,15 @@ structural findings: the slot cap is what pins the dose (roadmap item 4),
 and guild persistence is not purchasable with mutation input (roadmap
 items 1+2 are the mechanism-shaped answer).
 
+### Campaign close (2026-08-09)
+
+`LONG_SIM=1 probe:full` on the accepted config (1.6e-3), machine idle:
+**suite WARN, zero FAILs** — every gate green on every seed (P1, P2, P3,
+P5, P13), P10 and P14 pass 3/3, and the warns are exactly the documented
+residual (P4 ×2 seeds, P6, P7 ×2, P8, P9 ×2, P11, P12). Rendered table:
+`runs/full-close-1.6e-3.log`; report: `runs/full-report.json`. WP-A7 is
+closed; the residual and this record go to Gate A-2.
+
 ### Superseded by (a) above: the trade-off as A7 first read it
 
 **Kept because the correlation is real and the reasoning from it was wrong** —

@@ -14,8 +14,17 @@ discriminator phase._
 
 ## Resume HERE
 
-**IN FLIGHT as of 2026-08-09 morning: the one-batch mutation dose search**
-(knob phase reopened for exactly this, then closed). Bracket `quantMutationRate` ≈ 2.0/2.2/2.4e-3,
+**A7 IS CLOSED (2026-08-09).** The dose batch found no window (DESIGN.md
+"The dose batch" — the slot cap, not mutation input, is the binding
+constraint; 1.6e-3 stands) and the campaign-closing `probe:full` recorded
+**zero FAILs** (`runs/full-close-1.6e-3.log`). Gate A-2 launched to Sol the
+same day (brief: `briefs/gate-a2-sol.md`). Next after Sol's rulings: the
+adjudication + any instrument fixes, then roadmap items 1+2
+(`briefs/roadmap-1-2-design.md`, work packages D0–D5).
+
+The paragraph below is the superseded pre-batch state, kept for context:
+the one-batch mutation dose search (knob phase reopened for exactly this,
+then closed). Bracket `quantMutationRate` ≈ 2.0/2.2/2.4e-3,
 3 seeds. **Cliff-screen first**: 45 generations × 3 seeds per dose (~2 min)
 before any spec-length run — every knob this campaign was bound by the
 founding transient, and the screen rejects doomed doses for the price of a
