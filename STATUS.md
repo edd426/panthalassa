@@ -29,18 +29,35 @@ with partial signals in every seed — **a 6-seed panel (s4–s9) is running
 detached** (`runs/p16-panel.log`) to size the base rate before any threshold
 moves.
 
+**The panel landed and D5 is CLOSED (2026-08-10, ~01:30).** Two results:
+(1) **P16's moment is real but rare** — 9 seeds: one outright pass (s9,
+diet Δ+0.349, attack ×2.27, guild persisted), seven misses with partial
+signals, one crash-extinction (s8 died at gen 66.4). Base rate ~1/8;
+ruling: no threshold ratchet — the warn is the honest state, and the base
+rate is the target metric for the next campaign. (2) **The panel's fresh
+seeds caught a live P1 gate bug** — mid-tick spatial-grid build made
+restored runs diverge from uninterrupted ones (pre-existing since Phase A).
+Fixed in `56dceab` (build moved to the tick boundary), P1 now PASS on
+s1–s9+q1, golden hash re-baselined `d60c12703108a788`, 261/261 tests,
+cliff + quick green (`runs/quick-post-p1fix.log`). Full record: DESIGN.md
+"D5 measurement — spec-length adjudication".
+
+**A re-certifying spec-length `probe:full` is running detached on the fixed
+engine** (`runs/full-postfix.log`) — the previous spec numbers were
+measured pre-fix. When it lands, compare against the D5 rows in DESIGN.md;
+material shifts get a note there.
+
 **The headline D5 finding: scavenging pays too well as a terminal strategy.**
 Mean diet ratchets to +1.4/+1.6 and predator-fraction to ~0.95 while
 predation deaths fall to 4–7% — carrion+plankton sustain high-diet organisms
 without hunting, so the on-ramp functions as a destination and the arms race
-stays cold. Next tuning lever (open): make hunting pay relative to
-scavenging (`carrion.maxIntake`/`qScav` down, prey payoff up, or faster
-carrion decay), measured against spec-length P7 predation share. Also still
-open from the wave agenda: a separate carrion toggle for
-marginal-contribution runs. Next session: read `runs/p16-panel.log`,
-adjudicate P16 thresholds on the 9-seed evidence, then take the
-predation-pays tuning question to the user with the D5 report. Phase B
-(PixiJS) still awaits its own explicit go.
+stays cold. **The predation-pays tuning campaign is the next work**: make
+hunting pay relative to scavenging (`carrion.maxIntake`/`qScav` down, prey
+payoff up, or faster carrion decay), measured against spec-length P7
+predation share and P16's base rate — take the lever choice to the user
+with the D5 report first. Also still open from the wave agenda: a separate
+carrion toggle for marginal-contribution runs. Phase B (PixiJS) still
+awaits its own explicit go.
 
 The paragraph below is the pre-measurement state, kept for context:
 

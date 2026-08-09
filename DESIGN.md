@@ -1104,6 +1104,40 @@ Verdict-by-verdict:
   panel (s4–s9, `runs/p16-panel.log`) is measuring the base rate before any
   threshold moves — ratcheting on n=3 would be tuning to noise.
 
+**The P16 seed panel (s4–s9 + the suite's s1–s3, 2026-08-10).** Nine seeds
+of the re-evolvability scenario, measured before touching any threshold:
+**one full pass** — s9's crash produced the designed moment outright (diet
+Δ+0.349, seventeen times the 0.02 bar; attack SD ×2.27; guild persisted 50
+generations) — plus seven evaluable misses and one extinction (s8's world
+died at generation 66.4, six generations into the scripted crash). Attack-SD
+radiation ≥1.37 appeared in 6 of 8 evaluable seeds; the discriminating
+criteria are the mean-diet rise and guild persistence. Measured base rate
+~1/8, so at the full suite's n=3 the ≥1/3 aggregate passes only ~1 run in 3.
+Ruling: **no ratchet** — thresholds and the 1/3 aggregate stay, severity
+stays warn, and the warning is the honest state of the world: re-ignition is
+real but rarer than designed. The base rate is the target metric for the
+predation-pays campaign below; moving the thresholds instead would tune the
+probe to the phenomenon's absence.
+
+**A gate bug the panel caught for free.** P1 determinism FAILED on fresh
+seeds s5/s9: repeat runs identical, snapshot hashes agreeing, but the
+restored continuation diverging from the uninterrupted run. Root cause
+(pre-existing since Phase A, never triggered by s1–s3/q1): the spatial grid
+was built mid-tick — post-movement, pre-birth/death — so the next tick's
+behavior stage consumed a structure that is not a function of end-of-tick
+`SimState`; a restored run rebuilds from the snapshot with newborns present
+and the dead removed, and one boundary birth/death near a deciding organism
+flips a decision. Fixed in `56dceab` by moving the build to the tick
+boundary (after `applyBirths`) — one build per tick, P12 unchanged. This is
+a deliberate trajectory change: the disturbances-off golden hash
+re-baselined `6922907c6421d7bf` → `d60c12703108a788` (reproduced twice via
+an independent harness). Verified P1 PASS on all of s1–s9 + q1. Lesson for
+the probe suite: the P1 gate had passed every run for its entire life on
+four seeds; two fresh seeds falsified it within one panel — fresh-seed
+panels are cheap gate audits and D-waves should end with one. Note the
+spec-length numbers above were measured on the pre-fix engine; the next
+full run re-certifies under the fixed engine.
+
 **The headline finding — scavenging pays too well as a terminal strategy.**
 In the 600-generation regime runs, mean diet ratchets to +1.4/+1.6 with
 predator-classified fraction 0.95–0.97, while predation deaths *fall* to
