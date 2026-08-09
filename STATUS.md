@@ -14,7 +14,23 @@ discriminator phase._
 
 ## Resume HERE
 
-**A7 IS CLOSED (2026-08-09).** The dose batch found no window (DESIGN.md
+**THE D-WAVE IS MERGED (2026-08-09 evening, `b491a45`).** Roadmap items 1+2 —
+disturbance regime (thermal shocks, plankton crashes, kelp storms) and the
+carrion/scavenging on-ramp — are implemented (Sol as implementer,
+`briefs/d-wave-sol.md`; its report at `briefs/d-wave-sol-report.md`),
+orchestrator-verified (diff review, independent 260-test run, disturbances-off
+golden hash reproduced against pre-wave source, merge-tree `probe:quick` green
+— `runs/quick-post-dwave.log`), and committed. P15/P16 exist at warn; the
+record is DESIGN.md "Roadmap 1+2 — the D-wave". **D5 measurement is the open
+work**: 45-gen cliff screens (`runs/cliff-dwave-baseline.log`,
+`runs/cliff-dwave-p16.log`), then spec-length `LONG_SIM=1 npm run probe:full`
+(now includes disturbance-smoke at 600 gens and re-evolvability at 180, three
+seeds) to ratchet P15/P16 thresholds and re-measure P7's mix. D5 agenda
+carried from the wave: pooled cross-seed P15 rates, a separate carrion toggle
+for marginal-contribution runs, capacity-loop region-check cost (P12
+headroom). Phase B (PixiJS) still awaits its own explicit go.
+
+Earlier the same day, kept for context: **A7 IS CLOSED (2026-08-09).** The dose batch found no window (DESIGN.md
 "The dose batch" — the slot cap, not mutation input, is the binding
 constraint; 1.6e-3 stands) and the campaign-closing `probe:full` recorded
 **zero FAILs** (`runs/full-close-1.6e-3.log`). Gate A-2 launched to Sol the

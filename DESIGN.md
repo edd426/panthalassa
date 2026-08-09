@@ -993,6 +993,63 @@ One more reading: at gen 5,277 the population sits at 2,716, off the slot cap
 into something that looks more like resource-tracking than cap-bouncing. Worth
 re-examining after roadmap item 4 rather than assuming either way.
 
+## Roadmap 1+2 — the D-wave (2026-08-09)
+
+The go arrived the same day the pause lifted ("Please go ahead and launch the
+next phase"), with a standing instruction to delegate for token efficiency.
+**Sol (GPT-5.6, effort high) implemented the entire wave** — D0 contracts
+through D4 HUD per `briefs/d-wave-sol.md` — in an isolated worktree with a
+real `npm ci` (no dependency symlink, closing out the G1 incident's trap).
+Merged as `b491a45`; Sol's full report is preserved at
+`briefs/d-wave-sol-report.md`.
+
+What shipped:
+
+- **Disturbance regime.** A deterministic per-tick Poisson scheduler
+  (tick-keyed forked RNG streams per shock type): thermal excursions as
+  normalized-exponential-decay jumps on the climate walk, plankton crashes
+  (global or disc-regional productivity multipliers), kelp storms (rect
+  swaths cleared, regrowing). All three raise `SimEvent`s; scheduler state
+  round-trips snapshots (format v3) and participates in `stateHash`.
+- **Carrion / scavenging on-ramp.** Deaths deposit `depositFraction` (0.3) of
+  size-biomass into a carrion grid; exponential decay, half-life one
+  generation; feeding takes plankton first, then carrion under remaining
+  headroom via concave `diet^0.7` type-II intake with no combat checks. The
+  diet valley now has a floor.
+- **Scripted shocks.** `triggerDisturbance` command, so scenarios (and later
+  god-tools) can force a specific shock at a specific tick.
+- **Probes P15/P16** at warn. P15: smoke mode in `probe:quick` (all three
+  scripted shock types fire, mid-shock snapshot round-trips) and a
+  spec-length regime mode (natural rates ±40%, ≥95% shock survival,
+  post-shock trait movement above the quiet baseline). P16: filterer-side
+  founders, scripted global crash at generation 60, asserts diet rise +
+  attack-SD rise + predator-guild persistence, aggregated ≥1/3 seeds.
+- **The off arm is byte-identical to the pre-wave world.** Disturbances-off
+  runs preserve the golden trajectory hash — independently reproduced by the
+  orchestrator against pre-wave source (`6922907c6421d7bf`), so the master
+  toggle is a strict marginal-contribution control, not a same-seed argument.
+
+Verification (orchestrator, not delegate self-report): full diff review,
+independent 260/260 test run, golden-hash cross-check above, merge-tree
+`probe:quick` green with P15 smoke passing (`runs/quick-post-dwave.log`).
+
+Sol's brief-findings, accepted: (a) the brief's "concave beats convex at
+mid-diet, loses at extremes" was imprecise — for the efficiency functions
+alone concave wins everywhere strictly between 0 and 1; the high end loses on
+the carrion channel's lower intake asymptote, which is the actual mechanism.
+(b) `diet baseline −1.4` alone no longer yields predator-free founders (68 of
+600 founders crossed 0.5 at current founder variance); P16's scenario adds
+`founderSdScale: 0.1`. (c) P15's per-seed ±40% rate criterion is noisy at
+~2–4 expected events per seed; a pooled cross-seed rate would be more stable.
+
+Open D5 agenda, from the wave: pooled P15 rates (per Sol's finding); carrion
+shares `enableDisturbances` with the shocks, so the marginal-contribution
+table cannot yet separate recycling from disturbance; the carrying-capacity
+loop pays a per-cell region check even with zero active crashes (P12 sat at
+8.98–9.34e5 around its 9.0e5 warn line); P15/P16 thresholds are provisional
+until spec-length measurement ratchets them; P7's mix bands re-measured under
+scavenging (60-gen reading: starvation 23%, predation 58% — within bands).
+
 ## Superseded or rejected directions
 
 Directions we tried, considered seriously, or inherited and then abandoned —
