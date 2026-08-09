@@ -7,7 +7,10 @@
  * codes survive none of those.
  */
 
+import { execFileSync } from 'node:child_process';
+import { createHash } from 'node:crypto';
 import { mkdirSync, writeFileSync } from 'node:fs';
+import { hostname } from 'node:os';
 import { fileURLToPath } from 'node:url';
 import { join } from 'node:path';
 
@@ -75,6 +78,65 @@ export function renderTable(suite: ProbeSuiteReport, skipped: readonly string[])
 export interface WrittenArtifacts {
   readonly seriesFiles: readonly string[];
   readonly reportFile: string;
+  readonly latestSeriesFiles: readonly string[];
+  readonly latestReportFile: string;
+}
+
+function repositoryRoot(): string {
+  return fileURLToPath(new URL('../..', import.meta.url));
+}
+
+function canonicalJson(value: unknown): string {
+  if (value === null || typeof value === 'number' || typeof value === 'boolean' || typeof value === 'string') {
+    return JSON.stringify(value);
+  }
+  if (Array.isArray(value)) return `[${value.map(canonicalJson).join(',')}]`;
+  if (typeof value === 'object') {
+    const record = value as Readonly<Record<string, unknown>>;
+    return `{${Object.keys(record)
+      .sort()
+      .map((key) => `${JSON.stringify(key)}:${canonicalJson(record[key])}`)
+      .join(',')}}`;
+  }
+  return 'null';
+}
+
+function sha256(value: unknown): string {
+  return createHash('sha256').update(canonicalJson(value)).digest('hex');
+}
+
+export function sourceCommitSha(): string {
+  try {
+    return execFileSync('git', ['rev-parse', 'HEAD'], {
+      cwd: repositoryRoot(),
+      encoding: 'utf8',
+      stdio: ['ignore', 'pipe', 'ignore'],
+    }).trim();
+  } catch {
+    return 'unknown';
+  }
+}
+
+export function resolvedConfigHash(runs: readonly Pick<RunResult, 'scenario' | 'config'>[]): string {
+  const byScenario = new Map(runs.map((run) => [run.scenario, run.config]));
+  const configs = [...byScenario]
+    .map(([scenario, config]) => ({ scenario, config }))
+    .sort((left, right) => left.scenario.localeCompare(right.scenario));
+  return sha256(configs);
+}
+
+export function reportProvenance(runs: readonly RunResult[]): {
+  readonly sourceCommitSha: string;
+  readonly resolvedConfigHash: string;
+  readonly hostname: string;
+  readonly nodeVersion: string;
+} {
+  return {
+    sourceCommitSha: sourceCommitSha(),
+    resolvedConfigHash: resolvedConfigHash(runs),
+    hostname: hostname(),
+    nodeVersion: process.version,
+  };
 }
 
 /**
@@ -87,15 +149,27 @@ export interface WrittenArtifacts {
 export function writeArtifacts(suite: ProbeSuiteReport, runs: readonly RunResult[]): WrittenArtifacts {
   const directory = runsDirectory();
   mkdirSync(directory, { recursive: true });
+  const provenance = reportProvenance(runs);
+  const shortSha = provenance.sourceCommitSha === 'unknown' ? 'unknown' : provenance.sourceCommitSha.slice(0, 8);
+  const identity = sha256(provenance).slice(0, 10);
+  const stem = `${suite.suite}-${shortSha}-${identity}`;
 
   const seriesFiles: string[] = [];
+  const latestSeriesFiles: string[] = [];
   for (const run of runs) {
-    const path = join(directory, `${run.scenario}-${run.seed}.jsonl`);
-    writeFileSync(path, run.stats.toJsonl(run.scenario, run.seed), 'utf8');
+    const content = run.stats.toJsonl(run.scenario, run.seed);
+    const path = join(directory, `${stem}-${run.scenario}-${run.seed}.jsonl`);
+    const latest = join(directory, `${run.scenario}-${run.seed}.jsonl`);
+    writeFileSync(path, content, 'utf8');
+    writeFileSync(latest, content, 'utf8');
     seriesFiles.push(path);
+    latestSeriesFiles.push(latest);
   }
 
-  const reportFile = join(directory, `${suite.suite}-report.json`);
-  writeFileSync(reportFile, `${JSON.stringify(suite, null, 2)}\n`, 'utf8');
-  return { seriesFiles, reportFile };
+  const reportFile = join(directory, `${stem}-report.json`);
+  const latestReportFile = join(directory, `${suite.suite}-report.json`);
+  const reportJson = `${JSON.stringify({ ...suite, provenance }, null, 2)}\n`;
+  writeFileSync(reportFile, reportJson, 'utf8');
+  writeFileSync(latestReportFile, reportJson, 'utf8');
+  return { seriesFiles, reportFile, latestSeriesFiles, latestReportFile };
 }

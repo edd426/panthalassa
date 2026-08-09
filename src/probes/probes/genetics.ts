@@ -13,7 +13,7 @@ import type { ProbeReport, SampleRow } from '../../contracts/stats';
 import { FOCAL_TRAIT_KEYS } from '../../contracts/traits';
 import type { TraitKey } from '../../contracts/traits';
 import type { RunResult } from '../harness';
-import { comparisonWindows, finite, inGenerations, lastGeneration, median, postBurnIn } from '../metrics';
+import { comparisonWindows, finite, inGenerations, lastGeneration, mean, median, postBurnIn } from '../metrics';
 import type { ProbeDefinition } from '../probe';
 import { makeReport, notEvaluable, statusFor, worstStatus } from '../probe';
 
@@ -295,6 +295,27 @@ const NE_RATIO_MIN = 0.1;
  */
 const NE_RATIO_MAX = 0.6;
 
+/** Mean census over the same sampling window that produced a temporal-Ne reading. */
+export function temporalCensusMean(
+  rows: readonly SampleRow[],
+  row: SampleRow,
+  windowGenerations: number,
+): number {
+  const target = row.generation - windowGenerations;
+  const baseline = rows
+    .filter((candidate) => candidate.generation <= target)
+    .reduce<SampleRow | undefined>(
+      (latest, candidate) =>
+        latest === undefined || candidate.generation > latest.generation ? candidate : latest,
+      undefined,
+    );
+  const from = baseline?.generation ?? target;
+  const window = rows.filter(
+    (candidate) => candidate.generation >= from && candidate.generation <= row.generation,
+  );
+  return mean(window.map((candidate) => candidate.population));
+}
+
 function driftReport(run: RunResult): ProbeReport {
   const rows = postBurnIn(run);
   // `neTemporal` is null until a full temporal window exists and for
@@ -305,7 +326,8 @@ function driftReport(run: RunResult): ProbeReport {
   const ratios = finite(
     rows.map((row) => {
       const ne = row.popgen.neTemporal;
-      return ne !== null && row.population > 0 ? ne / row.population : null;
+      const census = temporalCensusMean(run.rows, row, run.config.sampling.temporalNeWindowGenerations);
+      return ne !== null && census > 0 ? ne / census : null;
     }),
   );
   const censored = rows.length - ratios.length;
@@ -332,7 +354,7 @@ function driftReport(run: RunResult): ProbeReport {
     ...shared,
     value: median(ratios),
     threshold,
-    detail: `median of ${ratios.length} identifiable samples${
+    detail: `median of ${ratios.length} identifiable samples, each divided by mean census over its ${run.config.sampling.temporalNeWindowGenerations}-generation estimator window${
       censored > 0 ? ` (${censored} of ${rows.length} right-censored, excluded)` : ''
     }; demographic Ne reads ${demographic.length > 0 ? median(demographic).toFixed(0) : 'n/a'}`,
     series: { neTemporalOverN: ratios },

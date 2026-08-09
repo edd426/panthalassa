@@ -43,11 +43,11 @@ const P3_IN_RANGE_MIN = 0.99;
 function p3Threshold(): { min: number; label: string } {
   return {
     min: P3_IN_RANGE_MIN,
-    label: `pop ∈ [${POPULATION_FLOOR}, ${POPULATION_CEILING}] ≥${(P3_IN_RANGE_MIN * 100).toFixed(0)}% of samples`,
+    label: `pop ∈ [${POPULATION_FLOOR}, ${POPULATION_CEILING}] ≥${(P3_IN_RANGE_MIN * 100).toFixed(0)}%; never empty; cap <${CAP_BOUND_ALLOWANCE * 100}%; dropped births = 0`,
   };
 }
 
-function viabilityReport(run: RunResult): ProbeReport {
+export function viabilityReport(run: RunResult): ProbeReport {
   const rows = postBurnIn(run);
   const shared = {
     probeId: 'P3',
@@ -87,6 +87,9 @@ function viabilityReport(run: RunResult): ProbeReport {
     statusFor(inRangeFraction, threshold, P3_SEVERITY),
     run.extinctGeneration === null ? 'pass' : breach(P3_SEVERITY),
     capFraction < CAP_BOUND_ALLOWANCE ? 'pass' : breach(P3_SEVERITY),
+    // Any dropped birth means the container, rather than the modeled density
+    // processes, interfered with the trajectory this certificate describes.
+    run.diagnostics.birthsDropped === 0 ? 'pass' : breach(P3_SEVERITY),
   ]);
 
   const detail = [
@@ -95,7 +98,7 @@ function viabilityReport(run: RunResult): ProbeReport {
       ? 'never empty'
       : `EMPTY at generation ${run.extinctGeneration.toFixed(1)}`,
     `${(capFraction * 100).toFixed(1)}% of samples at the ${capacity}-slot cap`,
-    `${run.diagnostics.birthsDropped} births dropped`,
+    `${run.diagnostics.birthsDropped} births dropped (required 0)`,
   ].join('; ');
 
   return makeReport({ ...shared, value: inRangeFraction, threshold, status, detail });
@@ -214,10 +217,13 @@ export const lociProbe: ProbeDefinition = {
   name: 'No dead loci',
   scenario: 'baseline',
   severity: 'warn',
-  evaluate(runs) {
-    const reports = runs.map(lociReport);
-    const replicate = lociReplicateReport(runs);
-    return replicate === null ? reports : [...reports, replicate];
+  evaluate: (runs) => runs.map(lociReport),
+  aggregate: {
+    kind: 'custom',
+    evaluate(runs) {
+      const replicate = lociReplicateReport(runs);
+      return replicate === null ? [] : [replicate];
+    },
   },
 };
 

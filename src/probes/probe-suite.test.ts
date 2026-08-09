@@ -14,16 +14,53 @@
  */
 
 import { describe, expect, it } from 'vitest';
+import { basename } from 'node:path';
+import { readFileSync } from 'node:fs';
 
+import type { ProbeReport, ProbeSuiteReport, SampleRow } from '../contracts/stats';
 import { resolveSimConfig } from '../contracts/types';
 import { createSim } from '../sim/engine';
 import { parseArguments } from './cli';
+import type { RunResult } from './harness';
 import { buildModules, runScenario } from './harness';
-import { scanForBannedEntropy } from './probes/hygiene';
+import { kOfNReport, makeReport } from './probe';
+import type { ProbeDefinition } from './probe';
+import { deterministicIdSample, fstCriterionMargin } from './probes/barrier';
+import { frequencyFromPairedMeans, sweepProbe } from './probes/community';
+import { snapshotCensusDetail } from './probes/determinism';
+import { temporalCensusMean } from './probes/genetics';
+import { scanForBannedEntropy, scanSourceForBannedEntropy } from './probes/hygiene';
 import { PROBES } from './probes/index';
+import { THROUGHPUT_TARGET } from './probes/performance';
+import { viabilityReport } from './probes/population';
+import { resolvedConfigHash, sourceCommitSha, writeArtifacts } from './report';
 import { BARRIER_ID, SCENARIOS, ScenarioNotes, TOGGLE_KEYS, scenarioByName, toggleScenarioName } from './scenarios';
 import { defaultSuiteOptions, runSuite } from './suite';
 import { formatDuration, startStopwatch } from './timing';
+
+function minimalRow(generation: number, population: number, neTemporal: number | null = null): SampleRow {
+  return {
+    tick: generation * 900,
+    generation,
+    population,
+    popgen: { neTemporal },
+  } as SampleRow;
+}
+
+function minimalRun(overrides: Partial<RunResult> = {}): RunResult {
+  const config = resolveSimConfig();
+  return {
+    scenario: 'baseline',
+    seed: 'test-seed',
+    config,
+    rows: [],
+    generationsRun: 300,
+    extinctGeneration: null,
+    diagnostics: { birthsDropped: 0 },
+    notes: new ScenarioNotes(),
+    ...overrides,
+  } as RunResult;
+}
 
 describe('probe registry', () => {
   it('covers P1 through P14 exactly once, in the plan’s order', () => {
@@ -60,6 +97,16 @@ describe('probe registry', () => {
       expect(SCENARIOS.has(probe.scenario), `${probe.id} reads '${probe.scenario}'`).toBe(true);
     }
   });
+
+  it('declares the documented P9 and P10 cross-seed prevalence rules', () => {
+    expect(PROBES.find((probe) => probe.id === 'P6')?.aggregate).toMatchObject({ kind: 'custom' });
+    expect(PROBES.find((probe) => probe.id === 'P9')?.aggregate).toMatchObject({
+      kind: 'k-of-n',
+      minPassFraction: 1,
+    });
+    expect(sweepProbe.aggregate).toMatchObject({ kind: 'k-of-n', minPassFraction: 1 / 3 });
+    expect(sweepProbe.companionScenarios).toEqual(['sweep-control']);
+  });
 });
 
 describe('scenarios', () => {
@@ -94,12 +141,96 @@ describe('scenarios', () => {
       const x = sim.pools.x[slot] ?? 0;
       expect(Math.abs(x - half) >= thickness / 2 - config.world.fieldCellSizeWu).toBe(true);
     }
+
+    scenario.onSample?.({ sim, config, stats, rows: [], notes }, minimalRow(50, sim.state.liveCount));
+    const leftCounts = notes.seriesFor('barrier:left:count')?.values ?? [];
+    const rightCounts = notes.seriesFor('barrier:right:count')?.values ?? [];
+    expect((leftCounts.at(-1) ?? 0) + (rightCounts.at(-1) ?? 0)).toBe(sim.state.liveCount);
+    expect(notes.seriesFor('barrier:left:displayHue:resultant')?.values).toHaveLength(1);
+    expect(notes.seriesFor('barrier:right:prefTarget:resultant')?.values).toHaveLength(1);
+    expect(notes.seriesFor('barrier:left:diet:mean')?.values).toHaveLength(1);
+    expect(notes.seriesFor('barrier:right:size:mean')?.values).toHaveLength(1);
+  });
+});
+
+describe('fixed probe criteria', () => {
+  it('fails P3 when the slot container drops even one birth', () => {
+    const run = minimalRun({
+      rows: [minimalRow(31, 500)],
+      diagnostics: { birthsDropped: 1 } as RunResult['diagnostics'],
+    });
+    const report = viabilityReport(run);
+    expect(report.status).toBe('fail');
+    expect(report.threshold.label).toContain('dropped births = 0');
+    expect(report.detail).toContain('1 births dropped (required 0)');
+  });
+
+  it('gives P8a a negative displayed margin when either Fst criterion fails', () => {
+    expect(fstCriterionMargin(0.3, 0.2)).toBeCloseTo(-0.05);
+    expect(fstCriterionMargin(0.3, 0.1)).toBeCloseTo(0.05);
+  });
+
+  it('samples acceptance candidates by organism id rather than first slot', () => {
+    const slots = Array.from({ length: 128 }, (_, index) => index);
+    const ids = Float64Array.from(slots, (slot) => 10_000 - slot * 17);
+    const sampled = deterministicIdSample(slots, ids, 64);
+    expect(sampled).toHaveLength(64);
+    expect(sampled.some((slot) => slot >= 64)).toBe(true);
+    expect(deterministicIdSample([...slots].reverse(), ids, 64)).toEqual(sampled);
+  });
+
+  it('subtracts P10 control-arm movement before estimating sweep frequency', () => {
+    expect(frequencyFromPairedMeans(10, 9, 4)).toBe(0.25);
+    expect(frequencyFromPairedMeans(10, 10, 4)).toBe(0);
+  });
+
+  it('uses the mean census over P14 temporal-Ne windows', () => {
+    const rows = [minimalRow(0, 100), minimalRow(3, 200), minimalRow(5, 300, 60)];
+    expect(temporalCensusMean(rows, rows[2] as SampleRow, 4)).toBe(200);
+  });
+
+  it('uses the Gate A-2 watchability floor for P12', () => {
+    expect(THROUGHPUT_TARGET).toBe(900_000);
+  });
+
+  it('describes P1 census at the snapshot rather than at the end', () => {
+    expect(snapshotCensusDetail(42)).toBe(
+      '42 organisms alive at the snapshot (the source handle remains at that tick)',
+    );
+    expect(snapshotCensusDetail(42)).not.toContain('at the end');
   });
 });
 
 describe('RNG hygiene (P2)', () => {
   it('finds no banned entropy or clock reference outside src/probes/timing.ts', () => {
     expect(scanForBannedEntropy()).toEqual([]);
+  });
+
+  it('detects aliased crypto randomness and non-Date clock sources', () => {
+    const source = [
+      "import { randomBytes as entropy } from 'node:crypto';",
+      'const clock = process.hrtime;',
+      'const { randomUUID: uuid } = crypto;',
+      'entropy(8);',
+      'clock.bigint();',
+      'uuid();',
+    ].join('\n');
+    const tokens = scanSourceForBannedEntropy(source, 'aliased.ts').map((violation) => violation.token);
+    expect(tokens).toContain('crypto.randomBytes');
+    expect(tokens).toContain('process.hrtime');
+    expect(tokens).toContain('crypto.randomUUID');
+  });
+
+  it('detects Date construction, performance time origin and Temporal clocks', () => {
+    const source = [
+      'const stamp = new globalThis.Date();',
+      'const origin = globalThis.performance.timeOrigin;',
+      'const instant = Temporal.Now.instant();',
+    ].join('\n');
+    const tokens = scanSourceForBannedEntropy(source, 'clocks.ts').map((violation) => violation.token);
+    expect(tokens).toContain('new Date()');
+    expect(tokens).toContain('performance.timeOrigin');
+    expect(tokens).toContain('Temporal.Now.instant');
   });
 });
 
@@ -126,6 +257,57 @@ describe('runner arguments', () => {
 
   it('keeps an explicit --suite=full', () => {
     expect(parseArguments(['--suite=full']).options.suite).toBe('full');
+  });
+});
+
+describe('cross-seed aggregation', () => {
+  const definition: ProbeDefinition = {
+    id: 'PX',
+    name: 'Example',
+    scenario: 'baseline',
+    severity: 'warn',
+    evaluate: () => [],
+  };
+  const report = (seed: string, status: ProbeReport['status']): ProbeReport =>
+    makeReport({
+      probeId: 'PX',
+      name: 'Example',
+      scenario: 'baseline',
+      seed,
+      severity: 'warn',
+      value: status === 'pass' ? 1 : 0,
+      threshold: { min: 1, label: 'pass' },
+      status,
+      generationsRun: 10,
+    });
+  const runs = ['a', 'b', 'c'].map((seed) => minimalRun({ seed }));
+
+  it('emits a separately thresholded k-of-n row', () => {
+    const aggregate = kOfNReport(
+      definition,
+      [report('a', 'pass'), report('b', 'warn'), report('c', 'warn')],
+      runs,
+      1 / 3,
+      '≥1/3 seeds',
+    );
+    expect(aggregate).toMatchObject({
+      seed: '1/3 seeds',
+      value: 1 / 3,
+      status: 'pass',
+      threshold: { min: 1 / 3 },
+    });
+  });
+
+  it('keeps an n-of-n declaration yellow when one seed misses', () => {
+    const aggregate = kOfNReport(
+      definition,
+      [report('a', 'pass'), report('b', 'pass'), report('c', 'warn')],
+      runs,
+      1,
+      'all seeds',
+    );
+    expect(aggregate?.value).toBe(2 / 3);
+    expect(aggregate?.status).toBe('warn');
   });
 });
 
@@ -162,6 +344,66 @@ describe('suite reports', () => {
     const viability = report.reports.find((probe) => probe.probeId === 'P3');
     expect(viability?.status).toBe('fail');
     expect(Number.isNaN(viability?.value ?? 0)).toBe(true);
+  });
+
+  it('displays P8a and P8b as separate report rows', () => {
+    const { report } = runSuite({
+      suite: 'custom',
+      seeds: ['p8-shape'],
+      scenarios: ['barrier'],
+      generations: 1,
+      probes: ['P8'],
+    });
+    const p8 = report.reports.filter((probe) => probe.probeId === 'P8');
+    expect(p8).toHaveLength(2);
+    expect(p8.map((probe) => probe.name)).toEqual([
+      'Barrier divergence — P8a neutral Fst',
+      'Barrier divergence — P8b mate isolation',
+    ]);
+    expect(p8.every((probe) => probe.threshold.label.length > 0)).toBe(true);
+  });
+});
+
+describe('artifact provenance', () => {
+  it('hashes resolved configs canonically and changes when the config changes', () => {
+    const baseline = minimalRun({ config: resolveSimConfig({}) });
+    const same = minimalRun({ config: resolveSimConfig({}) });
+    const changed = minimalRun({ config: resolveSimConfig({ world: { initialPopulation: 601 } }) });
+    expect(resolvedConfigHash([baseline])).toBe(resolvedConfigHash([same]));
+    expect(resolvedConfigHash([baseline, same])).toBe(resolvedConfigHash([baseline]));
+    expect(resolvedConfigHash([changed])).not.toBe(resolvedConfigHash([baseline]));
+  });
+
+  it('writes identity filenames, clock-free provenance, and a stable latest report', () => {
+    const run = minimalRun({
+      scenario: 'baseline',
+      seed: 'artifact-provenance',
+      generationsRequested: 1,
+      stats: { toJsonl: () => '' } as unknown as RunResult['stats'],
+    });
+    const suite: ProbeSuiteReport = {
+      suite: 'custom',
+      startedAtTick: 0,
+      seeds: [run.seed],
+      reports: [],
+      status: 'pass',
+      durationMs: 0,
+    };
+    const artifacts = writeArtifacts(suite, [run]);
+    const sha = sourceCommitSha();
+    expect(sha).toMatch(/^(unknown|[0-9a-f]{40})$/);
+    expect(basename(artifacts.reportFile)).toMatch(/^custom-(unknown|[0-9a-f]{8})-[0-9a-f]{10}-report\.json$/);
+    expect(basename(artifacts.latestReportFile)).toBe('custom-report.json');
+    const saved = JSON.parse(readFileSync(artifacts.reportFile, 'utf8')) as {
+      readonly provenance: Readonly<Record<string, string>>;
+    };
+    expect(saved.provenance).toMatchObject({
+      sourceCommitSha: sha,
+      nodeVersion: process.version,
+    });
+    expect(typeof saved.provenance.hostname).toBe('string');
+    expect(saved.provenance.resolvedConfigHash).toMatch(/^[0-9a-f]{64}$/);
+    expect(readFileSync(artifacts.latestReportFile, 'utf8')).toBe(readFileSync(artifacts.reportFile, 'utf8'));
   });
 });
 

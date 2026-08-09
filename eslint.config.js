@@ -15,8 +15,24 @@ const restrictedProperties = [
   { object: 'Math', property: 'random', message: DETERMINISM_MESSAGE },
   { object: 'Date', property: 'now', message: DETERMINISM_MESSAGE },
   { object: 'performance', property: 'now', message: DETERMINISM_MESSAGE },
+  { object: 'performance', property: 'timeOrigin', message: DETERMINISM_MESSAGE },
+  { object: 'process', property: 'hrtime', message: DETERMINISM_MESSAGE },
+  { object: 'process', property: 'uptime', message: DETERMINISM_MESSAGE },
+  { object: 'console', property: 'time', message: DETERMINISM_MESSAGE },
+  { object: 'console', property: 'timeEnd', message: DETERMINISM_MESSAGE },
+  { object: 'console', property: 'timeLog', message: DETERMINISM_MESSAGE },
   { object: 'crypto', property: 'randomUUID', message: DETERMINISM_MESSAGE },
   { object: 'crypto', property: 'getRandomValues', message: DETERMINISM_MESSAGE },
+];
+
+const cryptoRandomImports = [
+  'getRandomValues',
+  'pseudoRandomBytes',
+  'randomBytes',
+  'randomFill',
+  'randomFillSync',
+  'randomInt',
+  'randomUUID',
 ];
 
 export default tseslint.config(
@@ -43,6 +59,23 @@ export default tseslint.config(
     // The determinism ban. Keep this file list in sync with CLAUDE.md.
     files: ['src/sim/**/*.ts', 'src/stats/**/*.ts', 'src/probes/**/*.ts', 'src/contracts/**/*.ts'],
     rules: {
+      'no-restricted-globals': [
+        'error',
+        { name: 'Date', message: DETERMINISM_MESSAGE },
+        { name: 'performance', message: DETERMINISM_MESSAGE },
+        { name: 'crypto', message: DETERMINISM_MESSAGE },
+        { name: 'Temporal', message: DETERMINISM_MESSAGE },
+      ],
+      'no-restricted-imports': [
+        'error',
+        {
+          paths: ['crypto', 'node:crypto'].map((name) => ({
+            name,
+            importNames: cryptoRandomImports,
+            message: DETERMINISM_MESSAGE,
+          })),
+        },
+      ],
       'no-restricted-properties': ['error', ...restrictedProperties],
       'no-restricted-syntax': [
         'error',
@@ -64,6 +97,8 @@ export default tseslint.config(
     // flow back into the sim (it may only be reported).
     files: ['src/probes/timing.ts'],
     rules: {
+      'no-restricted-globals': 'off',
+      'no-restricted-imports': 'off',
       'no-restricted-properties': 'off',
       'no-restricted-syntax': 'off',
     },

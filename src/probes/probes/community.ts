@@ -104,6 +104,11 @@ export const coevolutionProbe: ProbeDefinition = {
   scenario: 'baseline',
   severity: 'warn',
   evaluate: (runs) => runs.map(coevolutionReport),
+  aggregate: {
+    kind: 'k-of-n',
+    minPassFraction: 1,
+    label: 'coevolution criterion passes on all seeds',
+  },
 };
 
 // ---------------------------------------------------------------------------
@@ -114,23 +119,20 @@ const SWEEP_TARGET_FREQUENCY = 0.5;
 const SWEEP_DEADLINE_GENERATIONS = 120;
 
 /**
- * Frequency of the injected quantitative allele, from the population's mean
- * allelic value at that locus.
+ * Frequency of the injected quantitative allele, differenced against a paired
+ * sham-injection control with the same scenario config and seed.
  *
  * `SampleRow` carries allele frequencies for discrete loci only, and the
  * beneficial allele P10 injects is quantitative — a real number, not a
- * countable allele class. With one injected copy of size `offset` on a
- * background whose mean allelic value was `background`, the population mean sits
- * at `background + p · offset`, so `p = (mean − background) / offset`. Drift in
- * the background makes this noisy at low frequency and it is not a substitute
- * for counting copies; it is the estimator the recorded state supports.
+ * countable allele class. Subtracting the control locus mean removes movement
+ * caused by mutation, drift and selection in the unedited background.
  */
-function frequencyFromMean(alleleMean: number, background: number, offset: number): number {
+export function frequencyFromPairedMeans(treatmentMean: number, controlMean: number, offset: number): number {
   if (!(Math.abs(offset) > 0)) return Number.NaN;
-  return Math.min(1, Math.max(0, (alleleMean - background) / offset));
+  return Math.min(1, Math.max(0, (treatmentMean - controlMean) / offset));
 }
 
-function sweepReport(run: RunResult): ProbeReport {
+function sweepReport(run: RunResult, control: RunResult | undefined): ProbeReport {
   const threshold = {
     min: SWEEP_TARGET_FREQUENCY,
     label: `injected +${SWEEP_EFFECT_SD}σ allele reaches ${SWEEP_TARGET_FREQUENCY} within ${SWEEP_DEADLINE_GENERATIONS} generations`,
@@ -146,28 +148,44 @@ function sweepReport(run: RunResult): ProbeReport {
 
   const injectionTick = run.notes.number('sweepInjectionTick');
   const offset = run.notes.number('sweepAlleleOffset');
-  const background = run.notes.number('sweepBackgroundMean');
   const series = run.notes.seriesFor('sweepLocusMean');
+  const controlTick = control?.notes.number('sweepControlTick');
+  const controlSeries = control?.notes.seriesFor('sweepControlLocusMean');
 
-  if (injectionTick === undefined || offset === undefined || background === undefined || series === undefined) {
+  if (
+    injectionTick === undefined ||
+    offset === undefined ||
+    series === undefined ||
+    control === undefined ||
+    controlTick !== injectionTick ||
+    controlSeries === undefined
+  ) {
     return notEvaluable({
       ...shared,
       threshold,
       detail:
         run.extinctGeneration === null
-          ? `the injection never fired: the run reached generation ${run.generationsRun.toFixed(1)}`
-          : `the injection never fired: population reached zero at generation ${run.extinctGeneration.toFixed(1)}`,
+          ? `the paired treatment/control intervention or locus series was unavailable; treatment reached generation ${run.generationsRun.toFixed(1)}`
+          : `the paired treatment/control intervention was unavailable; treatment reached zero at generation ${run.extinctGeneration.toFixed(1)}`,
     });
   }
 
   const generationTicks = run.config.time.generationTicks;
   const trajectory: { generation: number; frequency: number }[] = [];
+  const controlByTick = new Map(
+    controlSeries.ticks.map((tick, index) => [tick, controlSeries.values[index] ?? Number.NaN]),
+  );
   for (let index = 0; index < series.ticks.length; index += 1) {
     const tick = series.ticks[index] ?? 0;
     if (tick <= injectionTick) continue;
     const generation = (tick - injectionTick) / generationTicks;
     if (generation > SWEEP_DEADLINE_GENERATIONS) break;
-    trajectory.push({ generation, frequency: frequencyFromMean(series.values[index] ?? 0, background, offset) });
+    const controlMean = controlByTick.get(tick);
+    if (controlMean === undefined) continue;
+    trajectory.push({
+      generation,
+      frequency: frequencyFromPairedMeans(series.values[index] ?? Number.NaN, controlMean, offset),
+    });
   }
 
   if (trajectory.length === 0) {
@@ -200,6 +218,7 @@ function sweepReport(run: RunResult): ProbeReport {
         : `raised sweepCrossedHalf at tick ${crossedEvent.tick}`
     }`,
     `${trajectory.length} samples over ${trajectory[trajectory.length - 1]?.generation.toFixed(0) ?? 0} of the ${SWEEP_DEADLINE_GENERATIONS}-generation window`,
+    `paired control added ${control.generationsRun.toFixed(1)} simulated generations (one extra run for this seed)`,
   ].join('; ');
 
   return makeReport({
@@ -211,6 +230,7 @@ function sweepReport(run: RunResult): ProbeReport {
       sweepFrequency: trajectory.map((point) => point.frequency),
       sweepGeneration: trajectory.map((point) => point.generation),
       sweepLocusMean: [...series.values],
+      sweepControlLocusMean: [...controlSeries.values],
     },
   });
 }
@@ -220,7 +240,14 @@ export const sweepProbe: ProbeDefinition = {
   name: 'Sweep visibility',
   scenario: 'sweep',
   severity: 'warn',
-  evaluate: (runs) => runs.map(sweepReport),
+  companionScenarios: ['sweep-control'],
+  evaluate: (runs, context) =>
+    runs.map((run) => sweepReport(run, context.runsFor('sweep-control').find((control) => control.seed === run.seed))),
+  aggregate: {
+    kind: 'k-of-n',
+    minPassFraction: 1 / 3,
+    label: 'sweep criterion passes on ≥1/3 of seeds',
+  },
 };
 
 // ---------------------------------------------------------------------------

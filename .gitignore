@@ -8,3 +8,6 @@ dist/
 coverage/
 test-results/
 runs/
+
+# also as a symlink (worktree setups)
+node_modules

@@ -41,7 +41,55 @@ export interface ProbeDefinition {
    * source files, P12 owns its timing loop) rather than reading a scenario run.
    */
   readonly standalone?: boolean;
+  /** Scenario arms that must be run alongside the focal scenario. */
+  readonly companionScenarios?: readonly string[];
+  /** Suite-level readings evaluated once after every seed report exists. */
+  readonly aggregate?: ProbeAggregation;
   evaluate(runs: readonly RunResult[], context: ProbeContext): readonly ProbeReport[];
+}
+
+export type ProbeAggregation =
+  | {
+      readonly kind: 'k-of-n';
+      readonly minPassFraction: number;
+      readonly label: string;
+    }
+  | {
+      readonly kind: 'custom';
+      evaluate(
+        runs: readonly RunResult[],
+        reports: readonly ProbeReport[],
+        context: ProbeContext,
+      ): readonly ProbeReport[];
+    };
+
+/** A displayed cross-seed prevalence assertion over the probe's per-seed rows. */
+export function kOfNReport(
+  probe: ProbeDefinition,
+  reports: readonly ProbeReport[],
+  runs: readonly RunResult[],
+  minPassFraction: number,
+  label: string,
+): ProbeReport | null {
+  if (runs.length < 2 || reports.length === 0) return null;
+  const seeds = [...new Set(runs.map((run) => run.seed))];
+  const verdicts = seeds.map((seed) => {
+    const seedReports = reports.filter((report) => report.seed === seed);
+    return seedReports.length > 0 && seedReports.every((report) => report.status === 'pass');
+  });
+  const passed = verdicts.filter(Boolean).length;
+  const fraction = passed / seeds.length;
+  return makeReport({
+    probeId: probe.id,
+    name: `${probe.name} (across seeds)`,
+    scenario: probe.scenario,
+    seed: `${passed}/${seeds.length} seeds`,
+    severity: probe.severity,
+    value: fraction,
+    threshold: { min: minPassFraction, label },
+    generationsRun: Math.min(...runs.map((run) => run.generationsRun)),
+    detail: `${passed} of ${seeds.length} seeds passed every displayed criterion`,
+  });
 }
 
 /**

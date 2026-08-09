@@ -10,8 +10,8 @@
  *   world*: the budget is spent in organism-ticks, so a run that collapses
  *   early finishes early and the suite comes in well under time.
  * - **full** (`LONG_SIM=1`, gates and nightly) — three seeds over those three
- *   plus `speciation`, at the plan's generation counts. Three seeds is what
- *   makes P8, P10 and P11's "k of n replicates" assertions mean anything.
+ *   plus `speciation`, at the plan's generation counts. Probes with a declared
+ *   cross-seed prevalence emit one additional suite-level row.
  *
  * The six mechanism-toggle scenarios are in neither: they exist for WP-A7's
  * marginal-contribution measurements and are reached with `--scenario=no-…`.
@@ -23,6 +23,7 @@ import type { ProbeReport, ProbeSuiteReport } from '../contracts/stats';
 import type { RunResult } from './harness';
 import { runScenario } from './harness';
 import type { ProbeContext } from './probe';
+import { kOfNReport } from './probe';
 import { PROBES } from './probes/index';
 import { scenarioByName } from './scenarios';
 import { startStopwatch } from './timing';
@@ -73,8 +74,17 @@ export function runSuite(options: SuiteOptions): SuiteResult {
   const log = options.log ?? ((): void => undefined);
   const stopwatch = startStopwatch();
   const runs: RunResult[] = [];
+  const wanted = options.probes;
+  const selectedProbes = PROBES.filter((probe) => wanted === undefined || wanted.includes(probe.id));
+  const scenarioNames = [...options.scenarios];
+  for (const probe of selectedProbes) {
+    if (!options.scenarios.includes(probe.scenario)) continue;
+    for (const companion of probe.companionScenarios ?? []) {
+      if (!scenarioNames.includes(companion)) scenarioNames.push(companion);
+    }
+  }
 
-  for (const scenarioName of options.scenarios) {
+  for (const scenarioName of scenarioNames) {
     const scenario = scenarioByName(scenarioName);
     const generations = generationsFor(scenarioName, options);
     for (const seed of options.seeds) {
@@ -97,7 +107,6 @@ export function runSuite(options: SuiteOptions): SuiteResult {
 
   const reports: ProbeReport[] = [];
   const skipped: string[] = [];
-  const wanted = options.probes;
   for (const probe of PROBES) {
     if (wanted !== undefined && !wanted.includes(probe.id)) {
       skipped.push(`${probe.id} (not selected)`);
@@ -113,7 +122,20 @@ export function runSuite(options: SuiteOptions): SuiteResult {
       skipped.push(`${probe.id} (needs ${probe.scenario})`);
       continue;
     }
-    reports.push(...probe.evaluate(forProbe, context));
+    const evaluated = probe.evaluate(forProbe, context);
+    reports.push(...evaluated);
+    if (probe.aggregate?.kind === 'k-of-n') {
+      const aggregate = kOfNReport(
+        probe,
+        evaluated,
+        forProbe,
+        probe.aggregate.minPassFraction,
+        probe.aggregate.label,
+      );
+      if (aggregate !== null) reports.push(aggregate);
+    } else if (probe.aggregate?.kind === 'custom' && forProbe.length > 1) {
+      reports.push(...probe.aggregate.evaluate(forProbe, evaluated, context));
+    }
   }
 
   const status: ProbeSuiteReport['status'] = reports.some((report) => report.status === 'fail')

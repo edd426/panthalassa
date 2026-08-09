@@ -23,6 +23,7 @@ import type { SimHandle } from '../contracts/apis';
 import { QUANT_LOCUS_BY_ID, W_ROWS_BY_TRAIT, founderGeneticVariance } from '../contracts/genome';
 import type { QuantLocusId } from '../contracts/genome';
 import type { SampleRow } from '../contracts/stats';
+import { TRAIT_COUNT, TRAIT_INDEX } from '../contracts/traits';
 import { DEFAULT_SIM_CONFIG } from '../contracts/types';
 import type { MechanismToggles, SimConfig, SimConfigOverrides } from '../contracts/types';
 import type { StatsRecorderApi } from '../stats/recorder';
@@ -166,6 +167,53 @@ const barrier: Scenario = {
   generations: 300,
   quickGenerations: 60,
   stopOnExtinction: true,
+  onSample({ sim, notes }, row) {
+    if (notes.number('barrierXWu') === undefined) return;
+    const pop = sim.state.pop;
+    const barrierX = notes.number('barrierXWu') ?? 0;
+    const diagnostics = [
+      { count: 0, hueSin: 0, hueCos: 0, prefSin: 0, prefCos: 0, diet: 0, size: 0 },
+      { count: 0, hueSin: 0, hueCos: 0, prefSin: 0, prefCos: 0, diet: 0, size: 0 },
+    ];
+
+    for (let slot = 0; slot < pop.capacity; slot += 1) {
+      if (pop.alive[slot] !== 1) continue;
+      const side = (pop.x[slot] ?? 0) < barrierX ? 0 : 1;
+      const sums = diagnostics[side];
+      if (sums === undefined) continue;
+      const base = slot * TRAIT_COUNT;
+      const hue = ((pop.traits[base + TRAIT_INDEX.displayHue] ?? 0) * Math.PI) / 180;
+      const pref = ((pop.traits[base + TRAIT_INDEX.prefTarget] ?? 0) * Math.PI) / 180;
+      sums.count += 1;
+      sums.hueSin += Math.sin(hue);
+      sums.hueCos += Math.cos(hue);
+      sums.prefSin += Math.sin(pref);
+      sums.prefCos += Math.cos(pref);
+      sums.diet += pop.traits[base + TRAIT_INDEX.diet] ?? 0;
+      sums.size += pop.traits[base + TRAIT_INDEX.size] ?? 0;
+    }
+
+    for (const side of [0, 1] as const) {
+      const sums = diagnostics[side];
+      if (sums === undefined) continue;
+      const label = side === 0 ? 'left' : 'right';
+      const count = sums.count;
+      const circular = (sin: number, cos: number): readonly [number, number] => {
+        if (count === 0) return [Number.NaN, Number.NaN];
+        const degrees = (Math.atan2(sin, cos) * 180) / Math.PI;
+        return [(degrees + 360) % 360, Math.hypot(sin, cos) / count];
+      };
+      const [hueMean, hueResultant] = circular(sums.hueSin, sums.hueCos);
+      const [prefMean, prefResultant] = circular(sums.prefSin, sums.prefCos);
+      notes.push(`barrier:${label}:count`, row.tick, count);
+      notes.push(`barrier:${label}:displayHue:mean`, row.tick, hueMean);
+      notes.push(`barrier:${label}:displayHue:resultant`, row.tick, hueResultant);
+      notes.push(`barrier:${label}:prefTarget:mean`, row.tick, prefMean);
+      notes.push(`barrier:${label}:prefTarget:resultant`, row.tick, prefResultant);
+      notes.push(`barrier:${label}:diet:mean`, row.tick, count > 0 ? sums.diet / count : Number.NaN);
+      notes.push(`barrier:${label}:size:mean`, row.tick, count > 0 ? sums.size / count : Number.NaN);
+    }
+  },
 };
 
 // ---------------------------------------------------------------------------
@@ -240,9 +288,8 @@ const sweep: Scenario = {
     {
       atGeneration: SWEEP_INJECTION_GENERATION,
       label: 'inject one heterozygous carrier of each tracked allele',
-      apply({ sim, config, stats, rows, notes }) {
+      apply({ sim, config, rows, notes }) {
         const offset = sweepAlleleOffset(config, rows);
-        const before = stats.quantLocusMoments(sim.state).mean[QUANT_LOCUS_BY_ID[SWEEP_QUANT_LOCUS].index] ?? 0;
 
         // `applyAlleleEdit` writes one haplotype, so one injected individual is
         // exactly one copy in 2N — the starting frequency P10 asserts from.
@@ -257,7 +304,6 @@ const sweep: Scenario = {
 
         notes.setNumber('sweepInjectionTick', sim.state.tick);
         notes.setNumber('sweepAlleleOffset', offset);
-        notes.setNumber('sweepBackgroundMean', before);
         notes.setNumber('sweepStartFrequency', 1 / Math.max(1, 2 * sim.state.liveCount));
         notes.setText('sweepQuantLocus', SWEEP_QUANT_LOCUS);
       },
@@ -267,16 +313,45 @@ const sweep: Scenario = {
   quickGenerations: 55,
   stopOnExtinction: true,
 
-  /**
-   * `SampleRow` carries discrete allele frequencies but nothing per
-   * quantitative locus, and P10's headline allele is quantitative. The mean
-   * allelic value at the injected locus is the frequency proxy: with one
-   * injected copy of size `offset` against a background whose mean is
-   * `sweepBackgroundMean`, the population mean rises by `p · offset`.
-   */
+  /** `SampleRow` has no per-quantitative-locus channel, so P10 records the treatment arm here. */
   onSample({ sim, stats, notes }, row) {
     const index = QUANT_LOCUS_BY_ID[SWEEP_QUANT_LOCUS].index;
     notes.push('sweepLocusMean', row.tick, stats.quantLocusMoments(sim.state).mean[index] ?? 0);
+  },
+};
+
+/**
+ * P10's counterfactual arm. A zero-offset clone preserves the focal command's
+ * population and id effects, while the discrete companion is mirrored exactly,
+ * leaving the locus-mean difference attributable to the quantitative edit.
+ */
+const sweepControl: Scenario = {
+  name: 'sweep-control',
+  description: `Sham-injection control paired with sweep at generation ${SWEEP_INJECTION_GENERATION}. Feeds P10.`,
+  overrides: {},
+  interventions: [
+    {
+      atGeneration: SWEEP_INJECTION_GENERATION,
+      label: 'sham quantitative edit with matched discrete companion',
+      apply({ sim, notes }) {
+        sim.command({ kind: 'introduceMutant', count: 1, locus: SWEEP_QUANT_LOCUS, value: 0 });
+        sim.command({
+          kind: 'introduceMutant',
+          count: 1,
+          locus: SWEEP_DISCRETE_LOCUS,
+          value: SWEEP_DISCRETE_ALLELE,
+        });
+        sim.command({ kind: 'trackSweep', locus: SWEEP_DISCRETE_LOCUS, allele: SWEEP_DISCRETE_ALLELE });
+        notes.setNumber('sweepControlTick', sim.state.tick);
+      },
+    },
+  ],
+  generations: sweep.generations,
+  quickGenerations: sweep.quickGenerations,
+  stopOnExtinction: true,
+  onSample({ sim, stats, notes }, row) {
+    const index = QUANT_LOCUS_BY_ID[SWEEP_QUANT_LOCUS].index;
+    notes.push('sweepControlLocusMean', row.tick, stats.quantLocusMoments(sim.state).mean[index] ?? 0);
   },
 };
 
@@ -418,6 +493,7 @@ const ALL: readonly Scenario[] = [
   baseline,
   barrier,
   sweep,
+  sweepControl,
   speciation,
   perf,
   determinism,

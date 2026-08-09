@@ -1,53 +1,41 @@
-/**
- * P2 — RNG hygiene. A gate from day one.
- *
- * ESLint is the authoritative enforcement (see the determinism block in
- * `eslint.config.js`, which CI runs with `--max-warnings=0`). This probe scans
- * the same file set for the same tokens so that a probe run reports the
- * invariant's state without shelling out to a linter, and so that the suite
- * table has a row for it — the plan's probe table lists P2, and a probe nobody
- * can see the result of is not doing its job.
- *
- * The scan is a substring match, so it is strictly more conservative than the
- * lint rule: a banned token inside a comment or a string counts. That is the
- * right direction to be wrong in for a gate.
- */
+/** P2 — deterministic entropy and clock hygiene. */
 
 import { readFileSync, readdirSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { join } from 'node:path';
+import ts from 'typescript';
 
 import type { ProbeReport } from '../../contracts/stats';
 import type { ProbeDefinition } from '../probe';
 import { makeReport } from '../probe';
 
-/** The directories CLAUDE.md names as bound by the determinism invariant. */
 const SCANNED_DIRECTORIES = ['sim', 'stats', 'probes', 'contracts'];
-
-/**
- * The single sanctioned exception: P12 has to read a clock. Every other file in
- * the scanned tree is forbidden one.
- */
 const EXEMPT_FILES = ['probes/timing.ts'];
 
-/**
- * Banned member expressions, held split so that this file — which the scan
- * covers, like every other file under `src/probes` — does not contain the
- * tokens it is looking for and report itself.
- */
-const BANNED_MEMBERS: readonly (readonly [string, string])[] = [
-  ['Math', 'random'],
-  ['Date', 'now'],
-  ['performance', 'now'],
-  ['crypto', 'randomUUID'],
-  ['crypto', 'getRandomValues'],
-];
+const BANNED_OBJECT_MEMBERS = new Map<string, ReadonlySet<string>>([
+  ['Math', new Set(['random'])],
+  ['Date', new Set(['now'])],
+  ['performance', new Set(['now', 'timeOrigin'])],
+  ['process', new Set(['hrtime', 'uptime'])],
+  ['console', new Set(['time', 'timeEnd', 'timeLog'])],
+  [
+    'crypto',
+    new Set([
+      'getRandomValues',
+      'pseudoRandomBytes',
+      'randomBytes',
+      'randomFill',
+      'randomFillSync',
+      'randomInt',
+      'randomUUID',
+    ]),
+  ],
+  ['crypto.webcrypto', new Set(['getRandomValues', 'randomUUID'])],
+  ['Temporal.Now', new Set(['*'])],
+]);
 
-/** A `Date` construction, assembled at runtime for the same reason. */
-const BANNED_CONSTRUCTOR = new RegExp(['new', '\\s+', 'Date', '\\s*', '\\('].join(''));
-
-/** What the report calls a hit on {@link BANNED_CONSTRUCTOR}, spelled so this file does not match itself. */
-const BANNED_CONSTRUCTOR_LABEL = ['new', 'Date()'].join(' ');
+const CRYPTO_MODULES = new Set(['crypto', 'node:crypto']);
+const GLOBAL_OBJECTS = ['Math', 'Date', 'performance', 'process', 'console', 'crypto', 'Temporal'];
 
 export interface HygieneViolation {
   readonly file: string;
@@ -69,24 +57,146 @@ function collectFiles(root: string, relative: string, out: string[]): void {
   }
 }
 
+function propertyName(node: ts.PropertyName | ts.Expression | undefined): string | undefined {
+  if (node === undefined) return undefined;
+  if (ts.isIdentifier(node) || ts.isStringLiteral(node) || ts.isNumericLiteral(node)) return node.text;
+  return undefined;
+}
+
+function memberToken(object: string, property: string): string | undefined {
+  const banned = BANNED_OBJECT_MEMBERS.get(object);
+  return banned?.has(property) === true || banned?.has('*') === true ? `${object}.${property}` : undefined;
+}
+
+/** AST-based so aliases are caught without treating comments and strings as evidence. */
+export function scanSourceForBannedEntropy(source: string, file = 'source.ts'): HygieneViolation[] {
+  const sourceFile = ts.createSourceFile(file, source, ts.ScriptTarget.Latest, true, ts.ScriptKind.TS);
+  const objectAliases = new Map(GLOBAL_OBJECTS.map((name) => [name, name]));
+  const forbiddenIdentifiers = new Map<string, string>();
+  const importViolations: Array<{ readonly node: ts.Node; readonly token: string }> = [];
+
+  const resolveObject = (expression: ts.Expression): string | undefined => {
+    if (ts.isIdentifier(expression)) return objectAliases.get(expression.text);
+    if (ts.isPropertyAccessExpression(expression)) {
+      const owner = resolveObject(expression.expression);
+      if (owner === 'globalThis' || owner === 'window' || owner === 'self') return objectAliases.get(expression.name.text);
+      if (owner === 'crypto' && expression.name.text === 'webcrypto') return 'crypto.webcrypto';
+      if (owner === 'Temporal' && expression.name.text === 'Now') return 'Temporal.Now';
+    }
+    return undefined;
+  };
+
+  objectAliases.set('globalThis', 'globalThis');
+  objectAliases.set('window', 'window');
+  objectAliases.set('self', 'self');
+
+  for (const statement of sourceFile.statements) {
+    if (!ts.isImportDeclaration(statement) || !ts.isStringLiteral(statement.moduleSpecifier)) continue;
+    const moduleName = statement.moduleSpecifier.text;
+    const clause = statement.importClause;
+    if (clause === undefined) continue;
+    if (CRYPTO_MODULES.has(moduleName)) {
+      if (clause.name !== undefined) objectAliases.set(clause.name.text, 'crypto');
+      const bindings = clause.namedBindings;
+      if (bindings !== undefined && ts.isNamespaceImport(bindings)) objectAliases.set(bindings.name.text, 'crypto');
+      if (bindings !== undefined && ts.isNamedImports(bindings)) {
+        for (const element of bindings.elements) {
+          const imported = element.propertyName?.text ?? element.name.text;
+          if (imported === 'webcrypto') objectAliases.set(element.name.text, 'crypto.webcrypto');
+          const token = memberToken('crypto', imported);
+          if (token !== undefined) {
+            forbiddenIdentifiers.set(element.name.text, token);
+            importViolations.push({ node: element, token });
+          }
+        }
+      }
+    }
+    if (moduleName === 'node:perf_hooks' && clause.namedBindings !== undefined && ts.isNamedImports(clause.namedBindings)) {
+      for (const element of clause.namedBindings.elements) {
+        if ((element.propertyName?.text ?? element.name.text) === 'performance') {
+          objectAliases.set(element.name.text, 'performance');
+        }
+      }
+    }
+  }
+
+  const resolveForbidden = (expression: ts.Expression): string | undefined => {
+    if (ts.isIdentifier(expression)) return forbiddenIdentifiers.get(expression.text);
+    if (ts.isPropertyAccessExpression(expression)) {
+      const owner = resolveObject(expression.expression);
+      return owner === undefined ? undefined : memberToken(owner, expression.name.text);
+    }
+    if (ts.isElementAccessExpression(expression) && expression.argumentExpression !== undefined) {
+      const owner = resolveObject(expression.expression);
+      const property = propertyName(expression.argumentExpression);
+      return owner === undefined || property === undefined ? undefined : memberToken(owner, property);
+    }
+    return undefined;
+  };
+
+  // A short fixed point handles aliases declared before or after another alias
+  // without pretending to be a full type checker.
+  for (let pass = 0; pass < 3; pass += 1) {
+    const visitAliases = (node: ts.Node): void => {
+      if (ts.isVariableDeclaration(node) && node.initializer !== undefined) {
+        if (ts.isIdentifier(node.name)) {
+          const object = resolveObject(node.initializer);
+          if (object !== undefined) objectAliases.set(node.name.text, object);
+          const token = resolveForbidden(node.initializer);
+          if (token !== undefined) forbiddenIdentifiers.set(node.name.text, token);
+        } else if (ts.isObjectBindingPattern(node.name)) {
+          const object = resolveObject(node.initializer);
+          if (object !== undefined) {
+            for (const element of node.name.elements) {
+              if (!ts.isIdentifier(element.name)) continue;
+              const property = propertyName(element.propertyName) ?? element.name.text;
+              const token = memberToken(object, property);
+              if (token !== undefined) forbiddenIdentifiers.set(element.name.text, token);
+              if (object === 'crypto' && property === 'webcrypto') {
+                objectAliases.set(element.name.text, 'crypto.webcrypto');
+              }
+            }
+          }
+        }
+      }
+      ts.forEachChild(node, visitAliases);
+    };
+    visitAliases(sourceFile);
+  }
+
+  const found: HygieneViolation[] = [];
+  const record = (node: ts.Node, token: string): void => {
+    const line = sourceFile.getLineAndCharacterOfPosition(node.getStart(sourceFile)).line + 1;
+    if (!found.some((violation) => violation.line === line && violation.token === token)) {
+      found.push({ file, line, token });
+    }
+  };
+  for (const violation of importViolations) record(violation.node, violation.token);
+
+  const visit = (node: ts.Node): void => {
+    if (ts.isNewExpression(node) && resolveObject(node.expression) === 'Date') record(node, 'new Date()');
+    if (ts.isCallExpression(node)) {
+      if (resolveObject(node.expression) === 'Date') record(node, 'Date()');
+      const token = resolveForbidden(node.expression);
+      if (token !== undefined) record(node, token);
+    }
+    if (ts.isPropertyAccessExpression(node) || ts.isElementAccessExpression(node)) {
+      const token = resolveForbidden(node);
+      if (token !== undefined) record(node, token);
+    }
+    ts.forEachChild(node, visit);
+  };
+  visit(sourceFile);
+  return found.sort((left, right) => left.line - right.line || left.token.localeCompare(right.token));
+}
+
 export function scanForBannedEntropy(): HygieneViolation[] {
   const root = sourceRoot();
   const files: string[] = [];
   for (const directory of SCANNED_DIRECTORIES) collectFiles(root, directory, files);
-
-  const violations: HygieneViolation[] = [];
-  for (const file of files) {
-    if (EXEMPT_FILES.includes(file)) continue;
-    const lines = readFileSync(join(root, file), 'utf8').split('\n');
-    lines.forEach((text, index) => {
-      for (const [object, property] of BANNED_MEMBERS) {
-        const token = `${object}.${property}`;
-        if (text.includes(token)) violations.push({ file, line: index + 1, token });
-      }
-      if (BANNED_CONSTRUCTOR.test(text)) violations.push({ file, line: index + 1, token: BANNED_CONSTRUCTOR_LABEL });
-    });
-  }
-  return violations;
+  return files.flatMap((file) =>
+    EXEMPT_FILES.includes(file) ? [] : scanSourceForBannedEntropy(readFileSync(join(root, file), 'utf8'), file),
+  );
 }
 
 export function evaluateHygiene(seed: string): ProbeReport {
@@ -98,12 +208,12 @@ export function evaluateHygiene(seed: string): ProbeReport {
 
   return makeReport({
     probeId: 'P2',
-    name: 'RNG hygiene',
+    name: 'Entropy hygiene',
     scenario: 'static',
     seed,
     severity: 'gate',
     value: violations.length,
-    threshold: { max: 0, label: 'banned entropy/clock references = 0' },
+    threshold: { max: 0, label: 'nondeterministic entropy/clock references = 0' },
     generationsRun: 0,
     detail,
   });
@@ -111,7 +221,7 @@ export function evaluateHygiene(seed: string): ProbeReport {
 
 export const hygieneProbe: ProbeDefinition = {
   id: 'P2',
-  name: 'RNG hygiene',
+  name: 'Entropy hygiene',
   scenario: 'static',
   severity: 'gate',
   standalone: true,

@@ -60,6 +60,10 @@ function countMismatches(left: readonly HashPoint[], right: readonly HashPoint[]
   return mismatches;
 }
 
+export function snapshotCensusDetail(censusAtSnapshot: number): string {
+  return `${censusAtSnapshot} organisms alive at the snapshot (the source handle remains at that tick)`;
+}
+
 export function evaluateDeterminism(seed: string): ProbeReport {
   const scenario = scenarioByName('determinism');
   const config = resolveSimConfig(scenario.overrides);
@@ -105,7 +109,7 @@ export function evaluateDeterminism(seed: string): ProbeReport {
     restoreHashMatches ? 'restored hash agrees' : 'restored hash DISAGREES with snapshot',
     vacuous
       ? `VACUOUS — the world was already empty at tick ${DETERMINISM_SNAPSHOT_TICK}, so the round-trip asserted nothing`
-      : `${censusAtSnapshot} organisms alive at the snapshot, ${source.state.liveCount} at the end`,
+      : snapshotCensusDetail(censusAtSnapshot),
   ].join('; ');
 
   return makeReport({

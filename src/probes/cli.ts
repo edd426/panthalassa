@@ -95,6 +95,7 @@ export function main(argv: readonly string[]): number {
   console.log(renderTable(report, skipped));
   console.log(`series: ${artifacts.seriesFiles.length} JSONL files in runs/`);
   console.log(`report: ${artifacts.reportFile}`);
+  console.log(`latest report: ${artifacts.latestReportFile}`);
 
   return report.status === 'fail' ? 1 : 0;
 }
