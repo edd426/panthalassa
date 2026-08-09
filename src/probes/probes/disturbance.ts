@@ -111,22 +111,31 @@ function adaptationRatio(run: RunResult): number {
   return mean(moves) / (Number.isFinite(quietBaseline) && quietBaseline > 0 ? quietBaseline : 1e-9);
 }
 
-function regimeReport(run: RunResult): ProbeReport {
+/** Natural (non-scripted) shock counts per type, in {@link SHOCK_KINDS} order. */
+function naturalShockCounts(run: RunResult): number[] {
   const scripted = [
     run.notes.number('scriptedThermal') ?? 0,
     run.notes.number('scriptedPlankton') ?? 0,
     run.notes.number('scriptedKelp') ?? 0,
   ];
-  const observed = SHOCK_KINDS.map(
+  return SHOCK_KINDS.map(
     (kind, index) => Math.max(0, run.events.filter((event) => event.kind === kind).length - (scripted[index] ?? 0)),
   );
-  const rates = [
+}
+
+/** Poisson-expected shock counts per type over the run's actual length. */
+function expectedShockCounts(run: RunResult): number[] {
+  return [
     run.config.disturbance.thermalRatePerGeneration,
     run.config.disturbance.planktonCrashRatePerGeneration,
     run.config.disturbance.kelpStormRatePerGeneration,
-  ];
-  const ratios = observed.map((count, index) => count / Math.max(1e-9, (rates[index] ?? 0) * run.generationsRun));
-  const rateOk = ratios.every((ratio) => ratio >= 0.6 && ratio <= 1.4);
+  ].map((rate) => rate * run.generationsRun);
+}
+
+function regimeReport(run: RunResult): ProbeReport {
+  const observed = naturalShockCounts(run);
+  const expected = expectedShockCounts(run);
+  const ratios = observed.map((count, index) => count / Math.max(1e-9, expected[index] ?? 0));
   const shocks = run.events.filter(isShockEvent);
   const extinctionTick = run.extinctGeneration === null
     ? Infinity
@@ -135,8 +144,11 @@ function regimeReport(run: RunResult): ProbeReport {
     ? Number.NaN
     : shocks.filter((shock) => shock.tick + shock.durationTicks < extinctionTick).length / shocks.length;
   const adaptation = adaptationRatio(run);
+  // Expected counts per seed are only ~2–4 events, where a ±40% band sits
+  // inside one standard deviation of Poisson shot noise — the 2026-08-10 spec
+  // run put in-rate seeds outside it. Rates are asserted pooled across seeds
+  // (see pooledRateReport); the per-seed ratios stay in the detail line.
   const status = worstStatus([
-    rateOk ? 'pass' : breach('warn'),
     statusFor(survival, { min: 0.95, label: 'world survives ≥95% of shocks' }, 'warn'),
     statusFor(adaptation, { min: 1, label: 'post-shock movement exceeds quiet baseline' }, 'warn'),
   ]);
@@ -147,7 +159,7 @@ function regimeReport(run: RunResult): ProbeReport {
     seed: run.seed,
     severity: 'warn',
     value: adaptation,
-    threshold: { min: 1, label: 'rates ±40%; survival ≥95%; post-shock movement > quiet baseline' },
+    threshold: { min: 1, label: 'survival ≥95%; post-shock movement > quiet baseline; rates pooled cross-seed' },
     status,
     generationsRun: run.generationsRun,
     detail: `natural thermal/crash/kelp ${observed.join('/')} (rate ratios ${ratios.map((value) => value.toFixed(2)).join('/')}); survival ${(survival * 100).toFixed(0)}%; adaptation ${Number.isFinite(adaptation) ? adaptation.toFixed(2) : 'n/a'}× quiet`,
@@ -159,12 +171,58 @@ function regimeReport(run: RunResult): ProbeReport {
   });
 }
 
+/**
+ * The cross-seed half of P15's rate criterion. A per-seed ±40% band over ~2–4
+ * expected events is a coin flip on shot noise; pooled over the panel there
+ * are enough events for the band to test the scheduler rather than the dice.
+ */
+export function pooledRateReport(runs: readonly RunResult[]): ProbeReport | null {
+  const regime = runs.filter((run) => run.generationsRequested > 10);
+  if (regime.length < 2) return null;
+  const observed = [0, 0, 0];
+  const expected = [0, 0, 0];
+  for (const run of regime) {
+    naturalShockCounts(run).forEach((count, index) => {
+      observed[index] = (observed[index] ?? 0) + count;
+    });
+    expectedShockCounts(run).forEach((count, index) => {
+      expected[index] = (expected[index] ?? 0) + count;
+    });
+  }
+  const ratios = observed.map((count, index) => count / Math.max(1e-9, expected[index] ?? 0));
+  const worst = ratios.reduce(
+    (acc, ratio) =>
+      Math.abs(Math.log(Math.max(ratio, 1e-9))) > Math.abs(Math.log(Math.max(acc, 1e-9))) ? ratio : acc,
+    1,
+  );
+  return makeReport({
+    probeId: 'P15',
+    name: 'Disturbance regime (pooled rates)',
+    scenario: regime[0]?.scenario ?? DISTURBANCE_SMOKE_SCENARIO,
+    seed: `${regime.length} seeds`,
+    severity: 'warn',
+    value: worst,
+    threshold: { min: 0.6, max: 1.4, label: 'pooled natural-shock rate ratio per type within ±40%' },
+    generationsRun: regime.reduce((total, run) => total + run.generationsRun, 0),
+    detail: `pooled thermal/crash/kelp ${observed.join('/')} observed vs ${expected
+      .map((value) => value.toFixed(1))
+      .join('/')} expected (ratios ${ratios.map((value) => value.toFixed(2)).join('/')})`,
+  });
+}
+
 export const disturbanceProbe: ProbeDefinition = {
   id: 'P15',
   name: 'Disturbance regime',
   scenario: DISTURBANCE_SMOKE_SCENARIO,
   severity: 'warn',
   evaluate: (runs) => runs.map((run) => (run.generationsRequested <= 10 ? smokeReport(run) : regimeReport(run))),
+  aggregate: {
+    kind: 'custom',
+    evaluate(runs) {
+      const pooled = pooledRateReport(runs);
+      return pooled === null ? [] : [pooled];
+    },
+  },
 };
 
 function persistentGuild(rows: readonly SampleRow[], crashGeneration: number): boolean {

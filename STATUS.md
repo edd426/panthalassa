@@ -14,6 +14,36 @@ discriminator phase._
 
 ## Resume HERE
 
+**D5 SPEC MEASUREMENT IS ADJUDICATED (2026-08-10 early morning).** The first
+spec-length `probe:full` under the regime finished (481 min,
+`runs/full-dwave.log`): **gates all PASS**, suite WARN, and the full
+verdict-by-verdict adjudication against the pre-D-wave reference run is in
+DESIGN.md "D5 measurement — spec-length adjudication". The short version:
+P4 flipped from variance-decay to variance-growth (the regime pumps
+variance); P15's scheduler is in-rate pooled and the per-seed rate criterion
+is retired in favour of a pooled cross-seed row (implemented + tested this
+commit); P7's predation collapse at spec length **predates the D-wave**
+(pre-wave 6–10%, now 1–10%); P10 regressed 0/3 because crashes reverse
+size-favouring sweeps (redesign decision queued, not retuned); P16 read 0/3
+with partial signals in every seed — **a 6-seed panel (s4–s9) is running
+detached** (`runs/p16-panel.log`) to size the base rate before any threshold
+moves.
+
+**The headline D5 finding: scavenging pays too well as a terminal strategy.**
+Mean diet ratchets to +1.4/+1.6 and predator-fraction to ~0.95 while
+predation deaths fall to 4–7% — carrion+plankton sustain high-diet organisms
+without hunting, so the on-ramp functions as a destination and the arms race
+stays cold. Next tuning lever (open): make hunting pay relative to
+scavenging (`carrion.maxIntake`/`qScav` down, prey payoff up, or faster
+carrion decay), measured against spec-length P7 predation share. Also still
+open from the wave agenda: a separate carrion toggle for
+marginal-contribution runs. Next session: read `runs/p16-panel.log`,
+adjudicate P16 thresholds on the 9-seed evidence, then take the
+predation-pays tuning question to the user with the D5 report. Phase B
+(PixiJS) still awaits its own explicit go.
+
+The paragraph below is the pre-measurement state, kept for context:
+
 **THE D-WAVE IS MERGED (2026-08-09 evening, `b491a45`).** Roadmap items 1+2 —
 disturbance regime (thermal shocks, plankton crashes, kelp storms) and the
 carrion/scavenging on-ramp — are implemented (Sol as implementer,
@@ -21,14 +51,10 @@ carrion/scavenging on-ramp — are implemented (Sol as implementer,
 orchestrator-verified (diff review, independent 260-test run, disturbances-off
 golden hash reproduced against pre-wave source, merge-tree `probe:quick` green
 — `runs/quick-post-dwave.log`), and committed. P15/P16 exist at warn; the
-record is DESIGN.md "Roadmap 1+2 — the D-wave". **D5 measurement is the open
-work**: 45-gen cliff screens (`runs/cliff-dwave-baseline.log`,
-`runs/cliff-dwave-p16.log`), then spec-length `LONG_SIM=1 npm run probe:full`
-(now includes disturbance-smoke at 600 gens and re-evolvability at 180, three
-seeds) to ratchet P15/P16 thresholds and re-measure P7's mix. D5 agenda
+record is DESIGN.md "Roadmap 1+2 — the D-wave". D5 agenda
 carried from the wave: pooled cross-seed P15 rates, a separate carrion toggle
 for marginal-contribution runs, capacity-loop region-check cost (P12
-headroom). Phase B (PixiJS) still awaits its own explicit go.
+headroom).
 
 Earlier the same day, kept for context: **A7 IS CLOSED (2026-08-09).** The dose batch found no window (DESIGN.md
 "The dose batch" — the slot cap, not mutation input, is the binding

@@ -17,6 +17,7 @@ import { describe, expect, it } from 'vitest';
 import { basename } from 'node:path';
 import { readFileSync } from 'node:fs';
 
+import type { SimEvent } from '../contracts/events';
 import type { ProbeReport, ProbeSuiteReport, SampleRow } from '../contracts/stats';
 import { resolveSimConfig } from '../contracts/types';
 import { createSim } from '../sim/engine';
@@ -27,6 +28,7 @@ import { kOfNReport, makeReport } from './probe';
 import type { ProbeDefinition } from './probe';
 import { deterministicIdSample, fstCriterionMargin } from './probes/barrier';
 import { frequencyFromPairedMeans, sweepProbe } from './probes/community';
+import { pooledRateReport } from './probes/disturbance';
 import { snapshotCensusDetail } from './probes/determinism';
 import { temporalCensusMean } from './probes/genetics';
 import { scanForBannedEntropy, scanSourceForBannedEntropy } from './probes/hygiene';
@@ -112,6 +114,41 @@ describe('probe registry', () => {
       kind: 'k-of-n',
       minPassFraction: 1 / 3,
     });
+    expect(PROBES.find((probe) => probe.id === 'P15')?.aggregate).toMatchObject({ kind: 'custom' });
+  });
+
+  it('pools P15 rate ratios across seeds instead of judging per-seed shot noise', () => {
+    const config = resolveSimConfig();
+    const expectedPerRun = [
+      config.disturbance.thermalRatePerGeneration,
+      config.disturbance.planktonCrashRatePerGeneration,
+      config.disturbance.kelpStormRatePerGeneration,
+    ].map((rate) => rate * 600);
+    const shockEvents = (counts: readonly number[]): SimEvent[] =>
+      (['thermalShock', 'planktonCrash', 'kelpStorm'] as const).flatMap((kind, index) =>
+        Array.from({ length: counts[index] ?? 0 }, () => ({ kind, tick: 90_000, durationTicks: 900 }) as SimEvent),
+      );
+    const regimeRun = (seed: string, counts: readonly number[]): RunResult =>
+      minimalRun({
+        scenario: 'disturbance-smoke',
+        seed,
+        generationsRun: 600,
+        generationsRequested: 600,
+        events: shockEvents(counts),
+      });
+
+    // Each seed alone sits outside ±40% on at least one type; the pool lands on 1.0.
+    const low = regimeRun('a', expectedPerRun.map((value) => Math.round(0.5 * value)));
+    const high = regimeRun('b', expectedPerRun.map((value) => Math.round(1.5 * value)));
+    const pooled = pooledRateReport([low, high]);
+    expect(pooled).toMatchObject({ probeId: 'P15', seed: '2 seeds', status: 'pass' });
+
+    // A pooled deficit is still a breach — the band tests the scheduler, not the dice.
+    const silent = pooledRateReport([regimeRun('a', [0, 0, 0]), regimeRun('b', [0, 0, 0])]);
+    expect(silent?.status).toBe('warn');
+
+    // Smoke-mode runs (quick suite) carry scripted shocks only and stay out of the pool.
+    expect(pooledRateReport([minimalRun({ generationsRequested: 3 }), minimalRun({ generationsRequested: 3 })])).toBeNull();
   });
 });
 

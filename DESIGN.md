@@ -1050,7 +1050,74 @@ loop pays a per-cell region check even with zero active crashes (P12 sat at
 until spec-length measurement ratchets them; P7's mix bands re-measured under
 scavenging (60-gen reading: starvation 23%, predation 58% — within bands).
 
-## Superseded or rejected directions
+### D5 measurement — spec-length adjudication (2026-08-10)
+
+First spec-length `probe:full` under the regime (`runs/full-dwave.log`,
+481 min, gates all PASS, suite WARN). Reference for every comparison below is
+the last pre-D-wave spec run (`runs/full-close-1.6e-3.log`, same seeds).
+Verdict-by-verdict:
+
+- **P4 flipped from decay to growth.** Pre-wave the variance ratio hugged the
+  floor (0.18/0.27/0.21, two seeds under 0.25); under the regime it reads
+  0.26/5.4/11.1 — the shock regime is a working variance pump, and s3's tOpt
+  ratio (11.1) now exceeds the 8× ceiling. Band left alone: one breach in
+  three seeds on the intended mechanism is the ceiling doing its job as a
+  watch line; widen only if more seeds land there.
+- **P6 improved** (71/90/92% quantitative loci alive vs 63/77/77%). The
+  across-replicate row still warns: `cladeMacroA:0` and now `cladeMacroB:0`
+  fixed everywhere — clades still never establish (see P11).
+- **P7: the predation collapse predates the D-wave.** Sol's 60-gen reading
+  (predation 58%) was the early-run transient. At spec length predation is
+  1/10/3% of deaths (pre-wave: 6/7/10%), starvation 73–79% (pre-wave 67–75%).
+  Bands left alone — the probe is honestly reporting a real model weakness,
+  now the top open tuning problem (below).
+- **P8 unchanged**: Fst divergence strong both eras (0.48–0.78); the
+  mate-acceptance criterion warned all seeds before and after (~0.88–1.0
+  cross/within). Pre-existing; untouched by this wave.
+- **P9 livelier**: attack movement 2.4–3.6 SD (pre-wave 0.75–2.3), guild
+  presence 78–100% (pre-wave 19–92%). Still 1/3 seeds passing every
+  criterion; the across-seed row wants all three.
+- **P10 regressed 3/3 PASS → 0/3, and the mechanism is informative.** The
+  injected +1.5σ size allele used to fix in 18–46 generations; under the
+  regime it peaks at 0.27/0.02/0.06 and dies. `q21` was chosen as the locus
+  where "bigger is unambiguously better" — the disturbance regime breaks that
+  premise: crashes starve large bodies (size^0.75 cost against ×0.2–0.5
+  productivity), so the sweep that establishes (s1 reached 27%) is reversed
+  by the next shock. Fluctuating selection interrupting sweeps is real
+  biology and watchable, but it means P10 as specced no longer measures
+  sweep *visibility*. Disposition: recorded, not retuned — P10 needs a
+  redesign decision (regime-off scenario, a crash-neutral locus, or a
+  higher-copy injection), queued with the P5/P13 metric redesigns from Gate
+  A-2.
+- **P11 unchanged** at zero species; clade foundings 12/3/4 (pre 206/1/22).
+  Roadmap 3 territory.
+- **P15: per-seed rate criterion retired, pooled row added** (this commit).
+  Measured per-seed ratios ranged 0.42–1.67 with all three seeds' schedulers
+  in-rate pooled: thermal 11 obs/12 exp (0.92), crash 10/9 (1.11), kelp
+  5/7.2 (0.69). Survival 100% everywhere; adaptation ratio 1.06/1.13/1.39×
+  quiet — the regime measurably speeds trait movement. Per-seed rows now
+  assert survival + adaptation only; `pooledRateReport` asserts the ±40%
+  band over the panel (revert-sensitive test in probe-suite.test.ts).
+- **P16: 0/3, with partial signals in every seed** — s1 kept a post-crash
+  guild 50 generations but mean diet fell; s2 rose +0.026 diet with attack
+  SD ×1.50 but the guild lapsed; s3 attack SD ×1.88, no diet rise. A 6-seed
+  panel (s4–s9, `runs/p16-panel.log`) is measuring the base rate before any
+  threshold moves — ratcheting on n=3 would be tuning to noise.
+
+**The headline finding — scavenging pays too well as a terminal strategy.**
+In the 600-generation regime runs, mean diet ratchets to +1.4/+1.6 with
+predator-classified fraction 0.95–0.97, while predation deaths *fall* to
+4–7%: high-diet organisms live on carrion + plankton without hunting, so the
+carrion ramp built as an on-ramp back to predation instead functions as a
+destination. Carrion pulses (up to ×4.2 median biomass) produce population
+punctuation but no predation re-ignition. One seed (s3) adds a spectacular
+late punctuation the renderer should someday show: the entire high-diet guild
+collapsed between gens ~350–500 to pure filter-feeding (diet −1.9, predator
+fraction 0.02) and the world carried on. Next tuning lever is making hunting
+pay relative to scavenging (candidates: lower `carrion.maxIntake` or `qScav`,
+raise prey-capture payoff, or let carrion decay faster), measured against
+P7's predation share at spec length — that, not the shock machinery, is now
+the predator-persistence problem's centre.
 
 Directions we tried, considered seriously, or inherited and then abandoned —
 kept so they are not silently retried.
