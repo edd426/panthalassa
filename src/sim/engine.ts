@@ -756,13 +756,18 @@ class PanthalassaSim implements SimHandleInternal {
     this.stageEnvironment();
     this.stageBehavior();
     this.stageMovement();
-    this.spatial.build(state);
     this.stageFeeding();
     this.stagePredation();
     this.stageMetabolism();
     this.applyDeaths();
     this.stageReproduction();
     this.applyBirths();
+    // Rebuilt only at the tick boundary: every consumer must see a grid that
+    // is a pure function of end-of-tick SimState, or a run restored from a
+    // snapshot diverges from the uninterrupted one. The previous mid-tick
+    // build (post-movement, pre-birth/death) depended on positions no
+    // snapshot carries — P1 caught it on seeds s5/s9 (2026-08-10).
+    this.spatial.build(state);
     this.stageRecording();
 
     state.rngState = this.rng.getState();

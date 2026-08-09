@@ -128,14 +128,18 @@ describe('carrion field and scavenging', () => {
 });
 
 describe('disturbance continuity and scenario setup', () => {
-  it('preserves the pre-D-wave trajectory hash when disturbances are off', () => {
+  it('preserves the disturbances-off golden trajectory hash', () => {
     const overrides = {
       world: { widthWu: 240, heightWu: 160, initialPopulation: 24, slotCapacity: 48, fieldCellSizeWu: 20 },
       toggles: { enableDisturbances: false },
     };
     const sim = makeSim('disturbance-off-golden', overrides);
     sim.step(50);
-    expect(sim.stateHash()).toBe('6922907c6421d7bf');
+    // Re-baselined 2026-08-10 (was 6922907c6421d7bf, the pre-D-wave value)
+    // when the spatial grid moved to a tick-boundary rebuild for P1 restore
+    // equivalence — a deliberate trajectory change. Any OTHER change to this
+    // value means the disturbances-off arm is no longer inert.
+    expect(sim.stateHash()).toBe('d60c12703108a788');
     expect(sim.state.field.carrion.reduce((sum, value) => sum + value, 0)).toBe(0);
     expect(sim.state.disturbance.thermal).toHaveLength(0);
   });
