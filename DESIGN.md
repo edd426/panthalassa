@@ -589,9 +589,22 @@ mutation input buys locus retention and a two-sided race, but **P6 ∧ P9
 simultaneity on all three seeds is not reachable inside the current density
 regime**, and Gate A-2 gets that as measured.
 
-Follow-up in flight when this row was written: 1.8e-3 (between the accepted
-dose and the cap-riding one; cliff-safe by bracketing) — its row and the
-batch adjudication land below.
+Follow-up, same day — **1.8e-3, and the adjudication**. The midpoint fails
+hardest: P3 red on two seeds (cap-riding reaches down to 1.8e-3), P4
+breached on all three (0.089 and 0.161 under the floor; s2 at **21.9** over
+the ceiling on a size-variance explosion), P13 red on s2 (h² 0.94). And yet
+it posts the batch's best guild persistence — 100% presence with predators
+at 78–81% on *every* seed. Which basin a seed falls into is not a smooth
+function of dose anywhere in the bracket: guild fate is seed-specific
+basin-hopping, and no dose in 1.8–2.4e-3 buys the suite green.
+
+**Adjudicated: the window does not exist. `quantMutationRate` 1.6e-3
+stands as the accepted config.** The residual — P4 low, P6 short of its
+across-replicates ideal, the one-sided race on two seeds, s2's monoculture
+basin — goes to Gate A-2 as measured, along with this batch's two
+structural findings: the slot cap is what pins the dose (roadmap item 4),
+and guild persistence is not purchasable with mutation input (roadmap
+items 1+2 are the mechanism-shaped answer).
 
 ### Superseded by (a) above: the trade-off as A7 first read it
 
