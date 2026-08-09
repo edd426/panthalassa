@@ -271,6 +271,29 @@ generic filename); P1's "at the end" detail reads a stale liveCount; P2
 certifies a token blacklist, not entropy hygiene. The A5 toggle-scenario
 empty-report gap re-confirmed.
 
+### Fix wave G1 — closed same day (`6d50f5f`)
+
+All nine fixes, implemented by **Sol as implementer** (workspace-write
+worktree, brief on stdin) and verified by the orchestrator: diff review,
+252 tests run independently (Sol's sandbox cannot run vitest), and a
+revert-sensitivity spot-check (reverting the P3 fix fails its new test).
+Notable implementation choices: P10's control arm is a **zero-offset sham
+injection** with a mirrored discrete companion, so the intervention's
+population and id side-effects are preserved and the locus-mean difference
+is attributable to the edit alone (cost: one extra sweep-length run per
+seed); P8's per-side circular statistics ride `ScenarioNotes` — no
+contract change was needed anywhere; report artifacts now carry
+commit/config/host provenance under identity filenames with stable
+"latest" copies. Ops footnote for worktree setups, recorded because it bit twice in one
+merge: `.gitignore`'s `node_modules/` (trailing slash) does not match a
+node_modules *symlink*, so the worktree's symlink rode a `git add -A`
+into the wave's commit — and merging that commit **deleted the real
+node_modules**, because checkout treats ignored paths as expendable and
+replaced the directory with a now-self-referential link. Recovered with
+`npm ci`; the ignore pattern now covers both forms; and worktree dep
+symlinks should point *elsewhere* than the path they shadow. The suite after G1: gates P1, P2, P3; everything else
+warn with honest criteria.
+
 ## Tuning log
 
 WP-A7 owns this section. Every config change gets a row: what moved, why, and

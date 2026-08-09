@@ -110,12 +110,12 @@ Where the second A7 session left it:
 2. **Gate A-2: RAN 2026-08-09 — verdict FAIL, adjudicated and accepted.**
    Record: DESIGN.md "Gate A-2"; full report `briefs/gate-a2-verdict.md`.
    Same-day actions: P5 and P13 demoted to warn (gates now P1, P2, P3).
-   The rest is **fix wave G1** (its own task): P3 dropped-births assertion,
-   P8a/P8b split + ScenarioNotes per-side stats + deterministic sampling,
-   P12 re-derived to 0.9×10⁶ watchability floor, P14 window-mean
-   denominator, P10 no-injection control, k-of-n runner aggregation +
-   larger seed panel for any gate promotion, artifact provenance, P1
-   detail fix, P2 scanner gaps. Two agenda claims were themselves wrong
+   **Fix wave G1 LANDED same day (`6d50f5f`)** — all nine fixes (Sol as
+   implementer, orchestrator-verified: 252 tests, revert-sensitivity
+   spot-check, probe:quick; record in DESIGN.md "Fix wave G1"). Still
+   open from the rulings: a preregistered larger seed panel before any
+   future gate promotion, and P5/P13 metric redesigns if they are ever
+   to gate again. Two agenda claims were themselves wrong
    and are corrected in the record: defense loci DO pay (q33 bills
    wariness ×2.5), and speed feeds far more than foraging — no genome
    change, no speed maintenance cost without instrumentation first.
