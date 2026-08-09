@@ -105,33 +105,20 @@ Where the second A7 session left it:
 
 ## Remaining Phase A sequence
 
-1. **A7**: tune until `LONG_SIM=1 npm run probe:full` exits 0 on 3 seeds
-   (P11 and P12 warn acceptable), thresholds ratcheted, mechanism
-   marginal-contribution table filled (DESIGN.md).
-2. **Gate A-2**: Sol (codex-sol skill, xhigh, read-only, brief on stdin)
-   reviews the tuned suite. The agenda, all with DESIGN.md context:
-   - Threshold ratchet legitimacy — "aliveness or tuned-to-pass?" — with the
-     falsified P6↔P9 tradeoff presented as a worked example of the campaign
-     catching itself (fixed-mutation-rate correlation over-read as model
-     property; superseded sections marked in place).
-   - The defense-pricing genome finding: defense carries 1.5× attack's input
-     mass and 8 of 9 defense loci charge nothing, contradicting the design
-     record's own "armour is the thing you pay for" note. Sol rules whether a
-     genome-table change is warranted (A7 was barred from editing it).
-   - P8's second criterion is unfalsifiable: SampleRow lacks per-deme trait
-     moments, so per-side hue means cannot be compared. Sol rules on both the
-     criterion's reformulation and the minimal instrument; implementation
-     lands after the review.
-   - P12's 2×10⁶ threshold predates the model (measured ~1.0×10⁶ clean;
-     remaining 2× is model decisions — DESIGN.md "Fix wave F0–F4" lever c).
-   - Whether the suite may demand P6 and P9 green simultaneously (evidence
-     now says yes, via mutation input — confirm the dose-batch result).
-   - Whether speed's cost is fully paid. In the user's 2,000-generation watch
-     (DESIGN.md "Deep time"), `speedCap` ran away ~8× in a predator-free world
-     where its only benefit is foraging. Cost charges *realized* speed, so the
-     cap itself is free until used — same shape as the defense-pricing
-     question. Sol rules whether this is honest selection or a cheap-trait
-     leak.
+1. **A7: CLOSED 2026-08-09.** Dose batch found no window (1.6e-3 stands);
+   campaign-closing `probe:full` recorded zero FAILs.
+2. **Gate A-2: RAN 2026-08-09 — verdict FAIL, adjudicated and accepted.**
+   Record: DESIGN.md "Gate A-2"; full report `briefs/gate-a2-verdict.md`.
+   Same-day actions: P5 and P13 demoted to warn (gates now P1, P2, P3).
+   The rest is **fix wave G1** (its own task): P3 dropped-births assertion,
+   P8a/P8b split + ScenarioNotes per-side stats + deterministic sampling,
+   P12 re-derived to 0.9×10⁶ watchability floor, P14 window-mean
+   denominator, P10 no-injection control, k-of-n runner aggregation +
+   larger seed panel for any gate promotion, artifact provenance, P1
+   detail fix, P2 scanner gaps. Two agenda claims were themselves wrong
+   and are corrected in the record: defense loci DO pay (q33 bills
+   wariness ×2.5), and speed feeds far more than foraging — no genome
+   change, no speed maintenance cost without instrumentation first.
 3. **Gate A-3: PASSED 2026-08-09.** In place of the formal 30-minute watch,
    the user ran the same world overnight twice (2,000 then 5,277 generations,
    seed=colour-test), reviewed both via screenshots, called the dots

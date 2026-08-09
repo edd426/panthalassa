@@ -121,8 +121,14 @@ const FLATLINE_MOVEMENT_SD = 0.3;
  * *severity* ratchet stands — 2 is a gate now.
  */
 const FLATLINE_TRAITS_REQUIRED = 2;
-/** Gated by A7's ratchet — 4 of 4 on three seeds at 300 generations. */
-const P5_SEVERITY = 'gate' as const;
+/**
+ * Demoted from gate at Gate A-2: maximizing |Δmean| over every overlapping
+ * window rewards noise, drift and denser sampling — the reviewer's endpoint
+ * sensitivity check dropped the closing run from 4/4/4 moving traits to
+ * 2/2/0. Re-promote only once the metric is fixed-length, sampling-invariant
+ * and calibrated against a stationary null (briefs/gate-a2-verdict.md §1).
+ */
+const P5_SEVERITY = 'warn' as const;
 const FLATLINE_WINDOW_GENERATIONS = 50;
 
 /** Largest |Δmean| in SD units over any window of up to `span` generations. */
@@ -225,7 +231,14 @@ export const flatlineProbe: ProbeDefinition = {
 const H2_MIN = 0.25;
 const H2_MAX = 0.78;
 /** Gated by A7's ratchet — in band on three seeds at 300 generations. */
-const P13_SEVERITY = 'gate' as const;
+/**
+ * Demoted from gate at Gate A-2: the 0.78 ceiling is post-hoc rather than an
+ * aliveness boundary (h² 0.82 can be biologically plausible), and the
+ * documented V_A/V_P cross-check is printed, never asserted. Re-promote with
+ * a preregistered criterion that includes estimator agreement
+ * (briefs/gate-a2-verdict.md §1).
+ */
+const P13_SEVERITY = 'warn' as const;
 
 function heritabilityReport(run: RunResult): ProbeReport {
   const rows = postBurnIn(run);

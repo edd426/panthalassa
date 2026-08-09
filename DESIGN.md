@@ -221,6 +221,56 @@ fail). Verified findings worth keeping visible:
   non-deterministic — a run could fail with every test green. Diagnosed by
   A5/A6.
 
+### Gate A-2 — Sol (GPT-5.6, xhigh) review of the tuned suite, 2026-08-09
+
+**Verdict: FAIL** — "I do not accept the current suite as a defensible
+certificate that 'evolution stays interesting.'" Full report, verbatim:
+`briefs/gate-a2-verdict.md` (brief: `briefs/gate-a2-sol.md`). The
+orchestrator spot-checked the four acceptance-critical claims in code and
+confirmed all four; the verdict is accepted. The six rulings, adjudicated:
+
+1. **Ratchets.** P3's subject is legitimate but its dropped-births blind
+   spot is acceptance-critical (printed, never asserted — 2.4e-3/s1 passed
+   with 363 drops). **P5 and P13 demoted to warn same day** (this commit):
+   P5's max-over-overlapping-windows metric rewards noise (Sol's endpoint
+   check drops the closing run from 4/4/4 to 2/2/0); P13's ceiling is
+   post-hoc and its documented V_A/V_P cross-check was display-only. P14
+   stays warn; its census denominator should be the window mean.
+2. **Defense pricing: no genome-table change.** And the design record's own
+   claim was wrong: the "1.5×" is L1 weight mass (variance mass is ~1.43×),
+   and defense loci do pay — q33 bills wariness at 2.5, others trade speed,
+   attack, boldness or thermal breadth. Balance work, if any, goes through
+   locus ablations, not input-mass fiat.
+3. **Speed pricing: not a leak; keep realized-speed pricing.** The
+   deep-time "only benefit is foraging" claim was false — speedCap feeds
+   every movement policy, mate-seeking and the predation kernel. Add
+   instrumentation (realized speed, mode fractions, cap–fitness covariance)
+   before considering any maintenance cost.
+4. **P8: the criterion is falsified, not unfalsifiable** (≈1.0 is not
+   <0.5 — the brief's own framing was wrong). Split into P8a (Fst) / P8b
+   (acceptance ratio) with per-side circular statistics recorded through
+   `ScenarioNotes` — no SampleRow contract change needed — and replace the
+   first-64-slots acceptance sample with a deterministic ID-hash sample.
+5. **P12: reject 2×10⁶, re-derive from watchability.** One simulated
+   generation per wall-clock second at 1,000 organisms = 0.9×10⁶
+   organism-ticks/s; measured 1.008×10⁶ passes with ~12% margin. Gate only
+   on a documented reference environment.
+6. **P6∧P9 simultaneity: confirmed per run** — and 1.8e-3 (all seeds P9
+   green with 100% guild presence) is stronger evidence than 3.2e-3/s1.
+   But three certification seeds cannot estimate robustness under chaotic
+   basin membership: gate promotion needs k-of-n aggregation (the runner
+   has none) over a preregistered larger seed panel. "The slot cap is THE
+   binding constraint" was too broad — it is one blocker among several.
+
+Defects list for the fix wave (G1), from the report: P3 dropped-births
+assertion; P8 split + instrument + sampling; P12 re-derivation; P14
+denominator; P10's injected-allele estimator can false-pass (needs a tagged
+allele or paired no-injection control); k-of-n aggregation; artifact
+provenance (commit, config hash, host — reports currently overwrite a
+generic filename); P1's "at the end" detail reads a stale liveCount; P2
+certifies a token blacklist, not entropy hygiene. The A5 toggle-scenario
+empty-report gap re-confirmed.
+
 ## Tuning log
 
 WP-A7 owns this section. Every config change gets a row: what moved, why, and
@@ -834,8 +884,10 @@ three-act story worth keeping:
    rest of the run — vestigialization: armor costs metabolism and nothing was
    attacking. The charts caught a textbook phenomenon. Attack stayed at the
    floor throughout.
-3. **The aftermath economy.** `speedCap` ran away ~8× (its only benefit in a
-   predator-free world is foraging); heterozygosity eroded 0.87 → ~0.1 (the
+3. **The aftermath economy.** `speedCap` ran away ~8× (corrected at Gate
+   A-2: speed feeds every movement policy, mate-seeking and the predation
+   kernel, not only foraging, and its realized-work pricing was ruled
+   honest); heterozygosity eroded 0.87 → ~0.1 (the
    frequency-dependent predation that pumps variance died with the predators —
    consistent with the marginal-contribution table's hue row); population rode
    the 4,096 slot cap in a fill-and-starve sawtooth, then crashed late to ~538.
