@@ -9,7 +9,7 @@ audit the probe suite and its thresholds — the instrument, not the vibes.
 
 ## State
 
-- HEAD: `<COMMIT>` on main; working tree clean.
+- HEAD: `a300435` on main; working tree clean.
 - The design record is `DESIGN.md` (read "Tuning log", "The two
   discriminators", "Threshold ratchet", "Mechanism marginal contributions",
   "Deep time"). The campaign state summary is `STATUS.md`.
@@ -24,8 +24,27 @@ audit the probe suite and its thresholds — the instrument, not the vibes.
 
 ## The dose-batch result you are confirming
 
-<DOSE-RESULT — filled in after the batch: accepted rate, per-seed P3/P4/P6/
-P9/P14 readings, arms-race SDs, and the probe:full report path.>
+Run 2026-08-09, four doses (2.0/2.2/2.4e-3 per the discriminator, plus a
+1.8e-3 follow-up), 45-gen cliff screens then 300-gen spec runs × 3 seeds.
+**Every dose rejected; `quantMutationRate` stays 1.6e-3.** Full per-seed
+tables: DESIGN.md "The dose batch (2026-08-09)". The two structural
+findings you should weigh while ruling on agenda items 1 and 6:
+
+- The binding constraint moved from the founding transient to the **slot
+  cap**: the dose that buys P6 retention + a two-sided race (2.0e-3) fails
+  P3 by cap-riding (population outgrows the 4,096-slot container, births
+  dropped). Density regulation, not mutation input, now pins the dose.
+- Guild persistence is **not dose-smooth**: across 1.6→2.4e-3 each seed
+  keeps its guild in a different, non-contiguous subset of doses (1.8e-3
+  fails four probes yet holds ~80% predators on all three seeds). Basin
+  membership looks chaotic in the seed, which bears directly on whether
+  P9's criterion should demand persistence on all seeds at one dose.
+
+The campaign-closing `LONG_SIM=1 probe:full` on the accepted config ran
+2026-08-09; its rendered table is `runs/full-close-1.6e-3.log` and the
+report JSON is the newest `full-report` file in `runs/`. The machine was
+otherwise idle except for background file-watch loops; treat P12's number
+as measured-clean unless the log says otherwise.
 
 ## Agenda — rule on each
 
