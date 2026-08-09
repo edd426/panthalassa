@@ -549,6 +549,50 @@ carry (it has `populationByDeme` but no per-deme trait moments). **That is the
 concrete instrumentation gap blocking P8's second criterion**, and it is a
 stats/contract question rather than a tuning one.
 
+### The dose batch (2026-08-09) — run, and the window is not where it was thought to be
+
+The intermediate-rate experiment the discriminator called for, run at the
+campaign resume. Cliff screens (45 gens × 3 seeds): **all three doses
+survive the founding cliff** — the constraint that killed 3.2e-3 does not
+reach down to 2.4e-3. Spec length (300 gens × 3 seeds, baseline):
+
+| Reading | 2.0e-3 | 2.2e-3 | 2.4e-3 |
+|---|---|---|---|
+| P3 viability | 1.00 / 1.00 / **FAIL 0.942** (s3 rides cap, 18k births dropped) | **FAIL 0.910** (s1 rides cap, 32k dropped) / 1.00 / 1.00 | 0.993 / 1.00 / 1.00 |
+| P4 V_A ratio | 7.17 / 5.14 / 5.30 — all in band | 0.136 / 3.84 / **11.7** | **0.183** / 4.75 / **0.142** |
+| P6 loci alive | **0.833 / 0.875 / 0.938** | 0.875 / 0.917 / 0.938 | 0.833 / 0.938 / 0.917 |
+| P9 attack SD | **1.63 / 1.72 / 1.58 — moves on every seed** | 0.65 / 0.54 / 0.58 | 2.08 / 0.85 / 0.77 |
+| P9 guild present | 11% / 39% / 77% | 100% / 0% / 67% | 99% / 2% / 0% |
+| P13 h² | 0.46 / 0.46 / 0.58 | 0.69 / 0.62 / 0.41 | **FAIL 0.82** / 0.73 / 0.44 |
+| P14 Ne ratio | 0.194 / 0.199 / 0.107 | **0.086** / 0.193 / 0.214 | 0.114 / 0.210 / 0.167 |
+
+Every dose is rejected, each by a different probe — which is the finding.
+The dose that buys what the discriminator promised (2.0e-3: P6 retention up
+~0.15 across all seeds versus 1.6e-3, attack moving 1.5–1.7 SD on every
+seed, P4/P13/P14 all green) fails **P3 by cap-riding**: better-adapted
+worlds outgrow the 4,096-slot container and the suite correctly refuses the
+cap-and-starve regime. At 2.2e-3 the same failure moves to s1; by 2.4e-3
+the guild dies on two seeds instead.
+
+**The binding constraint has moved.** The campaign's recurring constraint
+was the founding transient; for the mutation dose it is now the slot cap.
+Roadmap item 4 (density regulation that isn't cap-and-starve) is therefore
+not cosmetic — it is what pins `quantMutationRate` at its current value,
+and the dose worth revisiting after it lands is ~2.0e-3.
+
+Guild persistence, meanwhile, does not improve monotonically with dose at
+spec length on any seed — s2 keeps its guild only at 2.0e-3 (15%), s1 only
+at ≥2.2e-3, s3 only at ≤2.0e-3. Whatever separates the guild-keeping basin
+from the monoculture basin, it is seed-specific and not purchasable with
+mutation input alone. That closes the discriminator's question honestly:
+mutation input buys locus retention and a two-sided race, but **P6 ∧ P9
+simultaneity on all three seeds is not reachable inside the current density
+regime**, and Gate A-2 gets that as measured.
+
+Follow-up in flight when this row was written: 1.8e-3 (between the accepted
+dose and the cap-riding one; cliff-safe by bracketing) — its row and the
+batch adjudication land below.
+
 ### Superseded by (a) above: the trade-off as A7 first read it
 
 **Kept because the correlation is real and the reasoning from it was wrong** —
