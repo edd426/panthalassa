@@ -42,19 +42,27 @@ s1–s9+q1, golden hash re-baselined `d60c12703108a788`, 261/261 tests,
 cliff + quick green (`runs/quick-post-p1fix.log`). Full record: DESIGN.md
 "D5 measurement — spec-length adjudication".
 
-**The P1 fix took two rounds (2026-08-10 morning).** The boundary-only
-build (`56dceab`) fixed P1 but its spec run FAILED P3 on s2/s3 — stale
-feeding/predation candidates ran the world into the slot cap with births
-dropped (`runs/full-postfix.log`). Standing fix `ad2ef3b`: two builds per
-tick (post-movement for feeding/predation/mating = A7's tuned inputs;
-tick-boundary for next-tick behavior = restore-safe). P1 PASS s1–s9+q1,
-P12 9.04e5, cliff + quick green (`runs/quick-post-p1fix2.log`). **The
-re-certifying spec `probe:full` on `ad2ef3b` is running detached**
-(`runs/full-postfix2.log`, launched ~09:20, done ~17:30). When it lands:
-expect the D5 rows' shape (gates PASS, the known warns); material shifts
-get a note in DESIGN.md "D5 measurement". Lesson now recorded there:
-engine-timing changes need a spec-length gate check — a 45-gen cliff
-cannot see an operating-point shift that saturates at 300 generations.
+**P3 IS RED AT SPEC LENGTH ON MAIN (2026-08-10 afternoon) — cause
+understood, lever choice is the user's.** The P1 fix took two rounds
+(`56dceab` boundary-only → `ad2ef3b` two builds per tick; P1 PASS
+s1–s9+q1, P12 9.04e5, `runs/quick-post-p1fix2.log`), and BOTH rounds'
+spec runs failed P3 on s2/s3 the same way: population riding the
+4096-slot cap with births dropped (`runs/full-postfix.log`,
+`runs/full-postfix2.log`; s2 breaches 3500 from gen 142). The
+stale-candidates theory died with round two — the real cause is
+additive: **carrion is a new energy channel on a world A7 tuned without
+it** (pre-wave max pop 3127 → post-wave 3495, already at the band's
+edge) and the corrected behavior roster (no phantom-corpse fleeing)
+added the last nudge. The correct engine's carrying capacity simply
+exceeds the P3 band, so the cap binds — violating
+density-dependence-via-resources. This converges with the D5 headline:
+the cooling lever and the predation-pays lever are likely the SAME
+knob (nerf scavenging calories). **Screens in flight**
+(`runs/lever-*.log`, s2 × 200 gens): control, carrion
+`decayHalfLifeGenerations` 1→0.5, carrion `maxIntake` 0.7→0.5. The
+lever DECISION stays with the user (task #18) — do not commit a config
+change without it; the screens are the menu's measurements. Once a
+lever is chosen: cliff → spec `probe:full` → update the D5 rows.
 
 **The headline D5 finding: scavenging pays too well as a terminal strategy.**
 Mean diet ratchets to +1.4/+1.6 and predator-fraction to ~0.95 while
