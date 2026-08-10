@@ -756,17 +756,23 @@ class PanthalassaSim implements SimHandleInternal {
     this.stageEnvironment();
     this.stageBehavior();
     this.stageMovement();
+    this.spatial.build(state);
     this.stageFeeding();
     this.stagePredation();
     this.stageMetabolism();
     this.applyDeaths();
     this.stageReproduction();
     this.applyBirths();
-    // Rebuilt only at the tick boundary: every consumer must see a grid that
-    // is a pure function of end-of-tick SimState, or a run restored from a
-    // snapshot diverges from the uninterrupted one. The previous mid-tick
-    // build (post-movement, pre-birth/death) depended on positions no
-    // snapshot carries — P1 caught it on seeds s5/s9 (2026-08-10).
+    // Two builds per tick, deliberately. Feeding/predation/mating consume the
+    // post-movement build above — fresh positions, the input set the A7
+    // campaign tuned the config against (a boundary-only build left their
+    // candidates one stage stale and ran the world into the slot cap: P3
+    // FAILED s2/s3 at spec length, births dropped). Behavior next tick
+    // consumes THIS boundary build, which is a pure function of end-of-tick
+    // SimState — the mid-tick build is not (pre-birth/death membership no
+    // snapshot carries), and a restored run then diverges from the
+    // uninterrupted one (P1 FAILED s5/s9). Both builds are cheap counting
+    // sorts; P12 absorbs the second.
     this.spatial.build(state);
     this.stageRecording();
 
