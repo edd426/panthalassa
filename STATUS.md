@@ -57,12 +57,23 @@ added the last nudge. The correct engine's carrying capacity simply
 exceeds the P3 band, so the cap binds — violating
 density-dependence-via-resources. This converges with the D5 headline:
 the cooling lever and the predation-pays lever are likely the SAME
-knob (nerf scavenging calories). **Screens in flight**
-(`runs/lever-*.log`, s2 × 200 gens): control, carrion
-`decayHalfLifeGenerations` 1→0.5, carrion `maxIntake` 0.7→0.5. The
-lever DECISION stays with the user (task #18) — do not commit a config
-change without it; the screens are the menu's measurements. Once a
-lever is chosen: cliff → spec `probe:full` → update the D5 rows.
+knob (nerf scavenging calories). **Lever screens are DONE**
+(`runs/lever-*.log`, 200 gens on the two failing seeds; control
+reproduced the hot world: s2 maxPop 4089 with 5,025 births dropped):
+
+| lever | s2 maxPop | s3 maxPop | verdict |
+|---|---|---|---|
+| `carrion.decayHalfLifeGenerations` 1→0.5 | 3379, 0 drops | **4087, 2,472 drops** | fails s3 |
+| `carrion.maxIntake` 0.7→0.5 | 2902, 0 drops | 2144, 0 drops | restores the band, both seeds |
+
+Recommendation: `maxIntake` 0.7→0.5 — the only screened lever that
+cools both seeds, and it is the direct nerf of
+scavenging-as-terminal-strategy. Open question it does NOT answer:
+whether a halved scavenging rate depresses P16's already-rare
+re-ignition (base rate ~1/8) — that is the campaign's spec-length
+measurement. The lever DECISION stays with the user (task #18) — no
+config change is committed without it. Once chosen: cliff → spec
+`probe:full` → update the D5 rows in DESIGN.md.
 
 **The headline D5 finding: scavenging pays too well as a terminal strategy.**
 Mean diet ratchets to +1.4/+1.6 and predator-fraction to ~0.95 while
