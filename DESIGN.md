@@ -1127,16 +1127,27 @@ was built mid-tick — post-movement, pre-birth/death — so the next tick's
 behavior stage consumed a structure that is not a function of end-of-tick
 `SimState`; a restored run rebuilds from the snapshot with newborns present
 and the dead removed, and one boundary birth/death near a deciding organism
-flips a decision. Fixed in `56dceab` by moving the build to the tick
-boundary (after `applyBirths`) — one build per tick, P12 unchanged. This is
-a deliberate trajectory change: the disturbances-off golden hash
-re-baselined `6922907c6421d7bf` → `d60c12703108a788` (reproduced twice via
-an independent harness). Verified P1 PASS on all of s1–s9 + q1. Lesson for
-the probe suite: the P1 gate had passed every run for its entire life on
-four seeds; two fresh seeds falsified it within one panel — fresh-seed
-panels are cheap gate audits and D-waves should end with one. Note the
-spec-length numbers above were measured on the pre-fix engine; the next
-full run re-certifies under the fixed engine.
+flips a decision. The first fix (`56dceab`) moved the single build to the
+tick boundary — and its own re-certifying spec run then **failed P3** on
+s2/s3: feeding/predation/mating candidates went one stage stale, an input
+set the A7 campaign never tuned against, and the world ran hot into the
+slot cap with births dropped (3,106 / 32,405 — a density-dependence-via-
+resources violation, `runs/full-postfix.log`). The standing fix (`ad2ef3b`)
+builds twice per tick: the post-movement build keeps feeding/predation/
+mating on fresh positions (A7's tuned input set), and a boundary build
+after `applyBirths` is what the next tick's behavior consumes — a pure
+function of end-of-tick `SimState`, so restored runs stay equivalent.
+Verified P1 PASS on s1–s9 + q1; P12 9.04e5 (the second build costs ~1–3%);
+45-gen cliff P3 PASS ×3. Deliberate trajectory change: the disturbances-off
+golden hash re-baselined `6922907c6421d7bf` → `d60c12703108a788`
+(reproduced twice via an independent harness; unchanged between the two fix
+variants — on the golden world the feeding-freshness delta never altered an
+outcome). Two lessons for the suite: fresh-seed panels are cheap gate
+audits and D-waves should end with one; and a 45-generation cliff screen
+cannot see an operating-point shift that only saturates at spec length —
+engine-timing changes need a spec-length gate check before the record calls
+them fixed. Spec-length re-certification of `ad2ef3b` in
+`runs/full-postfix2.log`.
 
 **The headline finding — scavenging pays too well as a terminal strategy.**
 In the 600-generation regime runs, mean diet ratchets to +1.4/+1.6 with

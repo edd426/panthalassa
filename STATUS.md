@@ -42,10 +42,19 @@ s1–s9+q1, golden hash re-baselined `d60c12703108a788`, 261/261 tests,
 cliff + quick green (`runs/quick-post-p1fix.log`). Full record: DESIGN.md
 "D5 measurement — spec-length adjudication".
 
-**A re-certifying spec-length `probe:full` is running detached on the fixed
-engine** (`runs/full-postfix.log`) — the previous spec numbers were
-measured pre-fix. When it lands, compare against the D5 rows in DESIGN.md;
-material shifts get a note there.
+**The P1 fix took two rounds (2026-08-10 morning).** The boundary-only
+build (`56dceab`) fixed P1 but its spec run FAILED P3 on s2/s3 — stale
+feeding/predation candidates ran the world into the slot cap with births
+dropped (`runs/full-postfix.log`). Standing fix `ad2ef3b`: two builds per
+tick (post-movement for feeding/predation/mating = A7's tuned inputs;
+tick-boundary for next-tick behavior = restore-safe). P1 PASS s1–s9+q1,
+P12 9.04e5, cliff + quick green (`runs/quick-post-p1fix2.log`). **The
+re-certifying spec `probe:full` on `ad2ef3b` is running detached**
+(`runs/full-postfix2.log`, launched ~09:20, done ~17:30). When it lands:
+expect the D5 rows' shape (gates PASS, the known warns); material shifts
+get a note in DESIGN.md "D5 measurement". Lesson now recorded there:
+engine-timing changes need a spec-length gate check — a 45-gen cliff
+cannot see an operating-point shift that saturates at 300 generations.
 
 **The headline D5 finding: scavenging pays too well as a terminal strategy.**
 Mean diet ratchets to +1.4/+1.6 and predator-fraction to ~0.95 while
