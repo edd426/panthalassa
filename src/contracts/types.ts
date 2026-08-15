@@ -809,7 +809,12 @@ export const DEFAULT_SIM_CONFIG: SimConfig = Object.freeze({
     depositFraction: 0.3,
     decayHalfLifeGenerations: 1,
     qScav: 0.7,
-    maxIntake: 0.7,
+    // 0.7 → 0.5 (2026-08-15, task #18): the P3 lever. At 0.7 the corrected
+    // carrion channel raised carrying capacity past the P3 band (s2/s3 rode the
+    // 4096-slot cap with births dropped); 0.5 was the only screened lever that
+    // cooled both seeds (s2 maxPop 2902, s3 2144, zero drops). See DESIGN.md
+    // tuning log.
+    maxIntake: 0.5,
     halfSaturation: 2,
   }),
   metabolism: Object.freeze({

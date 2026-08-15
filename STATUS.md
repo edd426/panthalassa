@@ -14,6 +14,26 @@ discriminator phase._
 
 ## Resume HERE
 
+**TASK #18 IS DECIDED AND PHASE B IS GO (2026-08-15).** The user chose the
+recommended lever: `carrion.maxIntake` 0.7 → 0.5 is committed as the default
+(DESIGN.md "The maxIntake lever lands"). Cliff screen green (45 gens ×
+s1–s3, no FAIL); the spec-length `probe:full` is running detached
+(`runs/full-maxintake05.log`, pid 9533, launched ~18:45) — **its adjudication
+is the next sim work**: P3 back in band? P7 predation share? and the open
+question, whether halved scavenging depresses P16's ~1/8 base rate. The
+carrion on-ramp unit test was re-scoped to the new crossover structure
+(famine bridge, not destination) — see the DESIGN.md entry.
+
+**The Phase B render wave is IN PROGRESS the same evening** — the user gave
+the explicit graphics go, approved scope (B1–B3 + UI restyle), art direction
+(deep-water cinematic), adaptive LOD, and delegation to Opus implementers.
+Plan: `~/.claude/plans/playful-wandering-dove.md`. R0 (render seam +
+sample-slice stride 9→13 carrying the four morphology traits) is committed;
+R1 (Pixi shell/camera/LOD) / R2 (procedural creatures) / R3 (ambience) / R4
+(UI restyle) run as parallel agents with briefs in `briefs/render-*.md`.
+
+The paragraph below is the pre-decision state, kept for context:
+
 **D5 SPEC MEASUREMENT IS ADJUDICATED (2026-08-10 early morning).** The first
 spec-length `probe:full` under the regime finished (481 min,
 `runs/full-dwave.log`): **gates all PASS**, suite WARN, and the full

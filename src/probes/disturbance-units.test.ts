@@ -103,27 +103,27 @@ describe('carrion field and scavenging', () => {
     expect(decayed).toBeCloseTo(deposited / 2, 4);
   });
 
-  it('makes mid-diet scavenging beat convex hunting while the high-end live channel stays richer', () => {
+  it('makes scavenging a famine bridge, not a destination: mid-diet carrion wins only at scarcity', () => {
+    // Re-scoped with the maxIntake 0.7 → 0.5 lever (task #18). At 0.7 mid-diet
+    // scavenging beat hunting even at abundance, which is exactly the D5
+    // pathology: the on-ramp functioned as a terminal strategy and carrying
+    // capacity blew past the P3 band. At 0.5 the crossover moves to scarcity —
+    // carrion pays the intermediate-diet step only when live channels are
+    // starved (post-crash, the re-evolvability window), and the live channel
+    // is richer everywhere at abundance.
     const config = resolveSimConfig();
-    const resource = 10;
     const mid = 0.5;
-    const midCarrion = carrionIntake(1, dietEfficiencyCarrion(mid, config), resource, config);
-    const midPrey = grazingIntake(
-      config.resources.grazingMaxIntake,
-      dietEfficiencyPrey(mid, config),
-      resource,
-      config,
-    );
-    const highCarrion = carrionIntake(1, dietEfficiencyCarrion(1, config), resource, config);
-    const highPrey = grazingIntake(
-      config.resources.grazingMaxIntake,
-      dietEfficiencyPrey(1, config),
-      resource,
-      config,
-    );
+    const intakeAt = (diet: number, resource: number): { carrion: number; prey: number } => ({
+      carrion: carrionIntake(1, dietEfficiencyCarrion(diet, config), resource, config),
+      prey: grazingIntake(config.resources.grazingMaxIntake, dietEfficiencyPrey(diet, config), resource, config),
+    });
     expect(config.carrion.qScav).toBeLessThan(1);
-    expect(midCarrion).toBeGreaterThan(midPrey);
-    expect(highCarrion).toBeLessThan(highPrey);
+    const scarceMid = intakeAt(mid, 1);
+    expect(scarceMid.carrion).toBeGreaterThan(scarceMid.prey);
+    const richMid = intakeAt(mid, 10);
+    expect(richMid.carrion).toBeLessThan(richMid.prey);
+    const richHigh = intakeAt(1, 10);
+    expect(richHigh.carrion).toBeLessThan(richHigh.prey);
   });
 });
 

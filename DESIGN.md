@@ -1164,6 +1164,28 @@ raise prey-capture payoff, or let carrion decay faster), measured against
 P7's predation share at spec length — that, not the shock machinery, is now
 the predator-persistence problem's centre.
 
+### The maxIntake lever lands (2026-08-15, task #18 decided)
+
+The user chose `carrion.maxIntake` 0.7 → 0.5 — the only screened lever that
+cooled both failing seeds (lever screens, 200 gens: control s2 maxPop 4089
+with 5,025 births dropped; intake-0.5 s2 2902 and s3 2144, zero drops both;
+the decay-0.5 alternative failed s3 at 4087 with 2,472 drops). Applied as the
+new default, cliff-screened green (45 gens × s1–s3, no FAIL, predator guilds
+51–64%), and sent to a spec-length `probe:full` (`runs/full-maxintake05.log`,
+detached pid 9533) whose adjudication — especially whether halved scavenging
+depresses P16's ~1/8 re-ignition base rate — is pending.
+
+One unit test re-scoped with the lever, deliberately: the carrion on-ramp
+assertion (`disturbance-units.test.ts`) previously demanded mid-diet
+scavenging beat convex hunting at abundance (resource=10). Measured under
+0.5, the crossover moves to scarcity: mid-diet carrion wins at resource ≤ 1
+and loses at abundance, while the high-diet live channel is richer
+everywhere. That is a better-shaped on-ramp than the one the D-wave shipped —
+scavenging is now a famine bridge (paying exactly in the post-crash windows
+where re-evolution should fire) instead of the terminal strategy D5 caught.
+The test now asserts the crossover structure rather than the old
+abundance-time dominance.
+
 Directions we tried, considered seriously, or inherited and then abandoned —
 kept so they are not silently retried.
 
