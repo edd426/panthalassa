@@ -44,6 +44,38 @@ export const SPECIES_HUE_STEP_DEG = 137.508;
 /** Alpha floor: a starving fish fades, but never past the point of being countable. */
 export const ALPHA_FLOOR = 0.3;
 
+/**
+ * Condition floor in the measurement modes.
+ *
+ * The palette was validated against the crude renderer's ground, and the Pixi
+ * ocean is darker — which by itself *helps*: every ramp step clears 3:1 against
+ * the abyss at full opacity (3.15:1 at the dimmest, 7.7:1 mid-ramp). What does
+ * not survive is the compositing. At the 0.3 floor the dimmest amber step lands
+ * at 1.29:1 on the abyss, which is a mark you cannot count.
+ *
+ * Identity mode keeps {@link ALPHA_FLOOR}: there the animal itself is the
+ * subject and watching condition drain away is part of the point. In a
+ * measurement mode the question is the trait, condition is the secondary
+ * channel, and spending some of its range to keep every living animal legible
+ * is the right trade.
+ */
+export const MEASUREMENT_ALPHA_FLOOR = 0.6;
+
+/**
+ * Relative-luminance floor applied to measurement tints, lifting only the
+ * darkest ramp steps toward white.
+ *
+ * Chosen as the largest floor that still leaves every adjacent pair of ramp
+ * steps separated by ΔL ≥ 0.06, which is the ordinal guarantee `palette.ts`
+ * records for these ramps — 0.15 keeps the tightest pair at 0.089, while 0.18
+ * would crush it to 0.059 and the ramp would stop reading as a magnitude.
+ *
+ * With the alpha floor above, this puts the worst living mark at 2.0:1 on the
+ * abyss — the same contrast `palette.ts` validated its dim end at (2.06:1) —
+ * and a healthy animal at 3.5:1, clearing the 3:1 mark floor.
+ */
+export const MEASUREMENT_LUMINANCE_FLOOR = 0.15;
+
 export function hslToInt(hueDeg: number, saturation: number, lightness: number): number {
   const h = (((hueDeg % 360) + 360) % 360) / 360;
   const s = Math.min(1, Math.max(0, saturation));
@@ -92,6 +124,68 @@ export function identityTint(hueDeg: number): number {
     Math.max(0, Math.floor((((hueDeg % 360) + 360) % 360) / (360 / HUE_BUCKETS))),
   );
   return IDENTITY_TINTS[bucket] ?? 0x88aadd;
+}
+
+function channelLuminance(value: number): number {
+  const s = value / 255;
+  return s <= 0.04045 ? s / 12.92 : Math.pow((s + 0.055) / 1.055, 2.4);
+}
+
+/** WCAG relative luminance of a 0xRRGGBB int. */
+export function relativeLuminance(tint: number): number {
+  return (
+    0.2126 * channelLuminance((tint >> 16) & 255) +
+    0.7152 * channelLuminance((tint >> 8) & 255) +
+    0.0722 * channelLuminance(tint & 255)
+  );
+}
+
+/**
+ * Lift a tint toward white until it reaches `floor` luminance, leaving anything
+ * already bright enough exactly as it was.
+ *
+ * Toward white rather than toward a brighter step of its own ramp: white is the
+ * only direction that raises luminance without turning the hue, and hue is
+ * carrying the measurement. Solved by bisection rather than algebraically
+ * because the sRGB transfer curve is piecewise; it runs on 14 palette entries
+ * once at module load, never per organism.
+ */
+export function liftToLuminance(tint: number, floor: number): number {
+  if (relativeLuminance(tint) >= floor) return tint;
+  const r = (tint >> 16) & 255;
+  const g = (tint >> 8) & 255;
+  const b = tint & 255;
+  let low = 0;
+  let high = 1;
+  for (let i = 0; i < 24; i += 1) {
+    const mid = (low + high) / 2;
+    const blended =
+      (Math.round(r + (255 - r) * mid) << 16) |
+      (Math.round(g + (255 - g) * mid) << 8) |
+      Math.round(b + (255 - b) * mid);
+    if (relativeLuminance(blended) < floor) low = mid;
+    else high = mid;
+  }
+  return (
+    (Math.round(r + (255 - r) * high) << 16) |
+    (Math.round(g + (255 - g) * high) << 8) |
+    Math.round(b + (255 - b) * high)
+  );
+}
+
+// The measurement ramps, pre-lifted once. Identity is deliberately absent: its
+// hues are already bright and it is the one mode that reads correctly as-is.
+const AMBER_LEGIBLE = SEQUENTIAL_AMBER_INTS.map((t) => liftToLuminance(t, MEASUREMENT_LUMINANCE_FLOOR));
+const COOL_LEGIBLE = DIVERGING_COOL_INTS.map((t) => liftToLuminance(t, MEASUREMENT_LUMINANCE_FLOOR));
+const WARM_LEGIBLE = DIVERGING_WARM_INTS.map((t) => liftToLuminance(t, MEASUREMENT_LUMINANCE_FLOOR));
+const NEUTRAL_LEGIBLE = liftToLuminance(DIVERGING_NEUTRAL_INT, MEASUREMENT_LUMINANCE_FLOOR);
+
+/** `divergingTintAt`, on the abyss-legible ramps. */
+export function divergingTintLegible(signed: number): number {
+  const magnitude = Math.min(1, Math.abs(signed));
+  if (magnitude < 0.12) return NEUTRAL_LEGIBLE;
+  const arm = signed < 0 ? COOL_LEGIBLE : WARM_LEGIBLE;
+  return rampTintAt(arm, (magnitude - 0.12) / 0.88);
 }
 
 export function speciesHueDeg(tag: number): number {
@@ -191,11 +285,16 @@ export function buildLegend(
   }
 }
 
-/** Condition reads as opacity in every mode; a starving fish fades before it dies. */
-export function conditionAlpha(energyFraction: number): number {
-  return Number.isFinite(energyFraction)
-    ? Math.min(1, Math.max(ALPHA_FLOOR, ALPHA_FLOOR + energyFraction * 0.7))
-    : 1;
+/**
+ * Condition reads as opacity in every mode; a starving fish fades before it
+ * dies. `floor` is where that fade bottoms out — the whole range above it is
+ * spent linearly, so at {@link ALPHA_FLOOR} this reproduces the crude
+ * renderer's `0.3 + e * 0.7` exactly.
+ */
+export function conditionAlpha(energyFraction: number, floor: number = ALPHA_FLOOR): number {
+  if (!Number.isFinite(energyFraction)) return 1;
+  const clamped = Math.min(1, Math.max(0, energyFraction));
+  return floor + clamped * (1 - floor);
 }
 
 /**
@@ -230,6 +329,11 @@ export function resolveColours(
   map.span = span;
   map.legend = buildLegend(effective, span, temperature, thermalReferenceC);
 
+  // Identity keeps the crude renderer's floors; every measuring mode is lifted
+  // so a faded animal is still countable against the abyss.
+  const alphaFloor = effective === 'identity' ? ALPHA_FLOOR : MEASUREMENT_ALPHA_FLOOR;
+  const amber = effective === 'identity' ? SEQUENTIAL_AMBER_INTS : AMBER_LEGIBLE;
+
   for (let index = 0; index < count; index += 1) {
     const base = index * SAMPLE_SLICE_STRIDE;
     const energyFraction = data[base + SAMPLE_SLICE.energyFraction] ?? 0;
@@ -247,24 +351,24 @@ export function resolveColours(
         const x = data[base + SAMPLE_SLICE.x] ?? 0;
         const y = data[base + SAMPLE_SLICE.y] ?? 0;
         const water = temperature === null ? traitValue : sampleRaster(temperature, x, y);
-        tint = divergingTintAt((traitValue - water) / thermalReferenceC);
+        tint = divergingTintLegible((traitValue - water) / thermalReferenceC);
         break;
       }
       case 'diet':
         // Expressed diet is a share in (0,1); 0.5 is the generalist, and the
         // convex efficiency makes that the worst place to be.
-        tint = divergingTintAt((traitValue - 0.5) * 2);
+        tint = divergingTintLegible((traitValue - 0.5) * 2);
         break;
       case 'speedCap':
       case 'defense':
-        tint = rampTintAt(SEQUENTIAL_AMBER_INTS, span === null ? 0.5 : (traitValue - span.low) / span.range);
+        tint = rampTintAt(amber, span === null ? 0.5 : (traitValue - span.low) / span.range);
         break;
       case 'energy':
-        tint = rampTintAt(SEQUENTIAL_AMBER_INTS, energyFraction);
+        tint = rampTintAt(amber, energyFraction);
         break;
     }
 
     map.tints[index] = tint;
-    map.alphas[index] = conditionAlpha(energyFraction);
+    map.alphas[index] = conditionAlpha(energyFraction, alphaFloor);
   }
 }

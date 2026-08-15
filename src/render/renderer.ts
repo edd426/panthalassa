@@ -21,7 +21,7 @@ import { Application, Container } from 'pixi.js';
 import type { Texture } from 'pixi.js';
 import type { SimEvent } from '../contracts/events';
 import type { SimConfig } from '../contracts/types';
-import { toWorld as cameraToWorld, worldTransform } from './camera';
+import { fitScale, toWorld as cameraToWorld, worldTransform } from './camera';
 import type { WorldTransform } from './camera';
 import { CameraController } from './cameraController';
 import { createColourMap, resolveColours } from './colourMap';
@@ -395,6 +395,12 @@ class PixiWorldRenderer implements WorldRenderer {
       rendererKind: activeKind,
       screen: { w: screen.width, h: screen.height },
       cameraViewport: { w: camera.viewportW, h: camera.viewportH },
+      // Zoom triage: `wheel.events` separates "the handler never fired" from
+      // "the handler fired and the camera declined". `fitPxPerWu` is what the
+      // camera would sit at with no zoom applied — pxPerWu equal to it means
+      // the camera is at fit, which is a very different story from clamped.
+      wheel: this.controller.wheelDiagnostics,
+      fitPxPerWu: fitScale(camera.viewportW, camera.viewportH, this.config.world.widthWu, this.config.world.heightWu),
       worldRoot: { x: this.worldRoot.position.x, y: this.worldRoot.position.y, scale: this.worldRoot.scale.x },
       worldProbe: { x: probe.x, y: probe.y },
       slotChildren: {

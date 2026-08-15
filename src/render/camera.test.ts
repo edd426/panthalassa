@@ -191,6 +191,50 @@ describe('zoomAt', () => {
     expect(camera.pxPerWu).toBeCloseTo(MAX_PX_PER_WU, 9);
   });
 
+  /**
+   * The round-2 report: wheel zoom appeared to move a little off the fit scale
+   * and then pin there forever. This walks the gesture the way the wheel does —
+   * repeated small anchored steps from the fit state — and requires the zoom to
+   * climb all the way to the ceiling from every cursor position, including the
+   * corners, where the pan clamp is most likely to reject the anchored centre.
+   */
+  it('climbs monotonically from fit to the ceiling at any cursor', () => {
+    const cursors = [
+      [VIEW_W / 2, VIEW_H / 2],
+      [1, 1],
+      [VIEW_W - 1, VIEW_H - 1],
+      [VIEW_W - 1, 1],
+      [40, VIEW_H - 40],
+    ] as const;
+
+    for (const [cx, cy] of cursors) {
+      let camera = fitWorld(VIEW_W, VIEW_H, WORLD.widthWu, WORLD.heightWu);
+      let previous = camera.pxPerWu;
+      let stalledAt: number | null = null;
+      for (let step = 0; step < 200; step += 1) {
+        camera = zoomAt(camera, cx, cy, 1.0015 ** 30, WORLD);
+        if (camera.pxPerWu < MAX_PX_PER_WU && camera.pxPerWu <= previous && stalledAt === null) {
+          stalledAt = previous;
+        }
+        previous = camera.pxPerWu;
+      }
+      expect(stalledAt).toBeNull();
+      expect(camera.pxPerWu).toBeCloseTo(MAX_PX_PER_WU, 9);
+    }
+  });
+
+  /**
+   * Pinning "a hair above fit" would be the signature of the clamp rejecting an
+   * anchored centre near the world edge. It does not happen, and this records
+   * that the fit scale is not a sticky point.
+   */
+  it('does not stick near the fit scale when zooming from a corner', () => {
+    const fit = fitScale(VIEW_W, VIEW_H, WORLD.widthWu, WORLD.heightWu);
+    let camera = fitWorld(VIEW_W, VIEW_H, WORLD.widthWu, WORLD.heightWu);
+    for (let step = 0; step < 12; step += 1) camera = zoomAt(camera, VIEW_W - 2, 2, 1.0015 ** 40, WORLD);
+    expect(camera.pxPerWu).toBeGreaterThan(fit * 1.5);
+  });
+
   it('returns the same object when the zoom is already clamped', () => {
     const fitted = fitWorld(VIEW_W, VIEW_H, WORLD.widthWu, WORLD.heightWu);
     expect(zoomAt(fitted, 10, 10, 0.5, WORLD)).toBe(fitted);

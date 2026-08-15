@@ -1,10 +1,21 @@
 import { describe, expect, it } from 'vitest';
 import { SAMPLE_SLICE, SAMPLE_SLICE_STRIDE } from '../contracts/protocol';
 import { resolveSimConfig } from '../contracts/types';
-import { DIVERGING_NEUTRAL, SEQUENTIAL_AMBER, divergingAt, rampAt } from '../app/palette';
+import {
+  DIVERGING_COOL,
+  DIVERGING_NEUTRAL,
+  DIVERGING_WARM,
+  SEQUENTIAL_AMBER,
+  divergingAt,
+  rampAt,
+} from '../app/palette';
 import {
   ALPHA_FLOOR,
+  MEASUREMENT_ALPHA_FLOOR,
+  MEASUREMENT_LUMINANCE_FLOOR,
   UNTAGGED_RING_TINT,
+  liftToLuminance,
+  relativeLuminance,
   buildLegend,
   conditionAlpha,
   createColourMap,
@@ -210,6 +221,96 @@ describe('resolveColours', () => {
     resolveColours(map, makeSlice([{ energy: 0 }, { energy: 1 }]), 'identity', null, CONFIG);
     expect(map.alphas[0]).toBeCloseTo(ALPHA_FLOOR, 6);
     expect(map.alphas[1]).toBe(1);
+  });
+});
+
+describe('legibility on the abyss', () => {
+  /** The Pixi ocean's darkest ground — what a mark has to survive against. */
+  const ABYSS = 0x03151d;
+
+  function contrast(tint: number, background: number): number {
+    const a = relativeLuminance(tint);
+    const b = relativeLuminance(background);
+    const [high, low] = a >= b ? [a, b] : [b, a];
+    return (high + 0.05) / (low + 0.05);
+  }
+
+  /** What the GPU actually composites: source over destination, straight alpha. */
+  function composite(tint: number, background: number, alpha: number): number {
+    const blend = (shift: number): number =>
+      Math.round(alpha * ((tint >> shift) & 255) + (1 - alpha) * ((background >> shift) & 255));
+    return (blend(16) << 16) | (blend(8) << 8) | blend(0);
+  }
+
+  const RAMPS = [SEQUENTIAL_AMBER, DIVERGING_COOL, DIVERGING_WARM].map((ramp) =>
+    ramp.map((hex) => liftToLuminance(toInt(hex), MEASUREMENT_LUMINANCE_FLOOR)),
+  );
+
+  it('the unlifted palette is what goes invisible — this is the bug', () => {
+    // Recorded so the floors below are never "tidied away" as arbitrary.
+    const dimmest = toInt(SEQUENTIAL_AMBER[0] ?? '#000000');
+    expect(contrast(composite(dimmest, ABYSS, ALPHA_FLOOR), ABYSS)).toBeLessThan(1.4);
+    // Yet at full opacity the same colour is fine: the compositing is the fault,
+    // not the palette, which is why palette.ts stays frozen.
+    expect(contrast(dimmest, ABYSS)).toBeGreaterThan(3);
+  });
+
+  it('keeps every living animal countable in a measurement mode', () => {
+    for (const ramp of RAMPS) {
+      for (const tint of ramp) {
+        const faded = composite(tint, ABYSS, MEASUREMENT_ALPHA_FLOOR);
+        expect(contrast(faded, ABYSS)).toBeGreaterThanOrEqual(2);
+        // A healthy animal clears the 3:1 mark floor palette.ts asks for.
+        expect(contrast(tint, ABYSS)).toBeGreaterThanOrEqual(3);
+      }
+    }
+  });
+
+  it('lifts only the dim end, and never breaks the ramp ordering', () => {
+    for (const ramp of RAMPS) {
+      let previous = -1;
+      for (const tint of ramp) {
+        const luminance = relativeLuminance(tint);
+        expect(luminance).toBeGreaterThanOrEqual(MEASUREMENT_LUMINANCE_FLOOR - 1e-9);
+        // Strictly increasing, and by the margin palette.ts records as the
+        // threshold for a ramp still reading as a magnitude.
+        if (previous >= 0) expect(luminance - previous).toBeGreaterThanOrEqual(0.06);
+        previous = luminance;
+      }
+    }
+    // The bright end is untouched: only steps below the floor move at all.
+    const brightest = toInt(SEQUENTIAL_AMBER[SEQUENTIAL_AMBER.length - 1] ?? '#ffffff');
+    expect(liftToLuminance(brightest, MEASUREMENT_LUMINANCE_FLOOR)).toBe(brightest);
+  });
+
+  it('leaves identity mode exactly as the crude renderer had it', () => {
+    const map = createColourMap(8);
+    resolveColours(map, makeSlice([{ hue: 10, energy: 0 }]), 'identity', null, CONFIG);
+    expect(map.tints[0]).toBe(identityTint(10));
+    expect(map.alphas[0]).toBeCloseTo(ALPHA_FLOOR, 6);
+  });
+
+  it('raises the condition floor only where the trait is the subject', () => {
+    const map = createColourMap(8);
+    resolveColours(map, makeSlice([{ energy: 0 }, { energy: 1 }]), 'energy', null, CONFIG);
+    expect(map.alphas[0]).toBeCloseTo(MEASUREMENT_ALPHA_FLOOR, 6);
+    expect(map.alphas[1]).toBeCloseTo(1, 6);
+  });
+
+  it('spends the whole range above whatever floor it is given', () => {
+    // At the crude floor the formula is unchanged from Phase A.
+    expect(conditionAlpha(0.5)).toBeCloseTo(0.3 + 0.5 * 0.7, 9);
+    expect(conditionAlpha(0, MEASUREMENT_ALPHA_FLOOR)).toBeCloseTo(MEASUREMENT_ALPHA_FLOOR, 9);
+    expect(conditionAlpha(1, MEASUREMENT_ALPHA_FLOOR)).toBeCloseTo(1, 9);
+    expect(conditionAlpha(0.5, MEASUREMENT_ALPHA_FLOOR)).toBeCloseTo(0.8, 9);
+  });
+
+  it('paints a starving animal in a trait mode far brighter than it used to', () => {
+    const map = createColourMap(8);
+    resolveColours(map, makeSlice([{ energy: 0 }], [0]), 'speedCap', null, CONFIG);
+    const now = contrast(composite(map.tints[0] ?? 0, ABYSS, map.alphas[0] ?? 0), ABYSS);
+    const before = contrast(composite(toInt(SEQUENTIAL_AMBER[0] ?? '#000000'), ABYSS, ALPHA_FLOOR), ABYSS);
+    expect(now).toBeGreaterThan(before * 1.5);
   });
 });
 

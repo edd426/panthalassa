@@ -27,6 +27,9 @@ const INERTIA_STOP_PX_S = 12;
 /** Fit-all animation length. */
 const FIT_ANIMATION_MS = 420;
 
+/** Overlays that own their own scrolling; a wheel over these is not a zoom. */
+const SCROLLABLE_CHROME = '#panel, #charts';
+
 function easeInOutCubic(t: number): number {
   return t < 0.5 ? 4 * t * t * t : 1 - Math.pow(-2 * t + 2, 3) / 2;
 }
@@ -52,12 +55,29 @@ export class CameraController {
 
   private lastUpdateMs = 0;
 
+  /**
+   * Wheel events actually delivered to this controller. Surfaced through the
+   * debug hook because "zoom does nothing" has two very different causes —
+   * the handler not firing, and the handler firing but the camera refusing —
+   * and they are indistinguishable from the screen.
+   */
+  private wheelEvents = 0;
+  private lastWheelDeltaY = 0;
+
+  get wheelDiagnostics(): { events: number; lastDeltaY: number } {
+    return { events: this.wheelEvents, lastDeltaY: this.lastWheelDeltaY };
+  }
+
   constructor(canvas: HTMLCanvasElement, world: WorldRect, viewportW: number, viewportH: number) {
     this.canvas = canvas;
     this.world = world;
     this.current = fitWorld(viewportW, viewportH, world.widthWu, world.heightWu);
 
-    canvas.addEventListener('wheel', this.onWheel, { passive: false });
+    // Wheel is bound on the window, not the canvas. The canvas is the bottom
+    // layer of a page that grows chrome over time, and a zoom that silently
+    // stops working because something was laid over the water is a bug with no
+    // symptom to search for. Scrollable UI filters itself out in `onWheel`.
+    window.addEventListener('wheel', this.onWheel, { passive: false });
     canvas.addEventListener('pointerdown', this.onPointerDown);
     canvas.addEventListener('dblclick', this.onDoubleClick);
     window.addEventListener('pointermove', this.onPointerMove);
@@ -138,7 +158,7 @@ export class CameraController {
   }
 
   destroy(): void {
-    this.canvas.removeEventListener('wheel', this.onWheel);
+    window.removeEventListener('wheel', this.onWheel);
     this.canvas.removeEventListener('pointerdown', this.onPointerDown);
     this.canvas.removeEventListener('dblclick', this.onDoubleClick);
     window.removeEventListener('pointermove', this.onPointerMove);
@@ -157,6 +177,14 @@ export class CameraController {
   private readonly scratch: Vec2 = { x: 0, y: 0 };
 
   private readonly onWheel = (event: WheelEvent): void => {
+    // The inspector panel and the trend strip scroll their own content; only a
+    // wheel over the water is a zoom.
+    const target = event.target;
+    if (target instanceof Element && target !== this.canvas && target.closest(SCROLLABLE_CHROME) !== null) {
+      return;
+    }
+    this.wheelEvents += 1;
+    this.lastWheelDeltaY = event.deltaY;
     event.preventDefault();
     const point = this.localPoint(event, this.scratch);
     const factor = Math.pow(ZOOM_PER_WHEEL_UNIT, -event.deltaY);
