@@ -404,6 +404,15 @@ class PixiWorldRenderer implements WorldRenderer {
         waterAbove: this.waterAbove.children.length,
         foreground: this.foreground.children.length,
       },
+      // Live container references, for review-loop ablation from devtools
+      // (toggle `.visible` per child to attribute a wrong pixel to its layer).
+      containers: {
+        backdrop: this.backdrop,
+        waterBelow: this.waterBelow,
+        creatures: this.creatureSlot,
+        waterAbove: this.waterAbove,
+        foreground: this.foreground,
+      },
     };
   }
 

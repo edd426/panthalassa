@@ -191,12 +191,13 @@ describe('LOD tier cost ordering', () => {
     const layer = createCreatureLayer();
     mountQuietly(layer, mount);
     const creatures = makeCreatures();
-    for (const pxPerWu of [2, 4, 8]) {
+    for (const pxPerWu of [0.72, 1, 2, 4, 8, 20]) {
       const fill = {} as Record<LodTier, number>;
       for (const tier of LOD_TIERS) {
         layer.update(frameAtZoom(creatures, tier, pxPerWu));
         fill[tier] = tierFill(mount, tier, pxPerWu);
       }
+      console.log(`${pxPerWu} px/wu  ` + LOD_TIERS.map((t) => `${t} ${(fill[t] ?? 0).toFixed(1)}`).join("   "));
       // `LOD_TIERS` runs finest to coarsest, so cost must be non-increasing.
       for (let i = 1; i < LOD_TIERS.length; i += 1) {
         const finer = LOD_TIERS[i - 1] ?? 'near';
