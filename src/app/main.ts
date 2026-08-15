@@ -32,6 +32,7 @@ import { createRenderer, rendererKind } from '../render/renderer';
 import { TrendCharts, appendTrendRow, createTrendSeries, resetTrendSeries } from './charts';
 import { GodTools } from './godTools';
 import { Hud, describeEvent } from './hud';
+import { createTrends } from './trends';
 import { SimClient } from './workerClient';
 
 /** LOD cap on the render feed; the slot capacity, so nothing is hidden in Phase A. */
@@ -107,6 +108,7 @@ const canvas = requireElement('world', HTMLCanvasElement);
 const renderer: WorldRenderer = await createRenderer(canvas, config);
 const chartCanvas = requireElement('charts', HTMLCanvasElement);
 const charts = new TrendCharts(chartCanvas);
+const deepTrends = await createTrends(requireElement('trends', HTMLElement), config, (alert) => note(alert.line));
 const hud = new Hud(
   requireElement('status', HTMLElement),
   requireElement('panel', HTMLElement),
@@ -352,6 +354,7 @@ function pollSeries(): void {
         // The same rows feed the charts, flattened into number columns on
         // arrival so a long run holds arrays of floats rather than the objects.
         appendTrendRow(trends, row);
+        deepTrends.ingest(row);
         chartsDirty = true;
       }
       if (received) {
@@ -495,10 +498,7 @@ function frame(timestamp: number): void {
 
 window.addEventListener('resize', () => {
   renderer.resize();
-  if (chartsOpen) {
-    charts.resize();
-    charts.draw(trends);
-  }
+  if (chartsOpen) deepTrends.resize();
 });
 
 canvas.addEventListener('click', (event: MouseEvent) => {
@@ -539,14 +539,8 @@ function cycleColourMode(): void {
 
 function toggleCharts(): void {
   chartsOpen = !chartsOpen;
-  chartCanvas.hidden = !chartsOpen;
-  if (chartsOpen) {
-    // The canvas has no layout box while hidden, so it can only be sized once
-    // it is on screen.
-    charts.resize();
-    charts.draw(trends);
-    chartsDirty = false;
-  }
+  // Supersedes the canvas strip on `t`; #charts stays hidden, its path wired.
+  deepTrends.setOpen(chartsOpen);
 }
 
 window.addEventListener('keydown', (event: KeyboardEvent) => {
@@ -645,6 +639,7 @@ function startWorld(nextSeed: string): void {
   // The trend columns describe the dead world; keeping them would draw the new
   // one as a continuation of a population that no longer exists.
   resetTrendSeries(trends);
+  deepTrends.reset();
   chartsDirty = true;
 
   lastRowTick = -1;
