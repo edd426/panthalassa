@@ -34,7 +34,9 @@ const MAX_FINS = 12;
 const FIN_CAPACITY = 3;
 /** Crawler worst case: one plate per somite. */
 const MAX_PLATES = 28;
-const PLATE_CAPACITY = 8;
+const PLATE_POINTS = 8;
+/** Points per drifter tentacle polyline. */
+const TENTACLE_POINTS = 5;
 /** Crawler worst case: `2 * finPairs` limbs (10) plus the dorsal midline. */
 const MAX_STROKES = 24;
 /** The crawler midline runs the whole chain: `segmentCount + 1` points. */
@@ -92,7 +94,7 @@ export function createBodyGeometry(): BodyGeometry {
   const fins: Polyline[] = [];
   for (let i = 0; i < MAX_FINS; i += 1) fins.push(createPolyline(FIN_CAPACITY, true));
   const plates: Polyline[] = [];
-  for (let i = 0; i < MAX_PLATES; i += 1) plates.push(createPolyline(PLATE_CAPACITY, true));
+  for (let i = 0; i < MAX_PLATES; i += 1) plates.push(createPolyline(PLATE_POINTS, true));
   const strokes: Polyline[] = [];
   for (let i = 0; i < MAX_STROKES; i += 1) strokes.push(createPolyline(STROKE_CAPACITY, false));
   return {
@@ -191,6 +193,38 @@ export function strokePolylineCount(
       return clampSegments(archetype, segmentCount) + 2 * clampFinPairs(archetype, finPairs);
     case 'armoredCrawler':
       return 2 * clampFinPairs(archetype, finPairs) + 1;
+  }
+}
+
+/**
+ * Total points a near-tier body will emit — the currency the layer budgets in.
+ *
+ * Exact, not an estimate: `bodies.test.ts` asserts it against the built
+ * geometry for every morphology in every archetype's range, so it cannot drift
+ * as the shapes change.
+ *
+ * It has to exist because body cost is **not** uniform. Measured CPU cost is
+ * near-linear in this number, and it spans 18× across the morphology space — a
+ * minimal undulator emits 6 points, a maximal crawler 369, because somite count
+ * is literally the crawler's morphology signal. Budgeting a fixed *number of
+ * bodies* therefore either starves a fish-heavy world or blows the frame in a
+ * crawler-heavy one, and which of those happens is decided by evolution at run
+ * time.
+ */
+export function nearVertexCount(
+  archetype: CladeArchetype,
+  segmentCount: number,
+  finPairs: number,
+): number {
+  const s = clampSegments(archetype, segmentCount);
+  const f = clampFinPairs(archetype, finPairs);
+  switch (archetype) {
+    case 'undulator':
+      return outlinePointCount(archetype, s) + 2 * f * 3;
+    case 'radialDrifter':
+      return outlinePointCount(archetype, s) + s * 2 + 2 * f * TENTACLE_POINTS;
+    case 'armoredCrawler':
+      return outlinePointCount(archetype, s) + s * PLATE_POINTS + 2 * f * 3 + (s + 1);
   }
 }
 
@@ -424,7 +458,6 @@ const BELL_PULSE_WIDTH = 0.08;
 const BELL_PULSE_LENGTH = 0.04;
 const ARM_INNER = 0.45;
 const ARM_OUTER = 0.92;
-const TENTACLE_POINTS = 5;
 const TENTACLE_LENGTH = 0.45;
 const TENTACLE_CURL = 0.09;
 /** Tentacles answer the bell a beat late; that lag is most of the medusa read. */
@@ -533,8 +566,8 @@ function buildCrawler(params: BodyParams, out: BodyGeometry): void {
     const ty = Math.sin(chain.angles[p] ?? 0);
     const along = chain.segmentLength * PLATE_OVERLAP;
     const across = maxHalfWidth * carapaceProfile((p + 0.5) / segments) * PLATE_INSET;
-    for (let k = 0; k < PLATE_CAPACITY; k += 1) {
-      const theta = (2 * Math.PI * k) / PLATE_CAPACITY;
+    for (let k = 0; k < PLATE_POINTS; k += 1) {
+      const theta = (2 * Math.PI * k) / PLATE_POINTS;
       const a = along * Math.cos(theta);
       const b = across * Math.sin(theta);
       push(plate, cx + tx * a - ty * b, cy + ty * a + tx * b);

@@ -40,12 +40,19 @@ import {
   POSE_STRIDE,
   VISUAL,
   VISUAL_STRIDE,
+  archetypeFromIndex,
   readCreatureVisual,
 } from '../contracts';
 import type { CladeArchetype } from '../../contracts/genome';
 import { CLADE_ARCHETYPES, CLADE_SCHEMA } from '../../contracts/genome';
 import type { BodyGeometry, BodyParams } from './bodies';
-import { ARCHETYPE_FREQUENCY_SCALE, buildBody, clampBodyAspect, createBodyGeometry } from './bodies';
+import {
+  ARCHETYPE_FREQUENCY_SCALE,
+  buildBody,
+  clampBodyAspect,
+  createBodyGeometry,
+  nearVertexCount,
+} from './bodies';
 import { GraphicsPool, ParticlePool, SpritePool } from './pool';
 import type { BodyStyle, ShapeTextures } from './shapeTextures';
 import {
@@ -53,12 +60,37 @@ import {
   BAKED_ANCHOR_Y,
   FLIPBOOK_PHASES,
   bakeShapeTextures,
+  fallbackShapeTextures,
   drawBody,
   speciesAccentColour,
 } from './shapeTextures';
 import { bellPulsePhase, swimFrequencyHz, wavePhase } from './spine';
 
-/** The LOD contract caps the near tier here; this is the layer's own backstop. */
+/**
+ * Near-tier drawing budget for one frame, in emitted points.
+ *
+ * **This is the knob to turn if the governor is demoting.** It is a cost budget
+ * rather than a body count because body cost spans 18× across the morphology
+ * space (see `nearVertexCount`): a minimal undulator emits 6 points, a maximal
+ * crawler 369. A flat body cap sized for crawlers starves a fish-heavy world,
+ * and one sized for fish blows the frame the moment crawlers take over — and
+ * which of those a world becomes is decided by evolution, not by the camera. A
+ * budget keeps the frame cost roughly flat and lets the *number* of full bodies
+ * float, which is the variable that should give.
+ *
+ * Calibrated from a CPU-side measurement of ≈0.41 µs per emitted point plus
+ * ≈6.5 µs fixed per body, against a ~7 ms target — the level below which R1's
+ * governor will not demote and then immediately re-promote. That measurement
+ * excludes GPU submit, the shell and the ambience layer, all of which land in
+ * the same `renderMsEma`, so treat it as optimistic: **recalibrate against a
+ * real browser profile by scaling this one number.**
+ */
+const NEAR_VERTEX_BUDGET = 17_000;
+
+/** Per-body overhead in the same currency: ≈6.5 µs of setup at ≈0.41 µs/point. */
+const BODY_FIXED_COST = 16;
+
+/** Hard ceiling on pooled `Graphics` however cheap the bodies get. */
 const NEAR_BODY_CAP = 250;
 /** Glow underlay diameter, in body lengths. */
 const GLOW_SPAN = 1.9;
@@ -90,7 +122,7 @@ class CreatureLayer implements RenderLayer {
 
   private nearGlow: SpritePool | null = null;
   private nearBodies: GraphicsPool | null = null;
-  /** Graceful degradation for anything past {@link NEAR_BODY_CAP}. */
+  /** Graceful degradation for anything the near budget could not afford. */
   private nearOverflow: SpritePool | null = null;
   private midSprites: SpritePool | null = null;
   private readonly farPools = {} as Record<CladeArchetype, ParticlePool>;
@@ -138,10 +170,27 @@ class CreatureLayer implements RenderLayer {
    * while the watcher is trying to read it.
    */
   private animationMs = 0;
+  /**
+   * This frame's animation delta — `dtMs`, or 0 while paused. Every easing in
+   * the layer runs off this rather than off `dtMs`, so "paused" means every
+   * moving part stops, not just the body wave. A drifter still slewing its
+   * heading on a frozen world would contradict the HUD.
+   */
+  private animationDtMs = 0;
   private pxPerWu = 1;
 
   mount(ctx: MountContext): void {
-    this.textures = bakeShapeTextures(ctx);
+    // Baking is the one step here that can fail (it is the only one that talks
+    // to the GPU), and `layerRegistry` mounts layers in a bare loop — a throw
+    // out of here would take the whole render wave's mount with it and leave
+    // this layer's containers unattached, which looks exactly like a dead sim.
+    // Degrade to flat quads instead and say so.
+    try {
+      this.textures = bakeShapeTextures(ctx);
+    } catch (error) {
+      console.warn('[panthalassa] creature texture bake failed; drawing untextured bodies', error);
+      this.textures = fallbackShapeTextures();
+    }
 
     for (const tier of LOD_TIERS) {
       const root = new PixiContainer();
@@ -191,7 +240,8 @@ class CreatureLayer implements RenderLayer {
     const textures = this.textures;
     if (textures === null) return;
 
-    if (!frame.paused) this.animationMs += Math.max(0, frame.dtMs);
+    this.animationDtMs = frame.paused ? 0 : Math.max(0, frame.dtMs);
+    this.animationMs += this.animationDtMs;
     this.pxPerWu = Math.max(1e-6, frame.camera.pxPerWu);
 
     const creatures = frame.creatures;
@@ -219,7 +269,7 @@ class CreatureLayer implements RenderLayer {
       }
     }
 
-    this.resolveHeadings(frame, creatures);
+    this.resolveHeadings(creatures);
     const selected = this.findSelected(frame, creatures);
 
     this.renderTier(incoming, frame, creatures, textures);
@@ -274,8 +324,8 @@ class CreatureLayer implements RenderLayer {
    * stable across slices (the pool reuses them), which is what makes the
    * exponential smoothing meaningful; `reset()` drops the cache with the world.
    */
-  private resolveHeadings(frame: FrameContext, creatures: CreatureFrame): void {
-    const k = 1 - Math.exp(-Math.max(0, frame.dtMs) / DRIFTER_HEADING_TAU_MS);
+  private resolveHeadings(creatures: CreatureFrame): void {
+    const k = 1 - Math.exp(-this.animationDtMs / DRIFTER_HEADING_TAU_MS);
     for (let i = 0; i < creatures.visibleCount; i += 1) {
       const row = creatures.visible[i] ?? 0;
       if (row >= MAX_SLOTS) continue;
@@ -425,13 +475,7 @@ class CreatureLayer implements RenderLayer {
     bodyPool.begin();
     overflowPool.begin();
     const identity = frame.colourMode === 'identity';
-    // `visible` is sorted by size ascending, so the tail is the biggest animals:
-    // when the population overruns the cap, the ones that get real bodies are
-    // the ones whose bodies are worth the vertices. The LOD controller is
-    // supposed to keep us under the cap; if it ever does not, the overflow
-    // drops to mid-tier sprites rather than vanishing, because an animal that
-    // silently stops being drawn is the worst failure this app has.
-    const start = Math.max(0, creatures.visibleCount - NEAR_BODY_CAP);
+    const start = this.nearBudgetStart(creatures);
     for (let i = 0; i < start; i += 1) {
       this.drawFlipbook(creatures.visible[i] ?? 0, creatures, textures, overflowPool);
     }
@@ -441,6 +485,38 @@ class CreatureLayer implements RenderLayer {
     glowPool.end();
     bodyPool.end();
     overflowPool.end();
+  }
+
+  /**
+   * First index of `visible` that gets a real body; everything before it falls
+   * to the overflow sprites.
+   *
+   * `visible` is sorted by size ascending, so spending the budget from the tail
+   * backwards gives it to the biggest animals — the ones whose bodies are worth
+   * the points. What does *not* fit degrades to a mid-tier sprite rather than
+   * vanishing: an animal that silently stops being drawn is the worst failure
+   * this app has, and it would look exactly like a sim bug.
+   */
+  private nearBudgetStart(creatures: CreatureFrame): number {
+    let budget = NEAR_VERTEX_BUDGET;
+    let taken = 0;
+    let i = creatures.visibleCount - 1;
+    for (; i >= 0 && taken < NEAR_BODY_CAP; i -= 1) {
+      const v = (creatures.visible[i] ?? 0) * VISUAL_STRIDE;
+      const cost =
+        BODY_FIXED_COST +
+        nearVertexCount(
+          archetypeFromIndex(creatures.visuals[v + VISUAL.archetype] ?? 0),
+          creatures.visuals[v + VISUAL.segments] ?? 0,
+          creatures.visuals[v + VISUAL.finPairs] ?? 0,
+        );
+      // Always draw at least one body, even if a single animal is dearer than
+      // the whole budget — an empty near tier is never the right answer.
+      if (cost > budget && taken > 0) break;
+      budget -= cost;
+      taken += 1;
+    }
+    return i + 1;
   }
 
   private drawNearBody(

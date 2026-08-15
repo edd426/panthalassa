@@ -15,8 +15,7 @@
  * trail past `x = −1` and a fluttering fin overhangs the flanks.
  */
 
-import type { Texture } from 'pixi.js';
-import { FillGradient, Graphics } from 'pixi.js';
+import { FillGradient, Graphics, Texture } from 'pixi.js';
 import type { MountContext } from '../contracts';
 import type { CladeArchetype } from '../../contracts/genome';
 import { CLADE_ARCHETYPES, CLADE_SCHEMA } from '../../contracts/genome';
@@ -116,6 +115,25 @@ function trace(g: Graphics, line: Polyline): boolean {
 }
 
 /**
+ * Trace `[from, to)` as sub-paths of one path, so a run of same-styled shapes
+ * costs one `fill`/`stroke` instead of one each.
+ *
+ * This is the difference between a crawler costing 22 tessellation batches and
+ * costing 5: a 12-somite animal has 12 identically-styled plates, and Pixi
+ * charges per fill call, not per vertex. Overlapping plates merge under nonzero
+ * winding, which is what the shingled back should look like anyway — the plate
+ * strokes are what keep the individual somites readable.
+ */
+function traceRange(g: Graphics, lines: readonly Polyline[], from: number, to: number): boolean {
+  let traced = false;
+  for (let i = from; i < to; i += 1) {
+    const line = lines[i];
+    if (line !== undefined && trace(g, line)) traced = true;
+  }
+  return traced;
+}
+
+/**
  * Emit one body into `g` in the unit local frame. The caller owns `g.clear()`
  * and the position/rotation/scale transform, so the same routine serves the
  * live near tier and the texture bakes.
@@ -147,10 +165,8 @@ function drawRim(g: Graphics, geometry: BodyGeometry, style: BodyStyle): void {
 }
 
 function drawUndulator(g: Graphics, geometry: BodyGeometry, style: BodyStyle): void {
-  for (let i = 0; i < geometry.finCount; i += 1) {
-    const fin = geometry.fins[i];
-    if (fin === undefined) continue;
-    if (trace(g, fin)) g.fill({ color: style.tint, alpha: style.alpha * 0.55 });
+  if (traceRange(g, geometry.fins, 0, geometry.finCount)) {
+    g.fill({ color: style.tint, alpha: style.alpha * 0.55 });
   }
   if (trace(g, geometry.outline)) {
     g.fill({ color: style.tint, alpha: style.alpha });
@@ -162,12 +178,8 @@ function drawUndulator(g: Graphics, geometry: BodyGeometry, style: BodyStyle): v
 
 function drawDrifter(g: Graphics, geometry: BodyGeometry, style: BodyStyle): void {
   // Tentacles and canals sit under the translucent bell, which is the read.
-  for (let i = 0; i < geometry.strokeCount; i += 1) {
-    const stroke = geometry.strokes[i];
-    if (stroke === undefined) continue;
-    if (trace(g, stroke)) {
-      g.stroke({ color: mixRgb(style.tint, 0xffffff, 0.3), alpha: style.alpha * 0.45, width: 0.009 });
-    }
+  if (traceRange(g, geometry.strokes, 0, geometry.strokeCount)) {
+    g.stroke({ color: mixRgb(style.tint, 0xffffff, 0.3), alpha: style.alpha * 0.45, width: 0.009 });
   }
   if (trace(g, geometry.outline)) {
     g.fill({ color: style.tint, alpha: style.alpha * 0.45 });
@@ -178,24 +190,17 @@ function drawDrifter(g: Graphics, geometry: BodyGeometry, style: BodyStyle): voi
 }
 
 function drawCrawler(g: Graphics, geometry: BodyGeometry, style: BodyStyle): void {
-  for (let i = 0; i < geometry.strokeCount - 1; i += 1) {
-    const limb = geometry.strokes[i];
-    if (limb === undefined) continue;
-    if (trace(g, limb)) {
-      g.stroke({ color: mixRgb(style.tint, 0x000000, 0.25), alpha: style.alpha * 0.9, width: 0.016 });
-    }
+  // The last stroke is the dorsal midline, which is styled on its own.
+  if (traceRange(g, geometry.strokes, 0, Math.max(0, geometry.strokeCount - 1))) {
+    g.stroke({ color: mixRgb(style.tint, 0x000000, 0.25), alpha: style.alpha * 0.9, width: 0.016 });
   }
   if (trace(g, geometry.outline)) g.fill({ color: mixRgb(style.tint, 0x000000, 0.35), alpha: style.alpha });
 
   const plateFill = mixRgb(style.tint, MINERAL, geometry.armorLightening * 0.7);
   const plateEdge = mixRgb(plateFill, 0x000000, 0.45);
-  for (let i = 0; i < geometry.plateCount; i += 1) {
-    const plate = geometry.plates[i];
-    if (plate === undefined) continue;
-    if (trace(g, plate)) {
-      g.fill({ color: plateFill, alpha: style.alpha });
-      g.stroke({ color: plateEdge, alpha: style.alpha, width: geometry.plateStrokeWidth });
-    }
+  if (traceRange(g, geometry.plates, 0, geometry.plateCount)) {
+    g.fill({ color: plateFill, alpha: style.alpha });
+    g.stroke({ color: plateEdge, alpha: style.alpha, width: geometry.plateStrokeWidth });
   }
 
   const midline = geometry.strokes[geometry.strokeCount - 1];
@@ -242,6 +247,29 @@ function bakeParams(archetype: CladeArchetype, phase: number, pulsePhase: number
 function pinFrame(g: Graphics): void {
   g.rect(FRAME_X_MIN, FRAME_Y_MIN, FRAME_W, FRAME_H);
   g.fill({ color: 0x000000, alpha: 0 });
+}
+
+/**
+ * Untextured stand-in used when a bake fails.
+ *
+ * Every sprite and particle still draws — as a tinted white quad rather than a
+ * silhouette. That is ugly and obviously wrong, which is the point: the failure
+ * mode for "the GPU would not give us a texture" has to be a visible population
+ * of blobs, not an empty ocean. An empty ocean is indistinguishable from a dead
+ * world, and would send whoever is debugging it into the sim.
+ */
+export function fallbackShapeTextures(): ShapeTextures {
+  const flat = Texture.WHITE;
+  const phases = Object.freeze([flat, flat, flat, flat]);
+  return {
+    flipbooks: Object.freeze({ undulator: phases, radialDrifter: phases, armoredCrawler: phases }),
+    silhouettes: Object.freeze({ undulator: flat, radialDrifter: flat, armoredCrawler: flat }),
+    glow: flat,
+    destroy(): void {
+      // Texture.WHITE is a shared Pixi singleton; destroying it would take the
+      // rest of the app's white quads with it.
+    },
+  };
 }
 
 export function bakeShapeTextures(ctx: MountContext): ShapeTextures {

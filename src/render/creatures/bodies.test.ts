@@ -13,6 +13,7 @@ import {
   createBodyGeometry,
   finPolygonCount,
   fusiformProfile,
+  nearVertexCount,
   outlinePointCount,
   platePolygonCount,
   strokePolylineCount,
@@ -172,6 +173,53 @@ describe('point counts', () => {
         expect(geometry.fins[i]?.count).toBe(3);
       }
     }
+  });
+});
+
+describe('the near-tier cost model', () => {
+  it('predicts the emitted point total exactly, for every morphology in range', () => {
+    const geometry = createBodyGeometry();
+    for (const archetype of CLADE_ARCHETYPES) {
+      const schema = CLADE_SCHEMA[archetype];
+      const [segLow, segHigh] = schema.segmentCount.renderRange;
+      const [finLow, finHigh] = schema.finPairs.renderRange;
+      for (let segments = segLow; segments <= segHigh; segments += 1) {
+        for (let finPairs = finLow; finPairs <= finHigh; finPairs += 1) {
+          buildBody(params(archetype, { segmentCount: segments, finPairs }), geometry);
+          let emitted = geometry.outline.count;
+          for (let i = 0; i < geometry.finCount; i += 1) emitted += geometry.fins[i]?.count ?? 0;
+          for (let i = 0; i < geometry.plateCount; i += 1) emitted += geometry.plates[i]?.count ?? 0;
+          for (let i = 0; i < geometry.strokeCount; i += 1) emitted += geometry.strokes[i]?.count ?? 0;
+          expect(
+            nearVertexCount(archetype, segments, finPairs),
+            `${archetype} segments=${segments} finPairs=${finPairs}`,
+          ).toBe(emitted);
+        }
+      }
+    }
+  });
+
+  it('saturates with the renderRange clamps rather than running away', () => {
+    for (const archetype of CLADE_ARCHETYPES) {
+      const schema = CLADE_SCHEMA[archetype];
+      expect(nearVertexCount(archetype, 10_000, 10_000)).toBe(
+        nearVertexCount(archetype, schema.segmentCount.renderRange[1], schema.finPairs.renderRange[1]),
+      );
+    }
+  });
+
+  it('spans the range that makes a flat body-count cap the wrong knob', () => {
+    // The budget exists because these differ by more than an order of
+    // magnitude, and which one a world is full of is decided by evolution.
+    const cheapest = nearVertexCount('undulator', 4, 0);
+    const dearest = nearVertexCount('armoredCrawler', 28, 10);
+    expect(cheapest).toBe(6);
+    expect(dearest).toBe(369);
+    expect(dearest / cheapest).toBeGreaterThan(15);
+    // A crawler is the expensive archetype at its own typical morphology too.
+    expect(nearVertexCount('armoredCrawler', 12, 4)).toBeGreaterThan(
+      5 * nearVertexCount('undulator', 8, 2),
+    );
   });
 });
 

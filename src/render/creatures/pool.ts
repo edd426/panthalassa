@@ -124,6 +124,8 @@ export class ParticlePool {
   readonly container: ParticleContainer;
   private readonly items: Particle[] = [];
   private used = 0;
+  /** How many were on screen last frame, so emptying can be detected. */
+  private published = 0;
 
   constructor(
     private readonly texture: Texture,
@@ -156,15 +158,37 @@ export class ParticlePool {
     return created;
   }
 
-  /** Publish exactly the particles taken this frame. */
+  /**
+   * Publish exactly the particles taken this frame.
+   *
+   * `ParticleContainer.update()` is the call Pixi's own docs point you to after
+   * mutating `particleChildren`, and it is **not sufficient**: it sets the
+   * container's private `_childrenDirty` flag but never reaches
+   * `onViewUpdate()`, which is what marks the view dirty on the parent render
+   * group. A pool that starts empty therefore gets built as empty and is never
+   * asked again — the tier renders nothing, permanently, with no error. Only
+   * `addParticle`/`removeParticles` call `onViewUpdate` (it is `protected`, so
+   * there is no direct route to it).
+   *
+   * Handing `addParticle` the final particle publishes the whole batch with one
+   * view update, and its rest argument is the only allocation — one small array
+   * per pool per frame rather than one per particle.
+   */
   end(): void {
     const children = this.container.particleChildren;
+    const last = this.used > 0 ? this.items[this.used - 1] : undefined;
     children.length = 0;
-    for (let i = 0; i < this.used; i += 1) {
+    for (let i = 0; i < this.used - 1; i += 1) {
       const item = this.items[i];
       if (item !== undefined) children.push(item);
     }
-    this.container.update();
+    if (last !== undefined) {
+      this.container.addParticle(last);
+    } else if (this.published > 0) {
+      // Emptying still has to dirty the view, or the last batch stays on screen.
+      this.container.removeParticles();
+    }
+    this.published = this.used;
   }
 
   reset(): void {
