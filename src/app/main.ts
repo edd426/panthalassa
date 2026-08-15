@@ -30,6 +30,7 @@ import { COLOUR_MODES, FIELD_OVERLAYS, traitKeyForMode } from '../render/contrac
 import type { ColourMode, FieldOverlay, FieldRaster, SliceView, WorldRenderer } from '../render/contracts';
 import { createRenderer, rendererKind } from '../render/renderer';
 import { TrendCharts, appendTrendRow, createTrendSeries, resetTrendSeries } from './charts';
+import { GodTools } from './godTools';
 import { Hud, describeEvent } from './hud';
 import { SimClient } from './workerClient';
 
@@ -214,15 +215,39 @@ const client = new SimClient({
     // god tools needing to know extinction exists.
     if (population > 0) sawPopulation = true;
     else if (sawPopulation && extinctionTick === null) beginExtinction();
+
+    // The bench reconciles its wall list against `barrierChange` here, so it
+    // also sees walls raised from the console or a probe script.
+    bench.observeEvents(message.events);
   },
   onEvents(message: EventsMessage): void {
     for (const event of message.events) note(describeEvent(event));
     renderer.pushEvents(message.events);
+    // Commands answer through this push, including while the watch is paused.
+    bench.observeEvents(message.events);
   },
   onError(message: ErrorMessage): void {
     console.error('[panthalassa] worker error', message.message, message.stack);
     note(`worker error: ${message.message}`);
   },
+});
+
+/**
+ * The experiment bench (`g`). It owns no state the rest of this file reads: it
+ * sends commands through the same gated path, writes its orders into the same
+ * feed, and answers canvas clicks before the inspector gets them while one of
+ * its modes is armed.
+ */
+const bench = new GodTools({
+  host: requireElement('bench', HTMLElement),
+  config,
+  viewport: renderer,
+  // Gated on `live` like every other send, but rejecting rather than swallowing:
+  // a command aimed at a world that does not exist yet should say so in the feed
+  // and let the bench take its optimistic bookkeeping back.
+  send: (command) => (live ? client.command(command) : Promise.reject(new Error('no world seeded yet'))),
+  note,
+  currentTick: () => tick,
 });
 
 /**
@@ -317,6 +342,9 @@ function pollSeries(): void {
         if (row.tick <= lastRowTick) continue;
         received = true;
         lastRowTick = row.tick;
+        // The sampled climate offset, so the bench's "now" reading is the water
+        // the sim is actually in rather than the last target anyone applied.
+        bench.observeClimate(row.resources.climateOffsetC);
         for (const cause of DEATH_CAUSES) deaths[cause] += row.deaths[cause];
         matings += row.matings;
         speciesCount = row.populationBySpecies.length;
@@ -478,6 +506,10 @@ canvas.addEventListener('click', (event: MouseEvent) => {
   // A drag-pan ends in a click event on the canvas. Selecting whatever happened
   // to be under the pointer when the pan stopped is never what was meant.
   if (renderer.isDragClick(event)) return;
+  // The bench gets first refusal: while one of its modes is armed the click is
+  // an instrument reading, not a pick, and must not also select an animal. The
+  // drag guard stays above it — a pan that ends over the water is not a meteor.
+  if (bench.handleCanvasClick(event.clientX, event.clientY)) return;
   const world = renderer.toWorld(event.clientX, event.clientY);
   const radiusWu = Math.max(6, SELECT_RADIUS_PX / renderer.pixelsPerWu);
   client
@@ -518,6 +550,14 @@ function toggleCharts(): void {
 }
 
 window.addEventListener('keydown', (event: KeyboardEvent) => {
+  // Escape only ever means "put the god tool down", and it has to be answered
+  // before the extinction branch: an armed meteor outlives the world it was
+  // aimed at otherwise.
+  if (event.key === 'Escape') {
+    bench.cancelArmed();
+    return;
+  }
+
   // R is deliberately inert while anything is alive: it wipes a world, and the
   // one thing worse than a run that ends unannounced is a run ended by a
   // mistyped key.
@@ -539,6 +579,9 @@ window.addEventListener('keydown', (event: KeyboardEvent) => {
     if (event.key === 'f' || event.key === 'F') cycleOverlay();
     else if (event.key === 'c' || event.key === 'C') cycleColourMode();
     else if (event.key === 't' || event.key === 'T') toggleCharts();
+    // The bench still opens on a dead ocean; its commands are inert there, but
+    // reading back which walls were standing when it ended is post-mortem too.
+    else if (event.key === 'g' || event.key === 'G') bench.toggle();
     return;
   }
 
@@ -557,6 +600,7 @@ window.addEventListener('keydown', (event: KeyboardEvent) => {
   if (event.key === 'f' || event.key === 'F') cycleOverlay();
   else if (event.key === 'c' || event.key === 'C') cycleColourMode();
   else if (event.key === 't' || event.key === 'T') toggleCharts();
+  else if (event.key === 'g' || event.key === 'G') bench.toggle();
 });
 
 /**
@@ -593,6 +637,8 @@ function startWorld(nextSeed: string): void {
   kelpField = null;
   selection = null;
   hud.showSelection(null);
+  // The new ocean has no walls in it, and W-numbering starts over with it.
+  bench.reset();
   // Ghosts, flourishes and the interpolator all describe the dead world; the
   // camera goes back to the whole sea for the new one.
   renderer.reset();
