@@ -26,8 +26,9 @@ import type {
 } from '../contracts/protocol';
 import type { DeathCause, SimConfigOverrides } from '../contracts/types';
 import { DEATH_CAUSES, resolveSimConfig } from '../contracts/types';
-import { COLOUR_MODES, CrudeRenderer, FIELD_OVERLAYS, traitKeyForMode } from './crudeRenderer';
-import type { ColourMode, FieldOverlay, FieldRaster, SliceView } from './crudeRenderer';
+import { COLOUR_MODES, FIELD_OVERLAYS, traitKeyForMode } from '../render/contracts';
+import type { ColourMode, FieldOverlay, FieldRaster, SliceView, WorldRenderer } from '../render/contracts';
+import { createRenderer } from '../render/renderer';
 import { TrendCharts, appendTrendRow, createTrendSeries, resetTrendSeries } from './charts';
 import { Hud, describeEvent } from './hud';
 import { SimClient } from './workerClient';
@@ -44,6 +45,14 @@ const SERIES_POLL_MS = 400;
  * can run often enough to watch grazing pressure move across the field.
  */
 const FIELD_POLL_MS = 500;
+
+/**
+ * The rasters the Phase B water is drawn from. Polled one per tick in rotation
+ * rather than all three at once: each one refreshes every 1.5 s, which is well
+ * inside how fast plankton, kelp or the climate walk actually move, and the
+ * worker never sees three field requests land on the same frame.
+ */
+const AMBIENCE_FIELDS: readonly FieldSliceField[] = ['plankton', 'kelp', 'temperature'];
 
 /** Click tolerance, screen pixels, converted to world units at the current zoom. */
 const SELECT_RADIUS_PX = 16;
@@ -91,7 +100,10 @@ function requireElement<T extends Element>(id: string, kind: new () => T): T {
 }
 
 const canvas = requireElement('world', HTMLCanvasElement);
-const renderer = new CrudeRenderer(canvas, config);
+// Top-level await: the GPU context is asynchronous, and every call site below
+// wants a renderer that is already up. A machine without WebGPU or WebGL gets
+// the Phase A canvas renderer back from here, wearing the same interface.
+const renderer: WorldRenderer = await createRenderer(canvas, config);
 const chartCanvas = requireElement('charts', HTMLCanvasElement);
 const charts = new TrendCharts(chartCanvas);
 const hud = new Hud(
@@ -150,6 +162,10 @@ let colourMode: ColourMode = 'identity';
  * sitting in whether or not temperature happens to be the visible overlay.
  */
 let temperatureField: FieldRaster | null = null;
+/** Ambience feeds; the renderer treats them as scenery and tolerates them lagging. */
+let planktonField: FieldRaster | null = null;
+let kelpField: FieldRaster | null = null;
+let ambienceCursor = 0;
 
 const trends = createTrendSeries();
 let chartsOpen = false;
@@ -188,6 +204,9 @@ const client = new SimClient({
     tick = message.tick;
     population = message.population;
     for (const event of message.events) note(describeEvent(event));
+    // The same events drive the renderer's flourishes; it stamps its own
+    // arrival time, because a shockwave decays on the wall clock, not on ticks.
+    renderer.pushEvents(message.events);
 
     // Every `ticked` carries the population — the frame-loop pushes and the
     // acknowledgement a command replies with alike — so a meteor that empties
@@ -198,6 +217,7 @@ const client = new SimClient({
   },
   onEvents(message: EventsMessage): void {
     for (const event of message.events) note(describeEvent(event));
+    renderer.pushEvents(message.events);
   },
   onError(message: ErrorMessage): void {
     console.error('[panthalassa] worker error', message.message, message.stack);
@@ -345,11 +365,21 @@ function pollField(): void {
     });
   }
 
-  // Adaptedness compares each organism's tOpt against the water it is actually
-  // in, so it needs the temperature grid even when the visible overlay is
-  // plankton or nothing at all. Fetched separately rather than aliased to the
-  // overlay raster, which would break the moment the overlay key was pressed.
-  if (colourMode === 'adaptedness') {
+  // The ambience and `adaptedness` both need rasters the visible overlay is not
+  // showing — adaptedness compares each organism's tOpt against the water it is
+  // actually in — so these are fetched on their own rotation rather than
+  // aliased to the overlay raster, which would break the moment `f` was pressed.
+  const which = AMBIENCE_FIELDS[ambienceCursor % AMBIENCE_FIELDS.length] ?? 'temperature';
+  ambienceCursor += 1;
+  fetchField(which, (raster) => {
+    if (raster.field === 'plankton') planktonField = raster;
+    else if (raster.field === 'kelp') kelpField = raster;
+    else temperatureField = raster;
+  });
+
+  // One extra request while adaptedness has nothing to compare against, so the
+  // mode is not blank for a full turn of the rotation after the key is pressed.
+  if (colourMode === 'adaptedness' && temperatureField === null && which !== 'temperature') {
     fetchField('temperature', (raster) => {
       temperatureField = raster;
     });
@@ -381,6 +411,8 @@ function frame(timestamp: number): void {
     selected: selection === null ? null : { x: selection.x, y: selection.y },
     colourMode,
     temperature: temperatureField,
+    plankton: planktonField,
+    kelp: kelpField,
   });
 
   // Charts redraw on new data at a few frames per second, not per frame: the
@@ -435,6 +467,9 @@ window.addEventListener('resize', () => {
 
 canvas.addEventListener('click', (event: MouseEvent) => {
   if (!live) return;
+  // A drag-pan ends in a click event on the canvas. Selecting whatever happened
+  // to be under the pointer when the pan stopped is never what was meant.
+  if (renderer.isDragClick(event)) return;
   const world = renderer.toWorld(event.clientX, event.clientY);
   const radiusWu = Math.max(6, SELECT_RADIUS_PX / renderer.pixelsPerWu);
   client
@@ -546,8 +581,13 @@ function startWorld(nextSeed: string): void {
   sliceInFlight = false;
   field = null;
   temperatureField = null;
+  planktonField = null;
+  kelpField = null;
   selection = null;
   hud.showSelection(null);
+  // Ghosts, flourishes and the interpolator all describe the dead world; the
+  // camera goes back to the whole sea for the new one.
+  renderer.reset();
   // The trend columns describe the dead world; keeping them would draw the new
   // one as a continuation of a population that no longer exists.
   resetTrendSeries(trends);
