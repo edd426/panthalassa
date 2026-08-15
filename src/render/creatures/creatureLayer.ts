@@ -104,6 +104,22 @@ const DRIFTER_HEADING_TAU_MS = 900;
 const FAR_MIN_PX = 3;
 const ABYSS_MIN_PX = 2.5;
 
+/**
+ * Screen-space ceiling on an abyssal glow dot.
+ *
+ * Without it, `ABYSS_SPAN` body lengths of *additive* quad is drawn for every
+ * visible animal with no budget in front of it, and abyss ends up costing ~11×
+ * the blended fill of the far tier — the cheap fallback tier billing more than
+ * the tier it falls back from, which defeats the point of having it and leaves
+ * a load-demoted governor with nothing to recover to.
+ *
+ * A dot is also what the tier is meant to be: at this range the eye is reading
+ * a field of motes, not comparing body sizes, so clamping the big end costs no
+ * information. The 2.5 px floor keeps the small end from disappearing, giving
+ * the mark a 2.5–12 px range to live in.
+ */
+const ABYSS_MAX_PX = 12;
+
 type Mutable<T> = { -readonly [K in keyof T]: T[K] };
 
 const DRIFTER_INDEX = CLADE_ARCHETYPES.indexOf('radialDrifter');
@@ -615,12 +631,13 @@ class CreatureLayer implements RenderLayer {
     if (pool === null) return;
     pool.begin();
     const floorWu = ABYSS_MIN_PX / this.pxPerWu;
+    const ceilingWu = ABYSS_MAX_PX / this.pxPerWu;
     for (let i = 0; i < creatures.visibleCount; i += 1) {
       const row = creatures.visible[i] ?? 0;
       this.load(creatures, row);
       const particle = pool.next();
       const p = row * POSE_STRIDE;
-      const span = Math.max(this.bodyLengthWu() * ABYSS_SPAN, floorWu);
+      const span = Math.min(Math.max(this.bodyLengthWu() * ABYSS_SPAN, floorWu), ceilingWu);
       particle.x = creatures.poses[p + POSE.x] ?? 0;
       particle.y = creatures.poses[p + POSE.y] ?? 0;
       particle.scaleX = span;
