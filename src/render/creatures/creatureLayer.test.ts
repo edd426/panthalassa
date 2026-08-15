@@ -135,6 +135,109 @@ function particlesOf(container: ParticleContainer): Particle[] {
   return container.particleChildren as unknown as Particle[];
 }
 
+/**
+ * Device pixels a tier asks the rasteriser to touch, summed over its marks.
+ *
+ * Every mark this layer draws is a quad scaled in world units, so its screen
+ * area is `(scale * pxPerWu)²`. Overlap is not deduplicated on purpose:
+ * blending costs per drawn pixel whether or not something is already there,
+ * which is exactly why an unbounded additive mark is dangerous.
+ */
+function tierFill(mount: MountContext, tier: LodTier, pxPerWu: number): number {
+  const root = roots(mount)[tier];
+  let total = 0;
+  const addNode = (node: Container): void => {
+    if (!node.visible) return;
+    total += node.scale.x * pxPerWu * node.scale.y * pxPerWu;
+  };
+  switch (tier) {
+    case 'near':
+      // Glow, overflow and body sub-roots, each holding the marks themselves.
+      for (const group of root.children) {
+        for (const mark of (group as Container).children) addNode(mark as Container);
+      }
+      return total;
+    case 'mid':
+      for (const sprite of root.children) addNode(sprite as Container);
+      return total;
+    case 'far':
+    case 'abyss':
+      for (const container of particleContainers(root)) {
+        for (const particle of particlesOf(container)) {
+          total += particle.scaleX * pxPerWu * particle.scaleY * pxPerWu;
+        }
+      }
+      return total;
+  }
+}
+
+function frameAtZoom(creatures: CreatureFrame, tier: LodTier, pxPerWu: number): FrameContext {
+  const base = makeFrame(creatures, { tier, previousTier: null, blend: 1 });
+  return { ...base, camera: { ...base.camera, pxPerWu } };
+}
+
+describe('LOD tier cost ordering', () => {
+  /**
+   * The invariant that makes LOD worth having: a coarser tier must cost less.
+   *
+   * It was broken. The abyss glow was `2.4 x body length` of additive quad per
+   * animal with no budget and no ceiling in front of it, while near and far both
+   * had one, so abyss billed ~11x the far tier — the tier the governor demotes
+   * *to* costing more than the tier it demotes *from*, which buys no headroom
+   * and leaves a loaded governor nothing to recover to.
+   */
+  it('never costs more fill at a coarser tier than at a finer one', () => {
+    const mount = makeMount();
+    const layer = createCreatureLayer();
+    mountQuietly(layer, mount);
+    const creatures = makeCreatures();
+    for (const pxPerWu of [2, 4, 8]) {
+      const fill = {} as Record<LodTier, number>;
+      for (const tier of LOD_TIERS) {
+        layer.update(frameAtZoom(creatures, tier, pxPerWu));
+        fill[tier] = tierFill(mount, tier, pxPerWu);
+      }
+      // `LOD_TIERS` runs finest to coarsest, so cost must be non-increasing.
+      for (let i = 1; i < LOD_TIERS.length; i += 1) {
+        const finer = LOD_TIERS[i - 1] ?? 'near';
+        const coarser = LOD_TIERS[i] ?? 'abyss';
+        // Relative slack: mid and far compute the same total in a different
+        // accumulation order and land ~1e-12 apart.
+        expect(fill[coarser], `${coarser} vs ${finer} @${pxPerWu}px/wu`).toBeLessThanOrEqual(
+          fill[finer] * (1 + 1e-9),
+        );
+      }
+      // Mid and far draw the same quad and differ in draw calls rather than
+      // pixels, so the two drops that actually buy fill are near→mid and
+      // far→abyss. Those have to be real, not rounding.
+      expect(fill.mid, `near→mid @${pxPerWu}px/wu`).toBeLessThan(fill.near * 0.5);
+      expect(fill.abyss, `far→abyss @${pxPerWu}px/wu`).toBeLessThan(fill.far * 0.75);
+      expect(fill.abyss).toBeGreaterThan(0);
+    }
+    layer.destroy();
+  });
+
+  it('holds the abyss cost flat as the camera zooms, because the dot is capped', () => {
+    // A fallback tier whose cost climbs with zoom is not a fallback. The 12 px
+    // ceiling makes abyss a fixed, tiny bill at any magnification.
+    const mount = makeMount();
+    const layer = createCreatureLayer();
+    mountQuietly(layer, mount);
+    const creatures = makeCreatures();
+    layer.update(frameAtZoom(creatures, 'abyss', 4));
+    const atFour = tierFill(mount, 'abyss', 4);
+    layer.update(frameAtZoom(creatures, 'abyss', 16));
+    const atSixteen = tierFill(mount, 'abyss', 16);
+    expect(atSixteen).toBeCloseTo(atFour, 6);
+    // And every mark is genuinely at the ceiling, not accidentally tiny.
+    const abyss = particleContainers(roots(mount).abyss)[0];
+    for (const particle of abyss === undefined ? [] : particlesOf(abyss)) {
+      expect(particle.scaleX * 16).toBeCloseTo(12, 6);
+    }
+    layer.destroy();
+  });
+});
+
 describe('mounting', () => {
   it('attaches all five containers even when every texture bake throws', () => {
     const mount = makeMount('throws');

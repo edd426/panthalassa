@@ -63,6 +63,27 @@ const RENDER_MS_EMA_ALPHA = 0.1;
 /** Reused point for the debug hook's world-centre probe; allocating per frame would defeat the point. */
 const WORLD_CENTRE_PROBE = { x: 1000, y: 600 };
 
+/**
+ * Device-pixel ceiling for the framebuffer, and the single largest lever on
+ * fill cost in the whole renderer — it is squared, so it multiplies every
+ * blended pixel every layer draws by 4x at 2, not 2x.
+ *
+ * That matters because the near tier is fill-bound rather than CPU-bound: R2
+ * measures the additive body glow at ~3.0M of 3.4M blended CSS pixels, and this
+ * constant is what turns that into ~13.4M device samples. Dropping to 1.5 cuts
+ * all of it by 44% ((1.5/2)^2) while still supersampling relative to CSS
+ * pixels, which is what keeps edges smooth now that MSAA is off. Going to 1 is
+ * a further 75% cut but leaves no supersampling at all and will alias visibly.
+ *
+ * Left at 2 deliberately: this is a look decision, and it belongs to whoever is
+ * holding the browser profile, not to a guess from here.
+ */
+// 1.5, not 2: the near tier is fill-bound (the additive glow is ~90% of its
+// blended pixels) and resolution squares every one of them. 1.5 cuts all
+// blended fill 44% while still supersampling CSS pixels, which is what keeps
+// edges smooth with MSAA off. Orchestrator look-decision, 2026-08-15.
+const MAX_RESOLUTION = 1.5;
+
 interface MutableFrameContext {
   nowMs: number;
   dtMs: number;
@@ -178,7 +199,7 @@ async function createPixiRenderer(canvas: HTMLCanvasElement, config: SimConfig):
     // a 1440x722 window that is 4.2M samples resolved every frame, which shows
     // up as `renderMsEma` in the double digits before anything is drawn at all.
     antialias: false,
-    resolution: Math.min(window.devicePixelRatio, 2),
+    resolution: Math.min(window.devicePixelRatio, MAX_RESOLUTION),
     autoDensity: true,
     background: ABYSS_COLOUR,
     backgroundAlpha: 1,
