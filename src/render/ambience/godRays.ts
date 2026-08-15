@@ -69,7 +69,7 @@ const ZOOM_ATTENUATION = 0.3;
  * toward yellow; keeping every additive element in the teal/green family keeps
  * the composite in it too.
  */
-const BEAM_COLOUR: readonly [number, number, number] = [140, 214, 234];
+const BEAM_COLOUR = 0x8cd6ea;
 
 export interface GodRaysOptions {
   readonly worldWidthWu: number;
@@ -126,6 +126,8 @@ export function createGodRays(options: GodRaysOptions): GodRays {
     const sprite = new Sprite(texture);
     sprite.anchor.set(0.5, 0);
     sprite.blendMode = 'add';
+    // Colour on the tint, never in the baked buffer — see the fieldHaze header.
+    sprite.tint = BEAM_COLOUR;
     // Alpha is only written on frames the beam is drawn, so it starts (and a
     // culled beam stays) dark: anything that shows a beam without updating it
     // fails to nothing rather than to a full-white quad across the ocean.
@@ -299,7 +301,7 @@ function overlapArea(
  * which is what makes the light look like it came from the warm one.
  */
 function bakeBeamTexture(edgeExponent: number): Texture {
-  return bakeAlphaTexture(BEAM_TEXTURE_W, BEAM_TEXTURE_H, BEAM_COLOUR, (u, v) => {
+  return bakeAlphaTexture(BEAM_TEXTURE_W, BEAM_TEXTURE_H, (u, v) => {
     const lateral = Math.cos((u - 0.5) * Math.PI);
     if (lateral <= 0) return 0;
     // A short ramp at the root so the shaft does not start with a flat cap.

@@ -545,7 +545,7 @@ function axisWeight(value: number, origin: number, span: number): number {
 }
 
 function bakeGlowTexture(): Texture {
-  return bakeAlphaTexture(GLOW_TEXTURE_PX, GLOW_TEXTURE_PX, [255, 255, 255], (u, v) => {
+  return bakeAlphaTexture(GLOW_TEXTURE_PX, GLOW_TEXTURE_PX, (u, v) => {
     const dx = u - 0.5;
     const dy = v - 0.5;
     const r = Math.sqrt(dx * dx + dy * dy) / 0.5;
@@ -554,7 +554,7 @@ function bakeGlowTexture(): Texture {
 }
 
 function bakeRingTexture(): Texture {
-  return bakeAlphaTexture(RING_TEXTURE_PX, RING_TEXTURE_PX, [255, 255, 255], (u, v) => {
+  return bakeAlphaTexture(RING_TEXTURE_PX, RING_TEXTURE_PX, (u, v) => {
     const dx = u - 0.5;
     const dy = v - 0.5;
     const r = Math.sqrt(dx * dx + dy * dy) / 0.5;
@@ -565,7 +565,7 @@ function bakeRingTexture(): Texture {
 }
 
 function bakeMoteTexture(): Texture {
-  return bakeAlphaTexture(MOTE_TEXTURE_PX, MOTE_TEXTURE_PX, [255, 255, 255], (u, v) => {
+  return bakeAlphaTexture(MOTE_TEXTURE_PX, MOTE_TEXTURE_PX, (u, v) => {
     const dx = u - 0.5;
     const dy = v - 0.5;
     const r = Math.sqrt(dx * dx + dy * dy) / 0.5;

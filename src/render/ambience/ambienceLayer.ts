@@ -16,10 +16,9 @@
  * it, and two layers can never drift out of phase with each other.
  */
 
-import { Graphics, Sprite, FillGradient } from 'pixi.js';
-import type { Texture } from 'pixi.js';
+import { FillGradient, Graphics } from 'pixi.js';
 import type { FrameContext, LodTier, MountContext, RenderLayer } from '../contracts';
-import { bakeVerticalTexture, createFieldHaze } from './fieldHaze';
+import { createFieldHaze } from './fieldHaze';
 import type { AmbienceQuality, FieldHaze } from './fieldHaze';
 import { createGodRays } from './godRays';
 import type { GodRays } from './godRays';
@@ -42,9 +41,8 @@ const ABYSS_BOTTOM = '#01070c';
  * warm edge roughly 13% brighter from the wash alone. The at-a-glance latitude
  * read the crude renderer had survives, but as something felt rather than seen.
  */
-const WASH_WARM_EDGE: readonly [number, number, number] = [10, 48, 65];
-const WASH_COLD_EDGE: readonly [number, number, number] = [7, 37, 51];
-const WASH_TEXTURE_H = 256;
+const WASH_WARM_EDGE = '#0a3041';
+const WASH_COLD_EDGE = '#072533';
 
 /**
  * The wash tint, and the one place this package previously left the blue-green
@@ -85,8 +83,15 @@ const RIM_PX = 2;
 
 export function createAmbienceLayer(): RenderLayer {
   let backdrop: Graphics | null = null;
-  let wash: Sprite | null = null;
-  let washTexture: Texture | null = null;
+  /**
+   * A `Graphics` with a `FillGradient`, not a stretched buffer texture. A
+   * hand-written RGBA buffer is backend-dependent in channel order and this is
+   * the one element in the package with a real hue gradient, so it takes the
+   * path that goes through Pixi's own bake. Built once at mount; the climate
+   * drift rides entirely on `tint`, which costs nothing.
+   */
+  let wash: Graphics | null = null;
+  let washTint = -1;
   let rim: Graphics | null = null;
   let haze: FieldHaze | null = null;
   let godRays: GodRays | null = null;
@@ -121,16 +126,18 @@ export function createAmbienceLayer(): RenderLayer {
     backdrop = new Graphics();
     ctx.slots.backdrop.addChild(backdrop);
 
-    washTexture = bakeVerticalTexture(WASH_TEXTURE_H, (v, out) => {
-      const t = warmAtTop ? v : 1 - v;
-      for (let c = 0; c < 3; c += 1) {
-        out[c] = (WASH_WARM_EDGE[c] ?? 0) + ((WASH_COLD_EDGE[c] ?? 0) - (WASH_WARM_EDGE[c] ?? 0)) * t;
-      }
+    const washGradient = new FillGradient({
+      type: 'linear',
+      start: { x: 0, y: 0 },
+      end: { x: 0, y: 1 },
+      colorStops: [
+        { offset: 0, color: warmAtTop ? WASH_WARM_EDGE : WASH_COLD_EDGE },
+        { offset: 1, color: warmAtTop ? WASH_COLD_EDGE : WASH_WARM_EDGE },
+      ],
+      textureSpace: 'local',
     });
-    wash = new Sprite(washTexture);
-    wash.position.set(0, 0);
-    wash.width = worldW;
-    wash.height = worldH;
+    wash = new Graphics();
+    wash.rect(0, 0, worldW, worldH).fill(washGradient);
     ctx.slots.waterBelow.addChild(wash);
 
     haze = createFieldHaze({ worldWidthWu: worldW, worldHeightWu: worldH, warmY });
@@ -187,7 +194,12 @@ export function createAmbienceLayer(): RenderLayer {
         const channel = Math.round(base + ((pole[c] ?? base) - base) * mix);
         tint = (tint << 8) | Math.max(0, Math.min(255, channel));
       }
-      wash.tint = tint;
+      // Guarded: the climate walk moves this a few times a minute, and an
+      // unconditional write dirties the sprite on every frame for nothing.
+      if (tint !== washTint) {
+        washTint = tint;
+        wash.tint = tint;
+      }
     }
 
     const quality = QUALITY_BY_TIER[frame.lod.tier];
@@ -213,6 +225,7 @@ export function createAmbienceLayer(): RenderLayer {
     backdropW = -1;
     backdropH = -1;
     rimPxPerWu = -1;
+    washTint = -1;
     haze?.reset();
     godRays?.reset();
     particulate?.reset();
@@ -222,7 +235,6 @@ export function createAmbienceLayer(): RenderLayer {
   function destroy(): void {
     backdrop?.destroy();
     wash?.destroy();
-    washTexture?.destroy(true);
     rim?.destroy();
     haze?.destroy();
     godRays?.destroy();
@@ -230,7 +242,6 @@ export function createAmbienceLayer(): RenderLayer {
     flourishes?.destroy();
     backdrop = null;
     wash = null;
-    washTexture = null;
     rim = null;
     haze = null;
     godRays = null;

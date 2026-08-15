@@ -19,6 +19,15 @@
  * no-op for ArrayBufferView uploads, so letting Pixi think it premultiplied on
  * upload would make every additive sprite blend at full colour regardless of its
  * alpha channel.
+ *
+ * **Every baked buffer here is greyscale, and colour is carried by the sprite's
+ * `tint`.** A hand-written RGBA buffer is the one texture path whose channel
+ * order depends on the backend — the shell prefers WebGPU, whose canvas format
+ * on most platforms is `bgra8unorm` — and a red/blue swap turns this package's
+ * teal into olive-brown while leaving white untouched. Greyscale buffers are
+ * swap-invariant, so the picture cannot depend on which backend came up. The one
+ * element with a real hue gradient (the world wash) is drawn with `FillGradient`
+ * instead, which goes through Pixi's own canvas bake and is unaffected.
  */
 
 import { BufferImageSource, Container, Graphics, Sprite, Texture } from 'pixi.js';
@@ -50,47 +59,23 @@ export function createBufferTexture(width: number, height: number): BufferTextur
 }
 
 /**
- * A single-colour sprite texture whose alpha is `alphaAt(u, v)` over the unit
- * square. Baked once at mount; nothing here runs per frame.
+ * A **white** sprite texture whose alpha is `alphaAt(u, v)` over the unit square.
+ * Baked once at mount; nothing here runs per frame. Colour belongs on the
+ * sprite's `tint`, never in the buffer — see the module header.
  */
 export function bakeAlphaTexture(
   width: number,
   height: number,
-  rgb: readonly [number, number, number],
   alphaAt: (u: number, v: number) => number,
 ): Texture {
   const baked = createBufferTexture(width, height);
-  const [r, g, b] = rgb;
   for (let y = 0; y < height; y += 1) {
     const v = (y + 0.5) / height;
     for (let x = 0; x < width; x += 1) {
       const u = (x + 0.5) / width;
       const a = Math.max(0, Math.min(1, alphaAt(u, v)));
       const base = (y * width + x) * 4;
-      pokePremultiplied(baked.pixels, base, r, g, b, a);
-    }
-  }
-  baked.source.update();
-  return baked.texture;
-}
-
-/**
- * A vertical ramp; `sample` writes opaque r,g,b (0..255) into `out`.
- *
- * Four texels wide rather than one. A single-column texture is the kind of edge
- * case where filtering and row-alignment behaviour differ between backends, and
- * this one is stretched across the entire world — not somewhere to be clever for
- * the sake of 3 KB.
- */
-const RAMP_TEXTURE_W = 4;
-
-export function bakeVerticalTexture(height: number, sample: (v: number, out: Float64Array) => void): Texture {
-  const baked = createBufferTexture(RAMP_TEXTURE_W, height);
-  const out = new Float64Array(3);
-  for (let y = 0; y < height; y += 1) {
-    sample((y + 0.5) / height, out);
-    for (let x = 0; x < RAMP_TEXTURE_W; x += 1) {
-      pokePremultiplied(baked.pixels, (y * RAMP_TEXTURE_W + x) * 4, out[0] ?? 0, out[1] ?? 0, out[2] ?? 0, 1);
+      pokePremultiplied(baked.pixels, base, 255, 255, 255, a);
     }
   }
   baked.source.update();
@@ -368,8 +353,11 @@ export function createFieldHaze(options: FieldHazeOptions): FieldHaze {
 
     // `normaliseField` supplies the field's colour and its current span; the
     // alpha is this layer's own, because the overlay's is a measurement and the
-    // ambience is scenery. See {@link HAZE_GAMMA}.
+    // ambience is scenery. See {@link HAZE_GAMMA}. The colour goes on the tint
+    // rather than into the buffer, so the texture stays greyscale.
     const normalised = normaliseField(raster, scratch);
+    const fieldTint =
+      ((normalised.rgba[0] ?? 255) << 16) | ((normalised.rgba[1] ?? 255) << 8) | (normalised.rgba[2] ?? 255);
     const span = normalised.high - normalised.low;
     const cell = raster.cellSizeWu;
     const pixels = target.pixels;
@@ -381,17 +369,11 @@ export function createFieldHaze(options: FieldHazeOptions): FieldHaze {
         const scale = isPlankton ? hooks.planktonCellMultiplier((col + 0.5) * cell, yWu) : 1;
         const t = span > 0 ? ((raster.values[index] ?? 0) - normalised.low) / span : 0;
         const alpha = Math.pow(Math.max(0, Math.min(1, t)), HAZE_GAMMA) * scale;
-        pokePremultiplied(
-          pixels,
-          base,
-          normalised.rgba[base] ?? 0,
-          normalised.rgba[base + 1] ?? 0,
-          normalised.rgba[base + 2] ?? 0,
-          alpha,
-        );
+        pokePremultiplied(pixels, base, 255, 255, 255, alpha);
       }
     }
     target.source.update();
+    for (const half of pair.sprites) half.tint = fieldTint;
     sprite.width = raster.cols * cell;
     sprite.height = raster.rows * cell;
   }

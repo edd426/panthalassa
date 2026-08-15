@@ -302,7 +302,7 @@ function makeField(
 
 /** A soft round mote: Gaussian falloff, so scaling one up never shows an edge. */
 function bakeMoteTexture(): Texture {
-  return bakeAlphaTexture(MOTE_TEXTURE_PX, MOTE_TEXTURE_PX, [255, 255, 255], (u, v) => {
+  return bakeAlphaTexture(MOTE_TEXTURE_PX, MOTE_TEXTURE_PX, (u, v) => {
     const dx = u - 0.5;
     const dy = v - 0.5;
     const r = Math.sqrt(dx * dx + dy * dy) / 0.5;
