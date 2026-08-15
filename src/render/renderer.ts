@@ -25,7 +25,9 @@ import { fitScale, toWorld as cameraToWorld, worldTransform } from './camera';
 import type { WorldTransform } from './camera';
 import { CameraController } from './cameraController';
 import { createColourMap, resolveColours } from './colourMap';
-import { createCrudeFallback } from './fallback';
+import { createCrudeFallback, createNullRenderer } from './fallback';
+import { bootRenderer, settleWithin } from './rendererBoot';
+import type { BootAttempt } from './rendererBoot';
 import { Interpolator } from './interpolation';
 import { createLayers } from './layerRegistry';
 import { createLod, select as selectLod } from './lod';
@@ -146,7 +148,77 @@ function gpuContextAvailable(): boolean {
   }
 }
 
-export type RendererKind = 'pixi' | 'crude-requested' | 'crude-no-gpu' | 'crude-init-failed';
+/**
+ * How long any one graphics backend gets to initialise before its turn is over.
+ *
+ * Generous: a healthy init is tens of milliseconds, so this only fires on a
+ * stack that is genuinely stuck. Erring long costs a slow machine a few seconds
+ * of black water once; erring short would demote a working WebGPU device to
+ * WebGL for no reason.
+ */
+export const INIT_TIMEOUT_MS = 4000;
+
+/**
+ * Backends to try, in order. WebGPU first because it is the better renderer
+ * where it works; WebGL alone second because "WebGPU hangs" is precisely the
+ * case the combined preference cannot recover from on its own — Pixi has
+ * already committed to WebGPU by the time it stalls.
+ */
+const WEBGL_ONLY: BootAttempt = { preference: ['webgl'], label: 'webgl-only' };
+
+const INIT_ATTEMPTS: readonly BootAttempt[] = [
+  { preference: ['webgpu', 'webgl'], label: 'webgpu-then-webgl' },
+  WEBGL_ONLY,
+];
+
+/**
+ * How long WebGPU gets to admit it exists before it is left out of the running.
+ * Short, because this is a pre-flight on a healthy machine's fast path.
+ */
+const ADAPTER_PROBE_MS = 1500;
+
+/**
+ * Decide the backend order *before* the real canvas is committed to anything.
+ *
+ * A canvas can only ever produce one kind of context. If Pixi asks it for
+ * WebGPU and then stalls, that canvas can no longer give WebGL — or the 2D
+ * context the crude fallback needs — and every remaining option is gone. So the
+ * one question that decides the whole boot, "does this machine's WebGPU
+ * actually answer", is asked here where the answer costs nothing: a bare
+ * adapter request, raced against a deadline, touching no canvas at all.
+ *
+ * `'gpu' in navigator` is not that question. It is true on the machine this bug
+ * was found on, where contexts nevertheless fail.
+ */
+async function preferredAttempts(): Promise<readonly BootAttempt[]> {
+  const gpu = (navigator as unknown as { gpu?: { requestAdapter(): Promise<unknown> } }).gpu;
+  if (gpu === undefined) return [WEBGL_ONLY];
+
+  let adapter: unknown = null;
+  let probe: Promise<unknown>;
+  try {
+    probe = gpu.requestAdapter().then((found: unknown) => {
+      adapter = found;
+    });
+  } catch {
+    return [WEBGL_ONLY];
+  }
+
+  const outcome = await settleWithin(probe, ADAPTER_PROBE_MS);
+  if (outcome === 'ok' && adapter !== null && adapter !== undefined) return INIT_ATTEMPTS;
+  console.warn(
+    `[panthalassa] WebGPU adapter ${outcome === 'timeout' ? 'did not answer' : 'unavailable'}; using WebGL`,
+  );
+  return [WEBGL_ONLY];
+}
+
+export type RendererKind =
+  | 'pixi'
+  | 'pixi-webgl'
+  | 'crude-requested'
+  | 'crude-no-gpu'
+  | 'crude-init-failed'
+  | 'none';
 
 let activeKind: RendererKind = 'pixi';
 
@@ -178,26 +250,88 @@ export async function createRenderer(canvas: HTMLCanvasElement, config: SimConfi
     return createCrudeFallback(canvas, config);
   }
   try {
-    const renderer = await createPixiRenderer(canvas, config);
     activeKind = 'pixi';
-    return renderer;
+    return await createPixiRenderer(canvas, config);
   } catch (error) {
     console.warn('[panthalassa] pixi renderer unavailable; falling back to the crude canvas', error);
     activeKind = 'crude-init-failed';
+  }
+
+  // Last resort. The crude renderer needs a 2D context, and a canvas that has
+  // already handed one out to WebGL cannot give one — so this can fail too, and
+  // if it throws it takes `main.ts`'s top-level await with it and the page never
+  // boots at all. A world with no renderer is bad; a blank page with an empty
+  // HUD and nothing in the console is the bug we are here to remove.
+  try {
     return createCrudeFallback(canvas, config);
+  } catch (error) {
+    console.error('[panthalassa] no renderer could be created; the HUD will run over empty water', error);
+    activeKind = 'none';
+    return createNullRenderer(config);
   }
 }
 
+/**
+ * Boot the Pixi application, refusing to wait forever for any one backend.
+ *
+ * A WebGPU adapter request that never answers is not a rejected promise — it is
+ * a promise that never settles — and `main.ts` awaits this at the top level, so
+ * a stall here is a permanently blank page with nothing in the console. That is
+ * exactly what the production bundle did while the dev server was fine, because
+ * which backend gets chosen is not something the build is required to keep
+ * stable. Every attempt therefore gets a deadline and the next backend gets a
+ * turn; only when all of them are exhausted does this give up.
+ */
 async function createPixiRenderer(canvas: HTMLCanvasElement, config: SimConfig): Promise<WorldRenderer> {
   const width = Math.max(1, window.innerWidth);
   const height = Math.max(1, window.innerHeight);
 
-  const app = new Application();
-  await app.init({
+  const booted = await bootRenderer<Application>(
+    await preferredAttempts(),
+    {
+      begin(preference) {
+        // `new Application()` is synchronous, so the handle exists even when
+        // `init` never comes back — which is what makes teardown possible.
+        const app = new Application();
+        return { handle: app, ready: app.init(initOptions(canvas, width, height, preference)) };
+      },
+      abandon(app) {
+        // Release whatever the stalled attempt did manage to take, but leave
+        // the canvas in the document: the next attempt draws into it.
+        app.destroy(false, { children: true });
+      },
+    },
+    INIT_TIMEOUT_MS,
+    (attempt, outcome) => {
+      console.warn(
+        `[panthalassa] renderer init ${outcome} for preference [${attempt.preference.join(', ')}] after ${INIT_TIMEOUT_MS} ms`,
+      );
+    },
+  );
+
+  if (booted === null) throw new Error('every renderer backend timed out or failed to initialise');
+  // Keyed off which attempt won, not off how many were tried: the pre-flight
+  // can put WebGL first, so "running on WebGL" and "retried" are not the same.
+  if (booted.label === WEBGL_ONLY.label) activeKind = 'pixi-webgl';
+
+  const app = booted.handle;
+  // The conductor is main.ts's rAF loop; Pixi must not also be driving frames.
+  app.ticker.stop();
+
+  return new PixiWorldRenderer(app, canvas, config);
+}
+
+function initOptions(
+  canvas: HTMLCanvasElement,
+  width: number,
+  height: number,
+  preference: readonly string[],
+): Parameters<Application['init']>[0] {
+  return {
     canvas,
     width,
     height,
-    preference: ['webgpu', 'webgl'],
+    preference: preference as ('webgpu' | 'webgl')[],
     // No MSAA. `MAX_RESOLUTION` already supersamples, which antialiases every
     // edge in this scene, and multisampling on top of that pays the fill cost
     // twice over — it showed up as `renderMsEma` in the double digits before
@@ -209,11 +343,7 @@ async function createPixiRenderer(canvas: HTMLCanvasElement, config: SimConfig):
     background: ABYSS_COLOUR,
     backgroundAlpha: 1,
     autoStart: false,
-  });
-  // The conductor is main.ts's rAF loop; Pixi must not also be driving frames.
-  app.ticker.stop();
-
-  return new PixiWorldRenderer(app, canvas, config);
+  };
 }
 
 class PixiWorldRenderer implements WorldRenderer {

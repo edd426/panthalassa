@@ -622,6 +622,8 @@ function startWorld(nextSeed: string): void {
   if (kind === 'crude-no-gpu') note('no GPU context — drawing with the crude canvas renderer');
   else if (kind === 'crude-init-failed') note('renderer failed to start — drawing with the crude canvas renderer');
   else if (kind === 'crude-requested') note('?renderer=crude — drawing with the crude canvas renderer');
+  else if (kind === 'pixi-webgl') note('WebGPU did not answer — running on WebGL');
+  else if (kind === 'none') note('no renderer available — the sim is running but the water is blank');
 
   client
     .init(nextSeed, overrides)
