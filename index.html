@@ -497,6 +497,10 @@
     <pre id="status"></pre>
     <pre id="panel"></pre>
     <canvas id="charts" hidden></canvas>
+    <!-- Overnight-wave mount points (orchestrator-owned so X1/X2 stay out of
+         each other's files): X1 populates #bench, X2 populates #trends. -->
+    <section id="bench" hidden></section>
+    <div id="trends" hidden></div>
     <div id="banner" hidden></div>
     <script type="module" src="/src/app/main.ts"></script>
   </body>
