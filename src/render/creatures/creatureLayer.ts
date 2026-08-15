@@ -88,16 +88,26 @@ import { bellPulsePhase, swimFrequencyHz, wavePhase } from './spine';
  * It meters CPU-side path emission only. The other half of a frame is blended
  * fill, which no budget here touches, and at the near tier the additive glow
  * underlay dominates it — of 3.34 M blended pixels at 4 px/wu with 900 animals
- * visible, 3.05 M is glow. (Those figures assume the whole population visible
- * at every zoom, which viewport culling makes pessimistic as you zoom in; the
- * far and abyss numbers, 0.74 M and 0.13 M, are the trustworthy ones.)
+ * visible, 3.05 M is glow, against 0.74 M for far and 0.13 M for abyss.
+ *
+ * **Those are CSS pixels.** The GPU resolves `resolution²` device samples for
+ * each one, where `resolution` is `min(devicePixelRatio, MAX_RESOLUTION)` in
+ * `renderer.ts` — so on a retina display the near figure is currently ~2.25×
+ * what is written above, and it was 4× before that constant came down from 2.
+ * Anyone comparing this table against another layer's must check which of the
+ * two units that layer quoted; mixing them silently overstates one side by
+ * severalfold. Note also that these assume the whole population visible at
+ * every zoom, which viewport culling makes increasingly pessimistic as you zoom
+ * in — the far and abyss rows are the trustworthy ones.
  *
  * So there are two knobs and they fix different symptoms:
  *
  * - frame time scaling with **population** → CPU-bound → this budget
  * - frame time scaling with **zoom** at fixed population → fill-bound →
- *   {@link GLOW_SPAN} and {@link GLOW_ALPHA} first, which cost look rather
- *   than animals
+ *   try `MAX_RESOLUTION` in `renderer.ts` first, which cuts every blended
+ *   sample in the app at once and costs no design decision; only then
+ *   {@link GLOW_SPAN} and {@link GLOW_ALPHA}, which cost look rather than
+ *   animals
  *
  * The alarm that says this budget has a hole is `rememberedCost.near > 0` on
  * `__panthalassaRender` (R1's governor only records that after near actually

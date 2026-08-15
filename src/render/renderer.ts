@@ -75,13 +75,10 @@ const WORLD_CENTRE_PROBE = { x: 1000, y: 600 };
  * pixels, which is what keeps edges smooth now that MSAA is off. Going to 1 is
  * a further 75% cut but leaves no supersampling at all and will alias visibly.
  *
- * Left at 2 deliberately: this is a look decision, and it belongs to whoever is
- * holding the browser profile, not to a guess from here.
+ * Set to 1.5 by the orchestrator's look decision (2026-08-15) after browser
+ * review: the fill cut is the cheapest headroom in the app and edges stay
+ * smooth. Spend GLOW_SPAN/GLOW_ALPHA only after this lever is exhausted.
  */
-// 1.5, not 2: the near tier is fill-bound (the additive glow is ~90% of its
-// blended pixels) and resolution squares every one of them. 1.5 cuts all
-// blended fill 44% while still supersampling CSS pixels, which is what keeps
-// edges smooth with MSAA off. Orchestrator look-decision, 2026-08-15.
 const MAX_RESOLUTION = 1.5;
 
 interface MutableFrameContext {
