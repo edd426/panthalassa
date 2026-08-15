@@ -74,13 +74,24 @@ export function bakeAlphaTexture(
   return baked.texture;
 }
 
-/** A 1-px-wide vertical ramp; `sample` writes opaque r,g,b (0..255) into `out`. */
+/**
+ * A vertical ramp; `sample` writes opaque r,g,b (0..255) into `out`.
+ *
+ * Four texels wide rather than one. A single-column texture is the kind of edge
+ * case where filtering and row-alignment behaviour differ between backends, and
+ * this one is stretched across the entire world — not somewhere to be clever for
+ * the sake of 3 KB.
+ */
+const RAMP_TEXTURE_W = 4;
+
 export function bakeVerticalTexture(height: number, sample: (v: number, out: Float64Array) => void): Texture {
-  const baked = createBufferTexture(1, height);
+  const baked = createBufferTexture(RAMP_TEXTURE_W, height);
   const out = new Float64Array(3);
   for (let y = 0; y < height; y += 1) {
     sample((y + 0.5) / height, out);
-    pokePremultiplied(baked.pixels, y * 4, out[0] ?? 0, out[1] ?? 0, out[2] ?? 0, 1);
+    for (let x = 0; x < RAMP_TEXTURE_W; x += 1) {
+      pokePremultiplied(baked.pixels, (y * RAMP_TEXTURE_W + x) * 4, out[0] ?? 0, out[1] ?? 0, out[2] ?? 0, 1);
+    }
   }
   baked.source.update();
   return baked.texture;
@@ -168,10 +179,31 @@ const CROSSFADE_MS = 1000;
 
 const FROND_ANCHORS = 40;
 const FROND_COLOUR = 0x1f7d5e;
-const FROND_ALPHA = 0.3;
+/** Blades overlap inside a tuft; at 0.3 the stack read as layered cellophane. */
+const FROND_ALPHA = 0.26;
+
+/**
+ * Blade geometry, in world units. A 12 cm fish spans ~8 wu, so a frond is a few
+ * fish long — vegetation beside a reef, not scaffolding. The cap matters because
+ * the length is a product of two per-anchor factors, and unbounded that reached
+ * 84 wu: a blade that crossed the whole screen at close zoom.
+ */
+const FROND_LENGTH_WU = 24;
+const FROND_MAX_LENGTH_WU = 32;
+
+/**
+ * Stroke width. 1.6 wu against a 32 wu blade is about 20:1, which is roughly the
+ * proportion of real kelp — so the world figure is right and the screen cap is
+ * only there to stop the extreme end. Capping it hard (3 px) overcorrected into
+ * the opposite failure: a 2 px by 475 px blade reads as wire, not vegetation.
+ * 8 px keeps a blade recognisably a blade at close zoom while removing the
+ * arm-thick translucent ribbon that the world figure alone produced.
+ */
 const FROND_WIDTH_WU = 1.6;
-/** Blade reach, world units. A 12 cm fish spans ~8 wu, so this is kelp-scale. */
-const FROND_LENGTH_WU = 46;
+const FROND_MAX_SCREEN_PX = 8;
+const FROND_MIN_WIDTH_WU = 0.3;
+/** Width quantisation, so a smooth zoom re-tessellates a few times, not every frame. */
+const FROND_WIDTH_STEP_WU = 0.1;
 /** Resting sway, radians (~5°); a kelp storm scales this up to ~15°. */
 const FROND_SWAY_RAD = 0.09;
 /** A touch of shear on top of the rotation, so a blade bends rather than pivots. */
@@ -193,6 +225,7 @@ export interface FieldHaze {
     dtMs: number,
     hooks: HazeHooks,
     quality: AmbienceQuality,
+    pxPerWu: number,
   ): void;
   reset(): void;
   destroy(): void;
@@ -249,6 +282,8 @@ export function createFieldHaze(options: FieldHazeOptions): FieldHaze {
   const anchorsByCell = new Map<number, FrondAnchor>();
   /** Rebuilt on each kelp refresh, reusing the anchor objects above. */
   let activeAnchors: FrondAnchor[] = [];
+  /** Current stroke width in world units; see {@link FROND_MAX_SCREEN_PX}. */
+  let frondWidthWu = FROND_WIDTH_WU;
   const topCells = new Int32Array(FROND_ANCHORS);
   const topValues = new Float64Array(FROND_ANCHORS);
   let topCount = 0;
@@ -266,7 +301,9 @@ export function createFieldHaze(options: FieldHazeOptions): FieldHaze {
     dtMs: number,
     hooks: HazeHooks,
     quality: AmbienceQuality,
+    pxPerWu: number,
   ): void {
+    retessellateIfWidthChanged(pxPerWu);
     stepPair(plankton, planktonRaster, dtMs, hooks, true, true);
     // The kelp raster is still consumed when the pass is shed, so the frond
     // anchors keep tracking the reef and nothing pops back when detail returns.
@@ -440,6 +477,28 @@ export function createFieldHaze(options: FieldHazeOptions): FieldHaze {
     }
   }
 
+  /**
+   * Stroke width is baked into the geometry, so holding it to a screen-pixel cap
+   * means re-tessellating when the zoom moves it. Quantising the width first is
+   * what keeps that to a handful of rebuilds across a whole zoom range instead of
+   * one per frame.
+   */
+  function retessellateIfWidthChanged(pxPerWu: number): void {
+    const target = Math.min(FROND_WIDTH_WU, FROND_MAX_SCREEN_PX / Math.max(1e-6, pxPerWu));
+    // Floor, not round: quantising upward would push the stroke back over the
+    // screen-pixel cap the quantisation exists to respect.
+    const stepped = Math.max(
+      FROND_MIN_WIDTH_WU,
+      Math.floor(target / FROND_WIDTH_STEP_WU) * FROND_WIDTH_STEP_WU,
+    );
+    if (Math.abs(stepped - frondWidthWu) < 1e-9) return;
+    frondWidthWu = stepped;
+    for (const anchor of activeAnchors) {
+      const blade = anchor.slot >= 0 ? frondPool[anchor.slot] : undefined;
+      if (blade !== undefined) drawFrond(blade, anchor);
+    }
+  }
+
   /** Tessellate one frond's blades around a local origin. Runs on refresh only. */
   function drawFrond(blade: Graphics, anchor: FrondAnchor): void {
     // Blades lean away from the warm edge, matching the direction the god rays
@@ -449,7 +508,7 @@ export function createFieldHaze(options: FieldHazeOptions): FieldHaze {
     for (let i = 0; i < anchor.blades; i += 1) {
       const key = anchor.cell * 8 + i;
       const spread = (anchorHash(key * 5 + 1) - 0.5) * 1.5;
-      const length = FROND_LENGTH_WU * anchor.scale * (0.6 + anchorHash(key * 5 + 2) * 0.8);
+      const length = Math.min(FROND_MAX_LENGTH_WU, FROND_LENGTH_WU * anchor.scale * (0.7 + anchorHash(key * 5 + 2) * 0.6));
       const curl = (anchorHash(key * 5 + 3) - 0.5) * length * 0.35;
       const dirX = Math.sin(spread);
       const dirY = leanSign * Math.cos(spread);
@@ -461,7 +520,7 @@ export function createFieldHaze(options: FieldHazeOptions): FieldHaze {
         dirY * length - dirX * curl,
       );
     }
-    blade.stroke({ color: FROND_COLOUR, alpha: FROND_ALPHA, width: FROND_WIDTH_WU, cap: 'round' });
+    blade.stroke({ color: FROND_COLOUR, alpha: FROND_ALPHA, width: frondWidthWu, cap: 'round' });
   }
 
   /** Per frame: two transform writes per frond. No geometry touched. */
@@ -490,6 +549,7 @@ export function createFieldHaze(options: FieldHazeOptions): FieldHaze {
     anchorsByCell.clear();
     activeAnchors = [];
     topCount = 0;
+    frondWidthWu = FROND_WIDTH_WU;
     for (let slot = 0; slot < FROND_ANCHORS; slot += 1) {
       slotAnchor[slot] = null;
       const blade = frondPool[slot];

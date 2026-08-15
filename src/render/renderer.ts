@@ -65,19 +65,26 @@ const WORLD_CENTRE_PROBE = { x: 1000, y: 600 };
 
 /**
  * Device-pixel ceiling for the framebuffer, and the single largest lever on
- * fill cost in the whole renderer — it is squared, so it multiplies every
- * blended pixel every layer draws by 4x at 2, not 2x.
+ * fill cost in the whole renderer: it is *squared*, so every blended pixel
+ * every layer draws costs `MAX_RESOLUTION ** 2` device samples.
  *
- * That matters because the near tier is fill-bound rather than CPU-bound: R2
- * measures the additive body glow at ~3.0M of 3.4M blended CSS pixels, and this
- * constant is what turns that into ~13.4M device samples. Dropping to 1.5 cuts
- * all of it by 44% ((1.5/2)^2) while still supersampling relative to CSS
- * pixels, which is what keeps edges smooth now that MSAA is off. Going to 1 is
- * a further 75% cut but leaves no supersampling at all and will alias visibly.
+ * That matters because the near tier is fill-bound rather than CPU-bound — the
+ * creature layer's additive body glow is the large majority of blended fill.
  *
- * Set to 1.5 by the orchestrator's look decision (2026-08-15) after browser
- * review: the fill cut is the cheapest headroom in the app and edges stay
- * smooth. Spend GLOW_SPAN/GLOW_ALPHA only after this lever is exhausted.
+ * **Name the unit whenever you quote a fill figure here.** The layers measure
+ * in CSS pixels; this constant is the only thing that converts those to device
+ * samples, and a joint estimate that silently summed one layer's CSS pixels
+ * with another's device samples cost the wave a review cycle. Convert by
+ * multiplying through this constant — never copy a number across that boundary,
+ * and never bake the product into a comment, because it goes stale the moment
+ * this value is tuned (which has already happened once).
+ *
+ * Currently the orchestrator's look decision (2026-08-15) after browser review:
+ * lowering it from 2 cut device samples 44% while still supersampling relative
+ * to CSS pixels, which is what keeps edges smooth now that MSAA is off. Going
+ * to 1 would cut a further 56% but leaves no supersampling at all and will
+ * alias visibly. Spend the creature layer's GLOW_SPAN/GLOW_ALPHA only after
+ * this lever is exhausted: this one costs no design decision, those cost look.
  */
 const MAX_RESOLUTION = 1.5;
 
@@ -191,10 +198,11 @@ async function createPixiRenderer(canvas: HTMLCanvasElement, config: SimConfig):
     width,
     height,
     preference: ['webgpu', 'webgl'],
-    // No MSAA. At resolution 2 the downsample already antialiases every edge in
-    // this scene, and multisampling a 2x buffer pays the fill cost twice — on
-    // a 1440x722 window that is 4.2M samples resolved every frame, which shows
-    // up as `renderMsEma` in the double digits before anything is drawn at all.
+    // No MSAA. `MAX_RESOLUTION` already supersamples, which antialiases every
+    // edge in this scene, and multisampling on top of that pays the fill cost
+    // twice over — it showed up as `renderMsEma` in the double digits before
+    // anything had been drawn at all. If MAX_RESOLUTION ever drops to 1 there
+    // is no supersampling left and this has to be reconsidered.
     antialias: false,
     resolution: Math.min(window.devicePixelRatio, MAX_RESOLUTION),
     autoDensity: true,

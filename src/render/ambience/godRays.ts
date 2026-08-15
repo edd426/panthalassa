@@ -55,6 +55,15 @@ const PARALLAX = 0.85;
 const BEAM_SCREEN_BUDGET = 1.5;
 
 /**
+ * Alpha ceiling once the camera is zoomed past fit-all. A beam is a fixed size
+ * in world units, so zooming turns a distant shaft into a soft band across the
+ * whole frame — at which point it is no longer a light cue, it is a wash over
+ * the subject. The attenuation eases it down with zoom and this caps it.
+ */
+const ZOOMED_ALPHA_MAX = 0.06;
+const ZOOM_ATTENUATION = 0.3;
+
+/**
  * Pale teal, not white-blue. The rays sit on top of the green haze under
  * additive blending, and a warm or neutral beam colour is what pushes that sum
  * toward yellow; keeping every additive element in the teal/green family keeps
@@ -189,6 +198,14 @@ export function createGodRays(options: GodRaysOptions): GodRays {
     const viewTop = camera.centerY - halfH;
     const viewBottom = camera.centerY + halfH;
     const viewAreaWu = halfW * 2 * halfH * 2;
+    // Zoom relative to fit-all, which is the only zoom the beam sizes were
+    // authored against.
+    const fitScale = Math.min(
+      camera.viewportW / Math.max(1e-6, options.worldWidthWu),
+      camera.viewportH / Math.max(1e-6, options.worldHeightWu),
+    );
+    const zoom = fitScale > 0 ? camera.pxPerWu / fitScale : 1;
+    const zoomAtten = zoom <= 1 ? 1 : Math.pow(zoom, -ZOOM_ATTENUATION);
     let coverage = 0;
     for (let i = 0; i < beams.length; i += 1) {
       const beam = beams[i];
@@ -209,7 +226,8 @@ export function createGodRays(options: GodRaysOptions): GodRays {
       coverage += share;
       beam.sprite.rotation = beam.baseRotation + Math.sin(beam.swayPhase + seconds * beam.swayRate) * SWAY_RADIANS;
       const breath = 0.72 + 0.28 * Math.sin(beam.breathPhase + seconds * beam.breathRate);
-      beam.sprite.alpha = Math.max(0, beam.baseAlpha * breath * intensity);
+      const alpha = beam.baseAlpha * breath * intensity * zoomAtten;
+      beam.sprite.alpha = Math.max(0, zoom > 1 ? Math.min(alpha, ZOOMED_ALPHA_MAX) : alpha);
     }
   }
 

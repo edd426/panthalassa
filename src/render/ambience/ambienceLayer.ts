@@ -37,20 +37,29 @@ const ABYSS_TOP = '#04161f';
 const ABYSS_BOTTOM = '#01070c';
 
 /**
- * The world wash, baked warm-edge-first, and the quietest element in the scene:
- * at the neutral tint it lands on (13, 49, 60) at the warm edge and (8, 33, 43)
- * at the cold one — close to the crude renderer's `#0d3a4a -> #071f2c`, so the
- * at-a-glance latitude read survives, but with the span compressed so the
- * gradient is felt rather than seen. The bake is brighter than the target
- * because {@link WASH_TINT_NEUTRAL} scales it back down, which is what leaves a
- * warm shift room to actually brighten instead of only darkening.
+ * The world wash, baked warm-edge-first, and the quietest element in the scene.
+ * Composited it puts mid-world at about #0a2d3a — dark abyssal teal — with the
+ * warm edge roughly 13% brighter from the wash alone. The at-a-glance latitude
+ * read the crude renderer had survives, but as something felt rather than seen.
  */
-const WASH_WARM_EDGE: readonly [number, number, number] = [15, 55, 68];
-const WASH_COLD_EDGE: readonly [number, number, number] = [9, 37, 49];
+const WASH_WARM_EDGE: readonly [number, number, number] = [10, 48, 65];
+const WASH_COLD_EDGE: readonly [number, number, number] = [7, 37, 51];
 const WASH_TEXTURE_H = 256;
+
+/**
+ * The wash tint, and the one place this package previously left the blue-green
+ * family: the warm pole used to be an amber (255, 240, 221), on the reasoning
+ * that "warm latitude" meant warm *light*. It does not. Warm water here has to
+ * read as brighter, greener TEAL — an amber pole drags red up and blue down, and
+ * additive green haze over a red-shifted base is exactly how an abyssal ocean
+ * turns khaki. Every pole now holds blue at or above green.
+ *
+ * The neutral sits below 255 so the warm pole has room to *brighten* a channel
+ * rather than only darken the others; a tint can only multiply.
+ */
 const WASH_TINT_NEUTRAL: readonly [number, number, number] = [223, 230, 234];
-const WASH_TINT_WARM: readonly [number, number, number] = [255, 240, 221];
-const WASH_TINT_COOL: readonly [number, number, number] = [208, 226, 255];
+const WASH_TINT_WARM: readonly [number, number, number] = [205, 250, 240];
+const WASH_TINT_COOL: readonly [number, number, number] = [205, 224, 255];
 
 /**
  * What the ambience costs at each LOD tier. `LodState.tier` already carries R1's
@@ -183,7 +192,7 @@ export function createAmbienceLayer(): RenderLayer {
 
     const quality = QUALITY_BY_TIER[frame.lod.tier];
     if (haze !== null && flourishes !== null) {
-      haze.update(frame.plankton, frame.kelp, animMs, frame.dtMs, flourishes.hooks, quality);
+      haze.update(frame.plankton, frame.kelp, animMs, frame.dtMs, flourishes.hooks, quality, frame.camera.pxPerWu);
     }
     godRays?.update(animMs, frame.camera, worldMidX, worldMidY, modulation?.godRayIntensity ?? 1, quality.beams);
     particulate?.update(animMs, frame.camera, worldMidX, worldMidY, quality.nearSnow);
