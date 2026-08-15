@@ -18,9 +18,9 @@
 
 import { Graphics, Sprite, FillGradient } from 'pixi.js';
 import type { Texture } from 'pixi.js';
-import type { FrameContext, MountContext, RenderLayer } from '../contracts';
+import type { FrameContext, LodTier, MountContext, RenderLayer } from '../contracts';
 import { bakeVerticalTexture, createFieldHaze } from './fieldHaze';
-import type { FieldHaze } from './fieldHaze';
+import type { AmbienceQuality, FieldHaze } from './fieldHaze';
 import { createGodRays } from './godRays';
 import type { GodRays } from './godRays';
 import { createParticulate } from './particulate';
@@ -28,22 +28,47 @@ import type { Particulate } from './particulate';
 import { createFlourishes } from './flourishes';
 import type { Flourishes } from './flourishes';
 
-/** Screen-space abyss: near-black teal above, effectively void below. */
-const ABYSS_TOP = '#06222e';
-const ABYSS_BOTTOM = '#020b11';
+/**
+ * Screen-space abyss: near-black teal above, effectively void below. Kept dark
+ * enough that the world wash reads as brighter than the void at every latitude —
+ * panning past the world edge has to look like an edge.
+ */
+const ABYSS_TOP = '#04161f';
+const ABYSS_BOTTOM = '#01070c';
 
 /**
- * The world wash, baked warm-edge-first. Tones track the crude renderer's
- * `#0d3a4a -> #071f2c` so the latitude read survives the port; the bake is a
- * little brighter than that because {@link WASH_TINT_NEUTRAL} scales it back
- * down, which is what leaves headroom for a warm shift to actually brighten.
+ * The world wash, baked warm-edge-first, and the quietest element in the scene:
+ * at the neutral tint it lands on (13, 49, 60) at the warm edge and (8, 33, 43)
+ * at the cold one — close to the crude renderer's `#0d3a4a -> #071f2c`, so the
+ * at-a-glance latitude read survives, but with the span compressed so the
+ * gradient is felt rather than seen. The bake is brighter than the target
+ * because {@link WASH_TINT_NEUTRAL} scales it back down, which is what leaves a
+ * warm shift room to actually brighten instead of only darkening.
  */
-const WASH_WARM_EDGE: readonly [number, number, number] = [17, 70, 82];
-const WASH_COLD_EDGE: readonly [number, number, number] = [8, 34, 48];
+const WASH_WARM_EDGE: readonly [number, number, number] = [15, 55, 68];
+const WASH_COLD_EDGE: readonly [number, number, number] = [9, 37, 49];
 const WASH_TEXTURE_H = 256;
 const WASH_TINT_NEUTRAL: readonly [number, number, number] = [223, 230, 234];
 const WASH_TINT_WARM: readonly [number, number, number] = [255, 240, 221];
 const WASH_TINT_COOL: readonly [number, number, number] = [208, 226, 255];
+
+/**
+ * What the ambience costs at each LOD tier. `LodState.tier` already carries R1's
+ * frame-time governor, and every layer in the wave lands in the one
+ * `renderMsEma` it watches — so this is the ambience paying its own way down
+ * rather than holding a fixed cost while the creatures get demoted around it.
+ *
+ * Fill rate is what is being bought back, not CPU: at resolution 2 on a 1440x900
+ * window each world-sized additive pass is roughly 5 M blended pixels a frame.
+ * The wash, the plankton haze and the fronds are never shed, because those three
+ * carry the latitude, the productivity and the reef.
+ */
+const QUALITY_BY_TIER: Record<LodTier, AmbienceQuality> = {
+  near: { beams: 8, kelpHaze: true, nearSnow: true },
+  mid: { beams: 8, kelpHaze: true, nearSnow: true },
+  far: { beams: 4, kelpHaze: true, nearSnow: false },
+  abyss: { beams: 2, kelpHaze: false, nearSnow: false },
+};
 
 const RIM_COLOUR = 0x96d2e6;
 const RIM_ALPHA = 0.35;
@@ -156,11 +181,12 @@ export function createAmbienceLayer(): RenderLayer {
       wash.tint = tint;
     }
 
+    const quality = QUALITY_BY_TIER[frame.lod.tier];
     if (haze !== null && flourishes !== null) {
-      haze.update(frame.plankton, frame.kelp, animMs, frame.dtMs, flourishes.hooks);
+      haze.update(frame.plankton, frame.kelp, animMs, frame.dtMs, flourishes.hooks, quality);
     }
-    godRays?.update(animMs, frame.camera, worldMidX, worldMidY, modulation?.godRayIntensity ?? 1);
-    particulate?.update(animMs, frame.camera, worldMidX, worldMidY);
+    godRays?.update(animMs, frame.camera, worldMidX, worldMidY, modulation?.godRayIntensity ?? 1, quality.beams);
+    particulate?.update(animMs, frame.camera, worldMidX, worldMidY, quality.nearSnow);
 
     // The rim is drawn in world space, so its width has to be un-zoomed to stay
     // a 2 px line. Rebuild only when the zoom actually moved.

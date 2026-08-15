@@ -148,6 +148,8 @@ export function createFlourishes(): Flourishes {
   let nextBurstSlot = 0;
   let glowsUsed = 0;
   let ringsUsed = 0;
+  /** True while any burst mote is visible; gates the particle buffer upload. */
+  let burstLive = false;
   let frameMs = 0;
   let eventSeed = 1;
 
@@ -236,11 +238,22 @@ export function createFlourishes(): Flourishes {
 
   function update(nowMs: number, dtMs: number): void {
     frameMs = nowMs;
+    // Only clear what was actually drawn last frame. In the steady state — which
+    // is nearly all of the time, since these are rare events — this whole
+    // function touches nothing and uploads nothing.
+    for (let i = 0; i < glowsUsed; i += 1) {
+      const sprite = glows[i];
+      if (sprite !== undefined) sprite.visible = false;
+    }
+    for (let i = 0; i < ringsUsed; i += 1) {
+      const sprite = rings[i];
+      if (sprite !== undefined) sprite.visible = false;
+    }
+    const hadBurst = burstLive;
+    if (hadBurst) for (const particle of burstParticles) particle.alpha = 0;
+    burstLive = false;
     glowsUsed = 0;
     ringsUsed = 0;
-    for (const sprite of glows) sprite.visible = false;
-    for (const sprite of rings) sprite.visible = false;
-    for (const particle of burstParticles) particle.alpha = 0;
 
     modulation.godRayIntensity = 1;
     modulation.planktonAlpha = 1;
@@ -283,7 +296,8 @@ export function createFlourishes(): Flourishes {
     climateWarmth += (climateTarget - climateWarmth) * (1 - Math.exp(-dtMs / CLIMATE_TAU_MS));
     modulation.washWarmth = clamp(climateWarmth + shockWarmth, -1, 1);
     modulation.godRayIntensity = Math.max(0, modulation.godRayIntensity);
-    bursts.update();
+    // One upload on the frame motes appear, one on the frame they go out.
+    if (hadBurst || burstLive) bursts.update();
   }
 
   function drawMeteor(effect: Effect, age: number): void {
@@ -320,6 +334,7 @@ export function createFlourishes(): Flourishes {
         particle.y = effect.y + Math.sin(angle) * r;
         particle.alpha = 0.6 * Math.pow(1 - t, 1.5);
       }
+      burstLive = true;
     }
   }
 
@@ -371,6 +386,7 @@ export function createFlourishes(): Flourishes {
       particle.y = originY + (alongX ? v * spanY : travel);
       particle.alpha = 0.4 * (1 - t);
     }
+    burstLive = true;
   }
 
   function crashLevel(effect: Effect, age: number): number {
@@ -436,6 +452,9 @@ export function createFlourishes(): Flourishes {
     climateTarget = 0;
     nextBurstSlot = 0;
     eventSeed = 1;
+    burstLive = false;
+    glowsUsed = 0;
+    ringsUsed = 0;
     modulation.godRayIntensity = 1;
     modulation.planktonAlpha = 1;
     modulation.washWarmth = 0;

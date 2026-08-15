@@ -21,8 +21,7 @@
  * alpha channel.
  */
 
-import { BufferImageSource, Graphics, Sprite, Texture } from 'pixi.js';
-import type { Container } from 'pixi.js';
+import { BufferImageSource, Container, Graphics, Sprite, Texture } from 'pixi.js';
 import type { FieldRaster } from '../contracts';
 import { normaliseField } from '../fieldSampling';
 
@@ -106,6 +105,30 @@ function pokePremultiplied(
 // ---------------------------------------------------------------------------
 
 /**
+ * How much ambience the frame can afford, derived from `LodState.tier`.
+ *
+ * The tier already carries R1's frame-time governor, which sheds detail above
+ * `GOVERNOR_DEMOTE_MS`, and every layer in the wave lands in that one number. So
+ * the ambience gives fill rate back at exactly the moment the frame is over
+ * budget, instead of holding a fixed cost and making the creatures pay for it.
+ *
+ * What is shed is chosen so the picture degrades rather than changes: the world
+ * wash, the plankton haze and the kelp fronds are never dropped, because those
+ * three are what carry the latitude, the productivity and the reef.
+ *
+ * Lives here rather than in `ambienceLayer` because this is the leaf module the
+ * other three already import; putting it upstream would make the package cyclic.
+ */
+export interface AmbienceQuality {
+  /** How many of the god-ray beams to draw. */
+  readonly beams: number;
+  /** Draw the kelp haze pass. The fronds stay regardless. */
+  readonly kelpHaze: boolean;
+  /** Draw the near (screen-space) marine snow field. */
+  readonly nearSnow: boolean;
+}
+
+/**
  * What the flourish layer modulates in here. Passed per frame rather than
  * imported, so `fieldHaze` stays a leaf module of the ambience package.
  */
@@ -119,24 +142,40 @@ export interface HazeHooks {
 }
 
 /**
- * Peak sprite alpha. `normaliseField` already bakes the crude overlay's 0.32
- * value-proportional alpha into the texture, so the effective ceiling here is
- * 0.32 x 0.70 = 0.22 for plankton and 0.32 x 0.55 = 0.18 for kelp — under the
- * 0.25 the brief allows, and visibly under the diagnostic overlay it shares
- * pixels with.
+ * Effective peak alpha of the haze — the real number, because the texture's own
+ * alpha channel is a 0..1 response curve (below) rather than a baked-in opacity.
+ *
+ * The ambience is NOT the diagnostic overlay. `normaliseField` encodes the crude
+ * renderer's *measurement* strength: alpha 0.32 x value/high, which over a field
+ * whose cells all sit near the maximum paints the entire world rect at close to
+ * full strength — correct for reading a field, catastrophic as scenery, because
+ * additive green over the whole sea turns an abyssal ocean olive. So the haze
+ * takes `normaliseField`'s colour and span and applies its own response instead.
  */
-const PLANKTON_PEAK_ALPHA = 0.7;
-const KELP_PEAK_ALPHA = 0.55;
+const PLANKTON_PEAK_ALPHA = 0.11;
+const KELP_PEAK_ALPHA = 0.085;
+
+/**
+ * Alpha response across the raster's own span, `((v - low) / (high - low))^γ`.
+ * Rescaling to the span (not to `high` alone) and then bending it means only
+ * genuinely rich water glows: the median cell lands near 0.3 of peak, so the sea
+ * reads as dark with luminous patches rather than as a uniform green sheet.
+ */
+const HAZE_GAMMA = 1.7;
 
 /** Cross-fade time between two raster generations. */
 const CROSSFADE_MS = 1000;
 
 const FROND_ANCHORS = 40;
 const FROND_COLOUR = 0x1f7d5e;
-const FROND_ALPHA = 0.32;
+const FROND_ALPHA = 0.3;
 const FROND_WIDTH_WU = 1.6;
 /** Blade reach, world units. A 12 cm fish spans ~8 wu, so this is kelp-scale. */
 const FROND_LENGTH_WU = 46;
+/** Resting sway, radians (~5°); a kelp storm scales this up to ~15°. */
+const FROND_SWAY_RAD = 0.09;
+/** A touch of shear on top of the rotation, so a blade bends rather than pivots. */
+const FROND_SKEW = 0.05;
 
 export interface FieldHazeOptions {
   readonly worldWidthWu: number;
@@ -153,6 +192,7 @@ export interface FieldHaze {
     animMs: number,
     dtMs: number,
     hooks: HazeHooks,
+    quality: AmbienceQuality,
   ): void;
   reset(): void;
   destroy(): void;
@@ -179,12 +219,32 @@ interface FrondAnchor {
   readonly y: number;
   readonly blades: number;
   readonly scale: number;
+  readonly swayPhase: number;
+  readonly swayRate: number;
+  /** Index into the persistent Graphics pool, or -1 while unassigned. */
+  slot: number;
 }
 
 export function createFieldHaze(options: FieldHazeOptions): FieldHaze {
   const plankton = makePair(PLANKTON_PEAK_ALPHA);
   const kelp = makePair(KELP_PEAK_ALPHA);
-  const fronds = new Graphics();
+  /**
+   * One persistent Graphics per anchor, its blades tessellated in *local*
+   * coordinates when the anchor is assigned and never again. Sway is then a
+   * transform write per frond per frame. The single-Graphics version this
+   * replaced re-tessellated 160 stroked quadratic curves every frame, which is
+   * geometry rebuild plus GPU upload inside `app.render()` sixty times a second.
+   */
+  const frondRoot = new Container();
+  const frondPool: Graphics[] = [];
+  const slotAnchor: (FrondAnchor | null)[] = [];
+  for (let i = 0; i < FROND_ANCHORS; i += 1) {
+    const blade = new Graphics();
+    blade.visible = false;
+    frondPool.push(blade);
+    slotAnchor.push(null);
+    frondRoot.addChild(blade);
+  }
   /** Keyed by raster cell so a frond that survives a refresh keeps its place. */
   const anchorsByCell = new Map<number, FrondAnchor>();
   /** Rebuilt on each kelp refresh, reusing the anchor objects above. */
@@ -196,7 +256,7 @@ export function createFieldHaze(options: FieldHazeOptions): FieldHaze {
   function mount(parent: Container): void {
     for (const sprite of plankton.sprites) parent.addChild(sprite);
     for (const sprite of kelp.sprites) parent.addChild(sprite);
-    parent.addChild(fronds);
+    parent.addChild(frondRoot);
   }
 
   function update(
@@ -205,11 +265,14 @@ export function createFieldHaze(options: FieldHazeOptions): FieldHaze {
     animMs: number,
     dtMs: number,
     hooks: HazeHooks,
+    quality: AmbienceQuality,
   ): void {
-    stepPair(plankton, planktonRaster, dtMs, hooks, true);
-    const kelpRefreshed = stepPair(kelp, kelpRaster, dtMs, hooks, false);
+    stepPair(plankton, planktonRaster, dtMs, hooks, true, true);
+    // The kelp raster is still consumed when the pass is shed, so the frond
+    // anchors keep tracking the reef and nothing pops back when detail returns.
+    const kelpRefreshed = stepPair(kelp, kelpRaster, dtMs, hooks, false, quality.kelpHaze);
     if (kelpRefreshed && kelpRaster !== null) rebuildAnchors(kelpRaster);
-    drawFronds(animMs, hooks);
+    swayFronds(animMs, hooks);
   }
 
   /** Returns true on the frame a new raster generation was taken up. */
@@ -219,6 +282,7 @@ export function createFieldHaze(options: FieldHazeOptions): FieldHaze {
     dtMs: number,
     hooks: HazeHooks,
     isPlankton: boolean,
+    drawn: boolean,
   ): boolean {
     let refreshed = false;
     if (raster !== null && raster !== pair.lastRaster) {
@@ -230,11 +294,9 @@ export function createFieldHaze(options: FieldHazeOptions): FieldHaze {
     }
     if (pair.lastRaster === null) return refreshed;
     pair.fade = Math.min(1, pair.fade + dtMs / CROSSFADE_MS);
-    const ceiling = pair.peakAlpha * (isPlankton ? hooks.planktonAlpha : 1);
-    const front = pair.sprites[pair.front];
-    const back = pair.sprites[1 - pair.front];
-    if (front !== undefined) front.alpha = ceiling * pair.fade;
-    if (back !== undefined) back.alpha = ceiling * (1 - pair.fade);
+    const ceiling = drawn ? pair.peakAlpha * (isPlankton ? hooks.planktonAlpha : 1) : 0;
+    setHalf(pair.sprites[pair.front], ceiling * pair.fade);
+    setHalf(pair.sprites[1 - pair.front], ceiling * (1 - pair.fade));
     return refreshed;
   }
 
@@ -267,15 +329,21 @@ export function createFieldHaze(options: FieldHazeOptions): FieldHaze {
     const sprite = pair.sprites[slot];
     if (scratch === null || target === undefined || target === null || sprite === undefined) return;
 
+    // `normaliseField` supplies the field's colour and its current span; the
+    // alpha is this layer's own, because the overlay's is a measurement and the
+    // ambience is scenery. See {@link HAZE_GAMMA}.
     const normalised = normaliseField(raster, scratch);
+    const span = normalised.high - normalised.low;
     const cell = raster.cellSizeWu;
     const pixels = target.pixels;
     for (let row = 0; row < raster.rows; row += 1) {
       const yWu = (row + 0.5) * cell;
       for (let col = 0; col < raster.cols; col += 1) {
-        const base = (row * raster.cols + col) * 4;
+        const index = row * raster.cols + col;
+        const base = index * 4;
         const scale = isPlankton ? hooks.planktonCellMultiplier((col + 0.5) * cell, yWu) : 1;
-        const alpha = ((normalised.rgba[base + 3] ?? 0) / 255) * scale;
+        const t = span > 0 ? ((raster.values[index] ?? 0) - normalised.low) / span : 0;
+        const alpha = Math.pow(Math.max(0, Math.min(1, t)), HAZE_GAMMA) * scale;
         pokePremultiplied(
           pixels,
           base,
@@ -328,6 +396,9 @@ export function createFieldHaze(options: FieldHazeOptions): FieldHaze {
           y: (row + 0.5) * raster.cellSizeWu + jitterY,
           blades: 3 + Math.floor(anchorHash(cellIndex * 3 + 3) * 3),
           scale: 0.7 + anchorHash(cellIndex * 3 + 4) * 0.6,
+          swayPhase: anchorHash(cellIndex * 3 + 5) * Math.PI * 2,
+          swayRate: 0.25 + anchorHash(cellIndex * 3 + 6) * 0.35,
+          slot: -1,
         };
         anchorsByCell.set(cellIndex, anchor);
       }
@@ -336,36 +407,74 @@ export function createFieldHaze(options: FieldHazeOptions): FieldHaze {
     for (const key of [...anchorsByCell.keys()]) {
       if (!next.some((anchor) => anchor.cell === key)) anchorsByCell.delete(key);
     }
+    assignFrondSlots(next);
     activeAnchors = next;
   }
 
-  function drawFronds(animMs: number, hooks: HazeHooks): void {
-    fronds.clear();
-    if (activeAnchors.length === 0) return;
+  /**
+   * Hand each anchor a Graphics from the pool. Survivors keep the slot they
+   * already hold, so nothing is re-tessellated for a frond that did not change;
+   * only slots that changed occupant are redrawn.
+   */
+  function assignFrondSlots(next: readonly FrondAnchor[]): void {
+    for (let slot = 0; slot < FROND_ANCHORS; slot += 1) {
+      const held = slotAnchor[slot];
+      if (held !== null && held !== undefined && !next.includes(held)) {
+        slotAnchor[slot] = null;
+        held.slot = -1;
+        const blade = frondPool[slot];
+        if (blade !== undefined) blade.visible = false;
+      }
+    }
+    for (const anchor of next) {
+      if (anchor.slot >= 0) continue;
+      const slot = slotAnchor.indexOf(null);
+      if (slot < 0) continue; // Pool is exactly FROND_ANCHORS deep; cannot happen.
+      slotAnchor[slot] = anchor;
+      anchor.slot = slot;
+      const blade = frondPool[slot];
+      if (blade === undefined) continue;
+      drawFrond(blade, anchor);
+      blade.position.set(anchor.x, anchor.y);
+      blade.visible = true;
+    }
+  }
+
+  /** Tessellate one frond's blades around a local origin. Runs on refresh only. */
+  function drawFrond(blade: Graphics, anchor: FrondAnchor): void {
     // Blades lean away from the warm edge, matching the direction the god rays
     // come from, so the reef reads as lit from one side.
     const leanSign = options.warmY <= options.worldHeightWu * 0.5 ? 1 : -1;
+    blade.clear();
+    for (let i = 0; i < anchor.blades; i += 1) {
+      const key = anchor.cell * 8 + i;
+      const spread = (anchorHash(key * 5 + 1) - 0.5) * 1.5;
+      const length = FROND_LENGTH_WU * anchor.scale * (0.6 + anchorHash(key * 5 + 2) * 0.8);
+      const curl = (anchorHash(key * 5 + 3) - 0.5) * length * 0.35;
+      const dirX = Math.sin(spread);
+      const dirY = leanSign * Math.cos(spread);
+      blade.moveTo(0, 0);
+      blade.quadraticCurveTo(
+        dirX * length * 0.5 + dirY * curl * 0.45,
+        dirY * length * 0.5 - dirX * curl * 0.45,
+        dirX * length + dirY * curl,
+        dirY * length - dirX * curl,
+      );
+    }
+    blade.stroke({ color: FROND_COLOUR, alpha: FROND_ALPHA, width: FROND_WIDTH_WU, cap: 'round' });
+  }
+
+  /** Per frame: two transform writes per frond. No geometry touched. */
+  function swayFronds(animMs: number, hooks: HazeHooks): void {
     const seconds = animMs / 1000;
     for (const anchor of activeAnchors) {
+      const blade = anchor.slot >= 0 ? frondPool[anchor.slot] : undefined;
+      if (blade === undefined) continue;
       const sway = hooks.frondSwayAt(anchor.x, anchor.y);
-      for (let blade = 0; blade < anchor.blades; blade += 1) {
-        const key = anchor.cell * 8 + blade;
-        const spread = (anchorHash(key * 5 + 1) - 0.5) * 1.5;
-        const length = FROND_LENGTH_WU * anchor.scale * (0.6 + anchorHash(key * 5 + 2) * 0.8);
-        const phase = anchorHash(key * 5 + 3) * Math.PI * 2;
-        const rate = 0.25 + anchorHash(key * 5 + 4) * 0.35;
-        const wobble = Math.sin(phase + seconds * rate) * length * 0.22 * sway;
-        const dirX = Math.sin(spread);
-        const dirY = leanSign * Math.cos(spread);
-        const tipX = anchor.x + dirX * length + dirY * wobble;
-        const tipY = anchor.y + dirY * length - dirX * wobble;
-        const midX = anchor.x + dirX * length * 0.5 + dirY * wobble * 0.45;
-        const midY = anchor.y + dirY * length * 0.5 - dirX * wobble * 0.45;
-        fronds.moveTo(anchor.x, anchor.y);
-        fronds.quadraticCurveTo(midX, midY, tipX, tipY);
-      }
+      const wobble = Math.sin(anchor.swayPhase + seconds * anchor.swayRate) * sway;
+      blade.rotation = wobble * FROND_SWAY_RAD;
+      blade.skew.x = wobble * FROND_SKEW;
     }
-    fronds.stroke({ color: FROND_COLOUR, alpha: FROND_ALPHA, width: FROND_WIDTH_WU, cap: 'round' });
   }
 
   function reset(): void {
@@ -373,12 +482,23 @@ export function createFieldHaze(options: FieldHazeOptions): FieldHaze {
       pair.lastRaster = null;
       pair.fade = 0;
       pair.front = 0;
-      for (const sprite of pair.sprites) sprite.alpha = 0;
+      for (const sprite of pair.sprites) {
+        sprite.alpha = 0;
+        sprite.visible = false;
+      }
     }
     anchorsByCell.clear();
     activeAnchors = [];
     topCount = 0;
-    fronds.clear();
+    for (let slot = 0; slot < FROND_ANCHORS; slot += 1) {
+      slotAnchor[slot] = null;
+      const blade = frondPool[slot];
+      if (blade === undefined) continue;
+      blade.clear();
+      blade.visible = false;
+      blade.rotation = 0;
+      blade.skew.x = 0;
+    }
   }
 
   function destroy(): void {
@@ -386,7 +506,7 @@ export function createFieldHaze(options: FieldHazeOptions): FieldHaze {
       for (const sprite of pair.sprites) sprite.destroy();
       releaseBuffers(pair);
     }
-    fronds.destroy();
+    frondRoot.destroy({ children: true });
     anchorsByCell.clear();
     activeAnchors = [];
   }
@@ -394,11 +514,26 @@ export function createFieldHaze(options: FieldHazeOptions): FieldHaze {
   return { mount, update, reset, destroy };
 }
 
+/**
+ * Fill rate is the ambience's real cost: these sprites cover the whole world
+ * rect, so on a HiDPI display each one is millions of blended pixels per frame.
+ * Once a cross-fade finishes, the outgoing half is a full-screen additive quad
+ * contributing nothing — hide it rather than blend it, which takes the steady
+ * state from four world-sized haze passes to two.
+ */
+function setHalf(sprite: Sprite | undefined, alpha: number): void {
+  if (sprite === undefined) return;
+  const lit = alpha > 0.002;
+  if (sprite.visible !== lit) sprite.visible = lit;
+  if (lit) sprite.alpha = alpha;
+}
+
 function makePair(peakAlpha: number): HazePair {
   const sprites: [Sprite, Sprite] = [new Sprite(Texture.EMPTY), new Sprite(Texture.EMPTY)];
   for (const sprite of sprites) {
     sprite.blendMode = 'add';
     sprite.alpha = 0;
+    sprite.visible = false;
     sprite.position.set(0, 0);
   }
   return {

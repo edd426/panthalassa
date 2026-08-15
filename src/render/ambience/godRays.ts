@@ -24,8 +24,13 @@ const BEAM_TEXTURE_H = 256;
 /** Distinct edge softnesses, so eight beams do not read as one stencil repeated. */
 const BEAM_TEXTURE_VARIANTS = 4;
 
-const ALPHA_MIN = 0.04;
-const ALPHA_MAX = 0.1;
+/**
+ * Beams overlap, so the band is the per-beam ceiling, not the composite one. Two
+ * crossing shafts at 0.075 already add ~(21, 32, 35) to the sea; anything higher
+ * and the light column starts competing with the animals for attention.
+ */
+const ALPHA_MIN = 0.03;
+const ALPHA_MAX = 0.075;
 
 /** Base tilt away from the warm edge, radians (10-25 degrees). */
 const TILT_MIN = 0.175;
@@ -40,7 +45,13 @@ const BREATH_PERIOD_MAX_S = 40;
 /** Rays sit far off, so they lag the camera. */
 const PARALLAX = 0.85;
 
-const BEAM_COLOUR: readonly [number, number, number] = [186, 232, 246];
+/**
+ * Pale teal, not white-blue. The rays sit on top of the green haze under
+ * additive blending, and a warm or neutral beam colour is what pushes that sum
+ * toward yellow; keeping every additive element in the teal/green family keeps
+ * the composite in it too.
+ */
+const BEAM_COLOUR: readonly [number, number, number] = [140, 214, 234];
 
 export interface GodRaysOptions {
   readonly worldWidthWu: number;
@@ -55,13 +66,23 @@ export interface GodRays {
    * `intensity` is the flourish modulation (a meteor dims the rays, a thermal
    * shock makes them flicker); 1 is the resting state.
    */
-  update(animMs: number, camera: CameraState, worldMidX: number, worldMidY: number, intensity: number): void;
+  update(
+    animMs: number,
+    camera: CameraState,
+    worldMidX: number,
+    worldMidY: number,
+    intensity: number,
+    beamBudget: number,
+  ): void;
   reset(): void;
   destroy(): void;
 }
 
 interface Beam {
   readonly sprite: Sprite;
+  readonly rootX: number;
+  /** Conservative bound about the root: half-width plus full length. */
+  readonly reachWu: number;
   readonly baseAlpha: number;
   readonly baseRotation: number;
   readonly swayRate: number;
@@ -78,6 +99,7 @@ export function createGodRays(options: GodRaysOptions): GodRays {
 
   const container = new Container();
   const warmAtTop = options.warmY <= options.worldHeightWu * 0.5;
+  const warmYWu = options.warmY;
   const beams: Beam[] = [];
 
   for (let i = 0; i < BEAM_COUNT; i += 1) {
@@ -104,6 +126,8 @@ export function createGodRays(options: GodRaysOptions): GodRays {
 
     beams.push({
       sprite,
+      rootX,
+      reachWu: sprite.height + sprite.width * 0.5,
       baseAlpha: ALPHA_MIN + anchorHash(i * 11 + 15) * (ALPHA_MAX - ALPHA_MIN),
       // A sprite anchored at its top extends along +y; rotating by pi points it
       // back up, which is what a warm south edge needs.
@@ -126,11 +150,34 @@ export function createGodRays(options: GodRaysOptions): GodRays {
     worldMidX: number,
     worldMidY: number,
     intensity: number,
+    beamBudget: number,
   ): void {
     container.x = (1 - PARALLAX) * (camera.centerX - worldMidX);
     container.y = (1 - PARALLAX) * (camera.centerY - worldMidY);
     const seconds = animMs / 1000;
-    for (const beam of beams) {
+    // Thin by stride rather than by truncation, so a reduced budget still spans
+    // the world instead of lighting only its left edge.
+    const stride = Math.max(1, Math.round(beams.length / Math.max(1, beamBudget)));
+    // Viewport in world units. A beam is a tall additive quad; one entirely
+    // off-screen is pure fill cost, and at close zoom most of them are.
+    const halfW = camera.viewportW / (2 * camera.pxPerWu);
+    const halfH = camera.viewportH / (2 * camera.pxPerWu);
+    const viewLeft = camera.centerX - halfW;
+    const viewRight = camera.centerX + halfW;
+    const viewTop = camera.centerY - halfH;
+    const viewBottom = camera.centerY + halfH;
+    for (let i = 0; i < beams.length; i += 1) {
+      const beam = beams[i];
+      if (beam === undefined) continue;
+      const budgeted = i % stride === 0;
+      const onScreen =
+        budgeted &&
+        beam.rootX + container.x + beam.reachWu >= viewLeft &&
+        beam.rootX + container.x - beam.reachWu <= viewRight &&
+        warmYWu + container.y + beam.reachWu >= viewTop &&
+        warmYWu + container.y - beam.reachWu <= viewBottom;
+      if (beam.sprite.visible !== onScreen) beam.sprite.visible = onScreen;
+      if (!onScreen) continue;
       beam.sprite.rotation = beam.baseRotation + Math.sin(beam.swayPhase + seconds * beam.swayRate) * SWAY_RADIANS;
       const breath = 0.72 + 0.28 * Math.sin(beam.breathPhase + seconds * beam.breathRate);
       beam.sprite.alpha = Math.max(0, beam.baseAlpha * breath * intensity);

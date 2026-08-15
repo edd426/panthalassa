@@ -108,7 +108,13 @@ export interface ParticulateOptions {
 
 export interface Particulate {
   mount(below: Container, front: Container): void;
-  update(animMs: number, camera: CameraState, worldMidX: number, worldMidY: number): void;
+  update(
+    animMs: number,
+    camera: CameraState,
+    worldMidX: number,
+    worldMidY: number,
+    nearSnow: boolean,
+  ): void;
   reset(): void;
   destroy(): void;
 }
@@ -135,6 +141,13 @@ export function createParticulate(options: ParticulateOptions): Particulate {
   let foregroundSpec: DriftSpec = makeForegroundSpec(1280, 720);
   const foreground = makeField(texture, FOREGROUND_COUNT, 0xdff2f7, 0.2, 0.42);
   const scratch: DriftPoint = { x: 0, y: 0 };
+  // Last inputs, so a frame that changes nothing costs nothing.
+  let lastAnimMs = Number.NaN;
+  let lastCenterX = Number.NaN;
+  let lastCenterY = Number.NaN;
+  let lastPxPerWu = Number.NaN;
+  let lastViewportW = Number.NaN;
+  let lastViewportH = Number.NaN;
 
   function mount(below: Container, front: Container): void {
     below.addChild(background.container);
@@ -161,7 +174,30 @@ export function createParticulate(options: ParticulateOptions): Particulate {
     foreground.container.update();
   }
 
-  function update(animMs: number, camera: CameraState, worldMidX: number, worldMidY: number): void {
+  function update(
+    animMs: number,
+    camera: CameraState,
+    worldMidX: number,
+    worldMidY: number,
+    nearSnow: boolean,
+  ): void {
+    // The near field is the first thing to go when the frame is over budget: it
+    // is the layer the watcher is least likely to miss, and zoomed far out
+    // "particles close to the lens" is the least meaningful depth cue anyway.
+    if (foreground.container.visible !== nearSnow) foreground.container.visible = nearSnow;
+    // Nothing to recompute if neither the clock nor the camera moved — which is
+    // the whole of a paused, un-panned watch. Skipping here skips two full
+    // particle-buffer uploads inside `app.render()`.
+    if (animMs === lastAnimMs && camera.centerX === lastCenterX && camera.centerY === lastCenterY && camera.pxPerWu === lastPxPerWu && camera.viewportW === lastViewportW && camera.viewportH === lastViewportH) {
+      return;
+    }
+    lastAnimMs = animMs;
+    lastCenterX = camera.centerX;
+    lastCenterY = camera.centerY;
+    lastPxPerWu = camera.pxPerWu;
+    lastViewportW = camera.viewportW;
+    lastViewportH = camera.viewportH;
+
     // World-space field: a parallax factor below 1 means the layer should lag
     // the camera, which in a camera-transformed container is a world offset of
     // (1 - p) * (camera - worldCentre). Folding it through the wrap keeps every
@@ -177,6 +213,7 @@ export function createParticulate(options: ParticulateOptions): Particulate {
     }
     background.container.update();
 
+    if (!nearSnow) return;
     const viewW = camera.viewportW + FOREGROUND_MARGIN_PX * 2;
     const viewH = camera.viewportH + FOREGROUND_MARGIN_PX * 2;
     if (viewW !== foregroundSpec.tileW || viewH !== foregroundSpec.tileH) {
@@ -204,7 +241,8 @@ export function createParticulate(options: ParticulateOptions): Particulate {
 
   function reset(): void {
     // Drift is a pure function of the layer clock, which the layer rewinds on
-    // reset; there is no per-mote state left to clear.
+    // reset; there is no per-mote state left to clear beyond the change guard.
+    lastAnimMs = Number.NaN;
     applyStaticScales();
   }
 
