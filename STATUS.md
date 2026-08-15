@@ -29,15 +29,28 @@ Opus agents (briefs in `briefs/render-*.md`), verified on glass through
 two orchestrator fix rounds, closed with 399 tests + probe:quick green.
 Full record: DESIGN.md "Phase B — the render wave" (including the browser-
 only bug list and the residual polish queue). The user watched the wave
-land and gave the overnight direction: (1) an **experiment bench** — UI for
-the existing barrier/climate/disturbance/mutant god commands so wall-off /
-migration / reunify experiments are clicks, (2) **detection to match** —
-deeper charts and per-side divergence instruments (closes the known
-per-deme trait-moments gap that blocks P8's second criterion), (3) a
-**G-wave design doc** (richer genome) to review in the morning — design
-only, since it invalidates tuning baselines. Overnight also: a 256× soak
-of the renderer, and the maxIntake-0.5 spec-run adjudication when
-`runs/full-maxintake05.log` lands (~02:45).
+land and gave the overnight direction: (1) an **experiment bench**, (2) **detection to match**, (3) a **G-wave
+design doc**.
+
+**ALL THREE LANDED THE SAME NIGHT (~22:20), plus two build fixes.** The
+experiment bench (`g` key; X1): two-click walls with a migration
+(permeability) slider and DROP, climate target, disturbance presets, meteor,
+introduceMutant clade founding. Detection (`t` key; X2): uPlot deep-history
+charts with zoom, the "DIVERGENCE — THE WALL EXPERIMENT" Fst panel, and
+edge-triggered alert detectors feeding the station log. G-wave proposal:
+`briefs/g-wave-design.md` — **awaiting the user's morning review**; its
+headline is that `size` written-once-at-birth (no juveniles) is upstream of
+the predator-persistence front. Verified end-to-end on glass: wall raised →
+detectors announced "the demes are pulling apart · Fst 0.18" → 0.25 → 0.33
+with the Fst chart climbing → wall dropped at gen 100 (gif:
+`~/Downloads/panthalassa_wall_experiment.gif`). Build fixes: R1's
+un-hangable renderer boot (timeout + webgl retry + loud fallback), and the
+production-only TLA deadlock — pixi.js now lives in its own Rollup chunk
+(`vite.config.ts`); the prod bundle never booted Pixi before this. 491
+tests. Still pending tonight: the maxIntake-0.5 spec-run adjudication when
+`runs/full-maxintake05.log` lands (~02:45; watcher armed). The renderer
+soak is opportunistic only — Chrome throttles occluded windows, so tick
+counts, not wall-clock, measure what it actually exercised.
 
 The paragraph below is the pre-decision state, kept for context:
 
