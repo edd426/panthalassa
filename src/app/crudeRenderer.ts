@@ -11,91 +11,16 @@
  */
 
 import { SAMPLE_SLICE, SAMPLE_SLICE_STRIDE } from '../contracts/protocol';
-import type { FieldSliceField } from '../contracts/protocol';
-import type { TraitKey } from '../contracts/traits';
 import { TRAIT_META } from '../contracts/traits';
 import type { SimConfig } from '../contracts/types';
 import { BASELINE, SEQUENTIAL_AMBER, divergingAt, rampAt } from './palette';
+import { COLOUR_MODES, FIELD_OVERLAYS, traitKeyForMode } from '../render/contracts';
+import type { ColourLegend, ColourMode, FieldRaster, Frame, SliceView } from '../render/contracts';
 
-/**
- * How the dots are coloured. `identity` is the original look — hue is the
- * organism's own `displayHue`, which is simultaneously its mating signal and the
- * search image its predators match on, so it is the only mode where colour is a
- * property of the animal rather than a measurement of it.
- */
-export type ColourMode = 'identity' | 'adaptedness' | 'speedCap' | 'diet' | 'defense' | 'energy';
-
-export const COLOUR_MODES: readonly ColourMode[] = [
-  'identity',
-  'adaptedness',
-  'speedCap',
-  'diet',
-  'defense',
-  'energy',
-];
-
-/** The trait channel each mode needs from the slice, or null when it needs none. */
-export function traitKeyForMode(mode: ColourMode): TraitKey | null {
-  switch (mode) {
-    case 'adaptedness':
-      return 'tOpt';
-    case 'speedCap':
-      return 'speedCap';
-    case 'diet':
-      return 'diet';
-    case 'defense':
-      return 'defense';
-    case 'identity':
-    case 'energy':
-      return null;
-  }
-}
-
-/** What the HUD prints under the mode name so the ramp is never colour-alone. */
-export interface ColourLegend {
-  readonly mode: ColourMode;
-  readonly description: string;
-  /** Low → high labels for a sequential ramp, or cool → neutral → warm for a diverging one. */
-  readonly stops: readonly string[];
-}
-
-/** Field underlays the `f` key cycles through. */
-export type FieldOverlay = 'off' | FieldSliceField;
-
-export const FIELD_OVERLAYS: readonly FieldOverlay[] = ['off', 'plankton', 'kelp', 'temperature'];
-
-/** A sample slice held on the main thread; `buffer` is the transferred one. */
-export interface SliceView {
-  readonly count: number;
-  readonly buffer: Float32Array;
-  /** Expressed values of `traitKey`, organism-aligned with `buffer`. */
-  readonly traitValues?: Float32Array;
-  readonly traitKey?: TraitKey;
-}
-
-/**
- * One overlay raster, straight off a `fieldSlice` reply. The message carries
- * its own grid shape, so nothing here re-derives the field geometry from
- * config — the worker is the only party that knows it.
- */
-export interface FieldRaster {
-  readonly field: FieldSliceField;
-  readonly cols: number;
-  readonly rows: number;
-  readonly cellSizeWu: number;
-  readonly values: Float32Array;
-}
-
-export interface Frame {
-  readonly slice: SliceView | null;
-  readonly overlay: FieldOverlay;
-  readonly field: FieldRaster | null;
-  /** World position of the inspected organism, for the selection halo. */
-  readonly selected: { readonly x: number; readonly y: number } | null;
-  readonly colourMode: ColourMode;
-  /** Temperature raster, needed by `adaptedness` whether or not it is the overlay. */
-  readonly temperature: FieldRaster | null;
-}
+// The ColourMode/Frame family now lives in the render seam (Phase B, R0);
+// re-exported here so pre-wave imports keep resolving until R1/R4 rewire them.
+export { COLOUR_MODES, FIELD_OVERLAYS, traitKeyForMode };
+export type { ColourLegend, ColourMode, FieldOverlay, FieldRaster, Frame, SliceView } from '../render/contracts';
 
 /** Screen pixels per world unit of body length. Fish are ~12 cm in a 2000 wu sea. */
 const BODY_PIXELS_PER_CM = 0.55;

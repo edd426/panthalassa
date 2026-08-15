@@ -42,7 +42,7 @@ import type { TraitKey } from './traits';
  * so the worker allocates a fresh one each request and the renderer hands the
  * previous buffer back on the next request when it can.
  */
-export const SAMPLE_SLICE_STRIDE = 9;
+export const SAMPLE_SLICE_STRIDE = 13;
 
 export const SAMPLE_SLICE = Object.freeze({
   /** Pool slot; stable frame to frame while the organism lives, so the renderer can interpolate. */
@@ -59,6 +59,17 @@ export const SAMPLE_SLICE = Object.freeze({
   archetype: 7,
   /** Energy as a fraction of this organism's storage ceiling, 0..1. */
   energyFraction: 8,
+  /**
+   * The four expressed morphology traits (contracts v1.5, Phase B): the
+   * renderer draws each body from its own evolving parameters, because
+   * morphology evolution is the spectacle — deriving these from archetype
+   * typicals would paint fabricated variation. Unbounded like every trait;
+   * the renderer clamps to `CLADE_SCHEMA` renderRange at draw time.
+   */
+  segmentCount: 9,
+  finPairs: 10,
+  bodyAspect: 11,
+  armorPlating: 12,
 });
 
 export interface SampleSlice {

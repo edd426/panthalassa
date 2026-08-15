@@ -76,6 +76,10 @@ export const T = Object.freeze({
   prefTarget: TRAIT_INDEX.prefTarget,
   choosiness: TRAIT_INDEX.choosiness,
   displayHue: TRAIT_INDEX.displayHue,
+  segmentCount: TRAIT_INDEX.segmentCount,
+  finPairs: TRAIT_INDEX.finPairs,
+  bodyAspect: TRAIT_INDEX.bodyAspect,
+  armorPlating: TRAIT_INDEX.armorPlating,
 });
 
 export class OrganismStore implements EnginePools {
