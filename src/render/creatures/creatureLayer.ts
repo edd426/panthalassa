@@ -130,7 +130,8 @@ const NEAR_BODY_CAP = 250;
  */
 const GLOW_SPAN = 1.9;
 const GLOW_ALPHA = 0.32;
-const ABYSS_SPAN = 2.4;
+/** Abyssal glow dot diameter, in body lengths. See {@link ABYSS_MAX_PX}. */
+const ABYSS_SPAN = 1.8;
 /** How close a visible animal must be to the inspector's pick to count as it. */
 const SELECT_RADIUS_WU = 10;
 /** Drifters drift: their heading is smoothed far harder than a swimmer's. */
@@ -140,20 +141,28 @@ const FAR_MIN_PX = 3;
 const ABYSS_MIN_PX = 2.5;
 
 /**
- * Screen-space ceiling on an abyssal glow dot.
+ * Screen-space ceiling on an abyssal glow dot, and the constant that keeps the
+ * cheapest tier actually cheapest.
  *
- * Without it, `ABYSS_SPAN` body lengths of *additive* quad is drawn for every
- * visible animal with no budget in front of it, and abyss ends up costing ~11×
- * the blended fill of the far tier — the cheap fallback tier billing more than
- * the tier it falls back from, which defeats the point of having it and leaves
- * a load-demoted governor with nothing to recover to.
+ * Abyss draws `ABYSS_SPAN` body lengths of *additive* quad for every visible
+ * animal with no per-body budget in front of it, so without a ceiling it bills
+ * ~11× the far tier — the fallback tier costing more than what it falls back
+ * from, which defeats the point of having it and leaves a load-demoted governor
+ * nothing to recover to.
  *
- * A dot is also what the tier is meant to be: at this range the eye is reading
- * a field of motes, not comparing body sizes, so clamping the big end costs no
- * information. The 2.5 px floor keeps the small end from disappearing, giving
- * the mark a 2.5–12 px range to live in.
+ * **Both bounds have to be checked against the far tier, at both ends of the
+ * zoom range.** A first attempt at 2.4 span / 12 px fixed the zoomed-in case
+ * and left the inversion intact at fit-all (0.72 px/wu, the default view and
+ * the lowest the camera clamp allows), where the ceiling stops binding for
+ * small animals and `ABYSS_MIN_PX` starts binding instead: abyss measured 1.81×
+ * far there. These values keep the ratio at 0.66 or below across the whole
+ * reachable range of 0.72–20 px/wu, verified in `creatureLayer.test.ts`.
+ *
+ * A dot is what the tier is meant to be anyway: at this range the eye reads a
+ * field of motes rather than comparing body sizes, so clamping the big end
+ * costs no information. The mark lives in 2.5–7 px.
  */
-const ABYSS_MAX_PX = 12;
+export const ABYSS_MAX_PX = 7;
 
 type Mutable<T> = { -readonly [K in keyof T]: T[K] };
 
