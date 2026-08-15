@@ -184,10 +184,15 @@ function div(className: string, text?: string): HTMLDivElement {
  * The key legend. Every binding the app answers to is named here — the reader
  * has no other way to discover them, so a binding missing from this list is a
  * feature that does not exist.
+ *
+ * "sim speed" rather than "speed": the multiplier is ticks of world per frame,
+ * and the creature layer deliberately does not scale its body animation by it,
+ * so at 256× the animals still swim at believable rates. Calling it playback
+ * speed would promise a picture the renderer does not draw.
  */
 const KEY_BINDINGS: readonly (readonly [string, string])[] = [
   ['space', 'pause'],
-  ['1-9', 'speed 1..256×'],
+  ['1-9', 'sim speed 1..256×'],
   ['f', 'field'],
   ['c', 'colour'],
   ['t', 'trends'],

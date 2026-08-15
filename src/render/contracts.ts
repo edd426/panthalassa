@@ -78,6 +78,8 @@ export interface SliceView {
   /** Expressed values of `traitKey`, organism-aligned with `buffer`. */
   readonly traitValues?: Float32Array;
   readonly traitKey?: TraitKey;
+  /** Sim tick the slice was taken at — lets the interpolator skip identical-tick slices while paused. */
+  readonly tick?: number;
 }
 
 /**
@@ -105,6 +107,10 @@ export interface Frame {
   /** Ambience feeds (Phase B); may lag the sim by a couple of seconds. */
   readonly plankton?: FieldRaster | null;
   readonly kelp?: FieldRaster | null;
+  /** Current watch speed (0 = paused); the LOD speed criterion reads this. */
+  readonly speedMultiplier?: number;
+  /** True while the watch is paused; spares the renderer inferring it from slice staleness. */
+  readonly paused?: boolean;
 }
 
 // ---------------------------------------------------------------------------

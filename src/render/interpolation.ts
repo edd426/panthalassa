@@ -238,6 +238,8 @@ export class Interpolator {
   private sliceCount = 0;
   private intervalEmaMs = 0;
   private medianSize = 0;
+  /** Sim tick of the held slice, when the slice carried one. */
+  private currTick: number | undefined = undefined;
 
   /** Slices seen so far; below 2 there is nothing to interpolate between. */
   get sliceGeneration(): number {
@@ -270,6 +272,7 @@ export class Interpolator {
     this.sliceCount = 0;
     this.intervalEmaMs = 0;
     this.medianSize = 0;
+    this.currTick = undefined;
     this.frame.count = 0;
     this.frame.visibleCount = 0;
   }
@@ -285,7 +288,11 @@ export class Interpolator {
   ingest(slice: SliceView, nowMs: number, tints: Uint32Array, alphas: Float32Array): boolean {
     const data = slice.buffer;
     const count = Math.max(0, Math.min(MAX_SLOTS, slice.count, Math.floor(data.length / SAMPLE_SLICE_STRIDE)));
-    if (this.isRepeat(data, count)) return false;
+    // The tick is authoritative when the slice carries one: the same tick is
+    // the same world, whatever the buffer contents happen to compare as.
+    const tick = slice.tick;
+    if (tick !== undefined && this.sliceCount > 0 && tick === this.currTick) return false;
+    if (tick === undefined && this.isRepeat(data, count)) return false;
 
     const prev = this.curr;
     const next = this.prev;
@@ -300,6 +307,7 @@ export class Interpolator {
 
     next.count = count;
     next.atMs = nowMs;
+    this.currTick = tick;
 
     const hadPrev = this.sliceCount > 0;
     const dtSeconds = hadPrev ? Math.max(1e-3, (nowMs - prev.atMs) / 1000) : 0;

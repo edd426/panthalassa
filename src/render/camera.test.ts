@@ -10,6 +10,7 @@ import {
   toScreen,
   toWorld,
   withViewport,
+  worldTransform,
   zoomAt,
 } from './camera';
 import type { WorldRect } from './camera';
@@ -68,6 +69,72 @@ describe('fitWorld', () => {
   it('is reported as fitted', () => {
     expect(isFitted(fitWorld(VIEW_W, VIEW_H, WORLD.widthWu, WORLD.heightWu), WORLD)).toBe(true);
     expect(isFitted(zoomedIn(), WORLD)).toBe(false);
+  });
+});
+
+describe('worldTransform', () => {
+  /**
+   * The scene-graph half of the camera. A world container carrying this
+   * position/scale must put its children exactly where `toScreen` says, at
+   * every zoom and pan — this is the invariant that a screenshot cannot check,
+   * because a world drawn in the wrong place and a world not drawn at all look
+   * the same.
+   */
+  it('reproduces toScreen for any camera and any world point', () => {
+    const cameras: CameraState[] = [
+      fitWorld(VIEW_W, VIEW_H, WORLD.widthWu, WORLD.heightWu),
+      fitWorld(800, 1400, WORLD.widthWu, WORLD.heightWu),
+      zoomedIn(),
+      { centerX: 120, centerY: 1100, pxPerWu: 12.5, viewportW: 2560, viewportH: 1329 },
+    ];
+    for (const camera of cameras) {
+      const transform = worldTransform(camera);
+      expect(transform.scale).toBe(camera.pxPerWu);
+      for (const [wx, wy] of [
+        [0, 0],
+        [WORLD.widthWu, WORLD.heightWu],
+        [1000, 600],
+        [-350, 2400],
+      ] as const) {
+        const expected = toScreen(camera, wx, wy);
+        expect(transform.x + wx * transform.scale).toBeCloseTo(expected.x, 9);
+        expect(transform.y + wy * transform.scale).toBeCloseTo(expected.y, 9);
+      }
+    }
+  });
+
+  it('puts the world centre at the viewport centre when fitted', () => {
+    const camera = fitWorld(VIEW_W, VIEW_H, WORLD.widthWu, WORLD.heightWu);
+    const transform = worldTransform(camera);
+    expect(transform.x + (WORLD.widthWu / 2) * transform.scale).toBeCloseTo(VIEW_W / 2, 9);
+    expect(transform.y + (WORLD.heightWu / 2) * transform.scale).toBeCloseTo(VIEW_H / 2, 9);
+  });
+
+  it('keeps the whole world on screen when fitted, so nothing can drift off', () => {
+    const camera = fitWorld(VIEW_W, VIEW_H, WORLD.widthWu, WORLD.heightWu);
+    const t = worldTransform(camera);
+    expect(t.x).toBeGreaterThanOrEqual(-1e-6);
+    expect(t.y).toBeGreaterThanOrEqual(-1e-6);
+    expect(t.x + WORLD.widthWu * t.scale).toBeLessThanOrEqual(VIEW_W + 1e-6);
+    expect(t.y + WORLD.heightWu * t.scale).toBeLessThanOrEqual(VIEW_H + 1e-6);
+  });
+
+  it('fills an out-parameter without allocating', () => {
+    const out = { x: 0, y: 0, scale: 0 };
+    expect(worldTransform(zoomedIn(), out)).toBe(out);
+    expect(out.scale).toBe(4);
+  });
+
+  /**
+   * A viewport disagreement between the camera and the projection is what put
+   * the world off-screen in the integrated build. Half a viewport of drift is
+   * enough to push a fitted world's centre outside the frame entirely.
+   */
+  it('shows how far a stale viewport moves the world', () => {
+    const real = fitWorld(1440, 722, WORLD.widthWu, WORLD.heightWu);
+    const stale: CameraState = { ...real, viewportW: 1440, viewportH: 1200 };
+    const drift = worldTransform(stale).y - worldTransform(real).y;
+    expect(drift).toBeCloseTo((1200 - 722) / 2, 9);
   });
 });
 

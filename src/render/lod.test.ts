@@ -2,7 +2,9 @@ import { describe, expect, it } from 'vitest';
 import { CM_TO_WU } from './contracts';
 import {
   BLEND_MS,
+  GOVERNOR_DEMOTE_MS,
   GOVERNOR_HOLD_MS,
+  GOVERNOR_PROMOTE_MS,
   STABILITY_MS,
   createLod,
   criteriaTier,
@@ -10,6 +12,7 @@ import {
   select,
 } from './lod';
 import type { LodInputs } from './lod';
+import type { LodTier } from './contracts';
 
 const MEDIAN_CM = 12;
 
@@ -129,6 +132,82 @@ describe('frame-time governor', () => {
     select(lod, inputs({ ...midZoom, nowMs: 0, renderMsEma: 15 }));
     expect(lod.tier).toBe('far');
     expect(lod.criteria).toBe('mid');
+  });
+
+  /**
+   * Closed-loop: the frame cost is a function of the tier, which is what makes
+   * the limit cycle possible. The promote decision is taken from inside the
+   * cheap tier, so without a memory the governor keeps concluding that the
+   * expensive tier is affordable, walking back into it and stuttering.
+   */
+  function simulate(costOf: (tier: LodTier, nowMs: number) => number, durationMs: number) {
+    // A zoom whose criteria tier is 'near', so the governor is the only thing
+    // that can push detail down and the loop is isolated.
+    const nearZoom = { pxPerWu: zoomFor(80) };
+    const lod = createLod(0, 'near');
+    let ema = costOf('near', 0);
+    let now = 0;
+    let promotionsIntoNear = 0;
+    let framesOverBudget = 0;
+    let framesInNear = 0;
+    let frames = 0;
+    while (now < durationMs) {
+      now += 16;
+      frames += 1;
+      // The EMA is the shell's, so the cost of a tier switch is felt gradually.
+      ema = ema * 0.9 + costOf(lod.tier, now) * 0.1;
+      const before = lod.tier;
+      select(lod, inputs({ ...nearZoom, nowMs: now, renderMsEma: ema }));
+      if (lod.tier === 'near' && before !== 'near') promotionsIntoNear += 1;
+      if (ema > GOVERNOR_DEMOTE_MS) framesOverBudget += 1;
+      if (lod.tier === 'near') framesInNear += 1;
+    }
+    return {
+      lod,
+      promotionsIntoNear,
+      ema,
+      overBudgetFraction: framesOverBudget / frames,
+      nearFraction: framesInNear / frames,
+    };
+  }
+
+  it('does not limit-cycle back into a tier it cannot afford', () => {
+    // near is hopeless (17 ms); everything below it is nearly free. Before the
+    // memory this oscillated forever at roughly one round trip every 5.5 s.
+    const expensiveNear = (tier: LodTier): number => (tier === 'near' ? 17 : 0.4);
+    const run = simulate(expensiveNear, 60_000);
+
+    // Occasional probes as the backoff widens are the design; a cycle is not.
+    // Ungoverned this oscillated every ~5 s: 12 promotions and a third of every
+    // frame budget blown. The probe interval doubles, so the count is bounded.
+    expect(run.promotionsIntoNear).toBeLessThanOrEqual(4);
+    expect(run.overBudgetFraction).toBeLessThan(0.15);
+    expect(run.nearFraction).toBeLessThan(0.25);
+  });
+
+  it('still returns to a tier once the world genuinely becomes cheap', () => {
+    // The same hopeless near tier, until a die-off at 30 s makes it affordable.
+    const relenting = (tier: LodTier, nowMs: number): number =>
+      tier === 'near' ? (nowMs < 30_000 ? 17 : 2) : 0.4;
+    const run = simulate(relenting, 90_000);
+
+    // The backoff must not become a life sentence: once near is affordable the
+    // next probe finds it and stays.
+    expect(run.lod.tier).toBe('near');
+    expect(run.ema).toBeLessThan(GOVERNOR_PROMOTE_MS);
+    expect(run.nearFraction).toBeGreaterThan(0.5);
+  });
+
+  it('does not distrust a tier that was dropped for being too small to see', () => {
+    const lod = createLod(0, 'near');
+    // Cheap frames throughout: the demotion here is criteria-driven (zoom out),
+    // which must not count against the tier's reputation.
+    for (let now = 0; now <= 2000; now += 100) {
+      select(lod, inputs({ nowMs: now, pxPerWu: zoomFor(4), renderMsEma: 2 }));
+    }
+    expect(lod.tier).toBe('far');
+    expect(lod.rememberedCost.near).toBe(0);
+    expect(lod.failures.near).toBe(0);
   });
 
   it('only promotes after the frame cost has been good for the sustain window', () => {

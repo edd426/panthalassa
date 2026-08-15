@@ -170,6 +170,32 @@ export function withViewport(
   );
 }
 
+export interface WorldTransform {
+  x: number;
+  y: number;
+  scale: number;
+}
+
+/**
+ * The position/scale to put on the world-space container parent so that its
+ * children, drawn in world units, land exactly where {@link toScreen} says.
+ *
+ * This lives here rather than inline in the shell because it is the one place
+ * the camera crosses from arithmetic into the scene graph, and it is the piece
+ * that cannot be checked by looking at the screen — a world container that is
+ * subtly mistransformed and one that is not drawing at all look identical.
+ * `camera.test.ts` pins it against `toScreen` so the two can never drift.
+ */
+export function worldTransform(camera: CameraState, out?: WorldTransform): WorldTransform {
+  const x = camera.viewportW / 2 - camera.centerX * camera.pxPerWu;
+  const y = camera.viewportH / 2 - camera.centerY * camera.pxPerWu;
+  if (out === undefined) return { x, y, scale: camera.pxPerWu };
+  out.x = x;
+  out.y = y;
+  out.scale = camera.pxPerWu;
+  return out;
+}
+
 /** True when the camera is already showing the whole world, centred. */
 export function isFitted(state: CameraState, world: WorldRect): boolean {
   const fit = fitScale(state.viewportW, state.viewportH, world.widthWu, world.heightWu);

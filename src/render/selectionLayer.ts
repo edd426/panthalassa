@@ -30,6 +30,8 @@ export class SelectionLayer implements RenderLayer {
 
   private graphics: Graphics | null = null;
   private parent: Container | null = null;
+  /** Whether anything is currently drawn, so an idle frame can skip the clear. */
+  private drawn = false;
 
   mount(ctx: MountContext): void {
     const graphics = new Graphics();
@@ -43,13 +45,23 @@ export class SelectionLayer implements RenderLayer {
     const graphics = this.graphics;
     if (graphics === null) return;
 
-    graphics.clear();
     const selected = frame.selected;
     if (selected === null) {
-      graphics.visible = false;
+      // Clear only on the transition. `Graphics.clear()` dirties the context and
+      // costs a geometry rebuild every time it is called, and nothing is
+      // selected for most of a run — this is a per-frame cost for an invisible
+      // object.
+      if (this.drawn) {
+        graphics.clear();
+        graphics.visible = false;
+        this.drawn = false;
+      }
       return;
     }
+
+    graphics.clear();
     graphics.visible = true;
+    this.drawn = true;
 
     const perPx = 1 / Math.max(1e-6, frame.camera.pxPerWu);
     graphics
@@ -74,6 +86,7 @@ export class SelectionLayer implements RenderLayer {
     if (this.graphics === null) return;
     this.graphics.clear();
     this.graphics.visible = false;
+    this.drawn = false;
   }
 
   destroy(): void {

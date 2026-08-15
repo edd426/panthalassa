@@ -28,7 +28,7 @@ import type { DeathCause, SimConfigOverrides } from '../contracts/types';
 import { DEATH_CAUSES, resolveSimConfig } from '../contracts/types';
 import { COLOUR_MODES, FIELD_OVERLAYS, traitKeyForMode } from '../render/contracts';
 import type { ColourMode, FieldOverlay, FieldRaster, SliceView, WorldRenderer } from '../render/contracts';
-import { createRenderer } from '../render/renderer';
+import { createRenderer, rendererKind } from '../render/renderer';
 import { TrendCharts, appendTrendRow, createTrendSeries, resetTrendSeries } from './charts';
 import { Hud, describeEvent } from './hud';
 import { SimClient } from './workerClient';
@@ -292,6 +292,9 @@ function requestSlice(): void {
       slice = {
         count: next.count,
         buffer: next.buffer,
+        // The tick tells the renderer's interpolator that two slices describe
+        // the same world, which is every slice while the watch is paused.
+        tick: next.tick,
         ...(next.traitValues === undefined ? {} : { traitValues: next.traitValues }),
         ...(next.traitKey === undefined ? {} : { traitKey: next.traitKey }),
       };
@@ -413,6 +416,11 @@ function frame(timestamp: number): void {
     temperature: temperatureField,
     plankton: planktonField,
     kelp: kelpField,
+    // The watch speed the sim is actually being run at. The LOD spends it as
+    // budget: at 64x the same population goes past far faster than any spine
+    // chain can be drawn for, so detail has to come down.
+    speedMultiplier: speedMultiplier(),
+    paused,
   });
 
   // Charts redraw on new data at a few frames per second, not per frame: the
@@ -607,6 +615,14 @@ function startWorld(nextSeed: string): void {
   }
 
   note(`seeding ${nextSeed}…`);
+  // A run on the crude fallback looks like a run with the graphics turned off,
+  // so the feed says which renderer is actually drawing and why. Repeated per
+  // world because the feed is cleared on reseed.
+  const kind = rendererKind();
+  if (kind === 'crude-no-gpu') note('no GPU context — drawing with the crude canvas renderer');
+  else if (kind === 'crude-init-failed') note('renderer failed to start — drawing with the crude canvas renderer');
+  else if (kind === 'crude-requested') note('?renderer=crude — drawing with the crude canvas renderer');
+
   client
     .init(nextSeed, overrides)
     .then((ready) => {

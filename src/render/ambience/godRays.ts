@@ -7,7 +7,7 @@
  *
  * Beams are pre-baked gradient quads — the shape is a product of a lateral
  * falloff and a length falloff, so there is never a hard edge to catch the eye —
- * drawn additively at alphas in the 0.04..0.10 band. Motion is wall-clock sway
+ * drawn additively at alphas in the 0.03..0.075 band. Motion is wall-clock sway
  * on desynchronised 20-40 s periods, which is slow enough that the rays never
  * compete with a moving animal for attention.
  */
@@ -46,6 +46,15 @@ const BREATH_PERIOD_MAX_S = 40;
 const PARALLAX = 0.85;
 
 /**
+ * Ceiling on the screen area the beams may paint, in whole viewports. Fill rate
+ * is what the ambience actually spends, and this is the only element of it that
+ * is not already bounded by the world rect — so it gets an explicit budget
+ * rather than an assumption. 1.5 keeps every beam at fit-all, where they were
+ * measured at well under that, and thins them as zoom inflates their footprint.
+ */
+const BEAM_SCREEN_BUDGET = 1.5;
+
+/**
  * Pale teal, not white-blue. The rays sit on top of the green haze under
  * additive blending, and a warm or neutral beam colour is what pushes that sum
  * toward yellow; keeping every additive element in the teal/green family keeps
@@ -81,8 +90,9 @@ export interface GodRays {
 interface Beam {
   readonly sprite: Sprite;
   readonly rootX: number;
-  /** Conservative bound about the root: half-width plus full length. */
-  readonly reachWu: number;
+  /** Half-width and length in world units, for the screen-footprint estimate. */
+  readonly halfWidthWu: number;
+  readonly lengthWu: number;
   readonly baseAlpha: number;
   readonly baseRotation: number;
   readonly swayRate: number;
@@ -99,7 +109,6 @@ export function createGodRays(options: GodRaysOptions): GodRays {
 
   const container = new Container();
   const warmAtTop = options.warmY <= options.worldHeightWu * 0.5;
-  const warmYWu = options.warmY;
   const beams: Beam[] = [];
 
   for (let i = 0; i < BEAM_COUNT; i += 1) {
@@ -108,6 +117,11 @@ export function createGodRays(options: GodRaysOptions): GodRays {
     const sprite = new Sprite(texture);
     sprite.anchor.set(0.5, 0);
     sprite.blendMode = 'add';
+    // Alpha is only written on frames the beam is drawn, so it starts (and a
+    // culled beam stays) dark: anything that shows a beam without updating it
+    // fails to nothing rather than to a full-white quad across the ocean.
+    sprite.alpha = 0;
+    sprite.visible = false;
 
     // Roots spread across the world width with a jittered stride rather than a
     // uniform one, so the shafts do not read as a picket fence.
@@ -127,7 +141,8 @@ export function createGodRays(options: GodRaysOptions): GodRays {
     beams.push({
       sprite,
       rootX,
-      reachWu: sprite.height + sprite.width * 0.5,
+      halfWidthWu: sprite.width * 0.5,
+      lengthWu: sprite.height,
       baseAlpha: ALPHA_MIN + anchorHash(i * 11 + 15) * (ALPHA_MAX - ALPHA_MIN),
       // A sprite anchored at its top extends along +y; rotating by pi points it
       // back up, which is what a warm south edge needs.
@@ -157,7 +172,14 @@ export function createGodRays(options: GodRaysOptions): GodRays {
     const seconds = animMs / 1000;
     // Thin by stride rather than by truncation, so a reduced budget still spans
     // the world instead of lighting only its left edge.
+    const detail = Math.min(1, Math.max(0, beamBudget / BEAM_COUNT));
     const stride = Math.max(1, Math.round(beams.length / Math.max(1, beamBudget)));
+    // The tier has to move BOTH budgets. With the area ceiling fixed, a coarser
+    // tier thins the candidate set but then lets the survivors spend the whole
+    // ceiling, so `far` came out more expensive than `mid` at close zoom — the
+    // fallback tier costing more than the tier it falls back from, which is the
+    // one shape a governor must never have.
+    const areaBudget = BEAM_SCREEN_BUDGET * detail;
     // Viewport in world units. A beam is a tall additive quad; one entirely
     // off-screen is pure fill cost, and at close zoom most of them are.
     const halfW = camera.viewportW / (2 * camera.pxPerWu);
@@ -166,18 +188,25 @@ export function createGodRays(options: GodRaysOptions): GodRays {
     const viewRight = camera.centerX + halfW;
     const viewTop = camera.centerY - halfH;
     const viewBottom = camera.centerY + halfH;
+    const viewAreaWu = halfW * 2 * halfH * 2;
+    let coverage = 0;
     for (let i = 0; i < beams.length; i += 1) {
       const beam = beams[i];
       if (beam === undefined) continue;
-      const budgeted = i % stride === 0;
-      const onScreen =
-        budgeted &&
-        beam.rootX + container.x + beam.reachWu >= viewLeft &&
-        beam.rootX + container.x - beam.reachWu <= viewRight &&
-        warmYWu + container.y + beam.reachWu >= viewTop &&
-        warmYWu + container.y - beam.reachWu <= viewBottom;
+      // How much of the screen this beam would actually paint. A beam is a fixed
+      // size in *world* units, so zooming in grows its screen footprint faster
+      // than culling removes beams: at 2 px/wu eight of them cover nearly three
+      // screens, where at fit-all they cover well under half of one. Budgeting
+      // by area rather than by count is what makes the cost bounded, and it is
+      // the right look too — a light shaft is distant structure, not a wall.
+      const share =
+        viewAreaWu > 0
+          ? overlapArea(beamBounds(beam, container.x, container.y), viewLeft, viewTop, viewRight, viewBottom) / viewAreaWu
+          : 0;
+      const onScreen = i % stride === 0 && share > 0 && coverage + share <= areaBudget;
       if (beam.sprite.visible !== onScreen) beam.sprite.visible = onScreen;
       if (!onScreen) continue;
+      coverage += share;
       beam.sprite.rotation = beam.baseRotation + Math.sin(beam.swayPhase + seconds * beam.swayRate) * SWAY_RADIANS;
       const breath = 0.72 + 0.28 * Math.sin(beam.breathPhase + seconds * beam.breathRate);
       beam.sprite.alpha = Math.max(0, beam.baseAlpha * breath * intensity);
@@ -189,7 +218,8 @@ export function createGodRays(options: GodRaysOptions): GodRays {
     container.y = 0;
     for (const beam of beams) {
       beam.sprite.rotation = beam.baseRotation;
-      beam.sprite.alpha = beam.baseAlpha;
+      beam.sprite.alpha = 0;
+      beam.sprite.visible = false;
     }
   }
 
@@ -199,6 +229,50 @@ export function createGodRays(options: GodRaysOptions): GodRays {
   }
 
   return { mount, update, reset, destroy };
+}
+
+/** Axis-aligned world bounds of a beam's rotated quad, written into a scratch. */
+const beamBoundsScratch = { minX: 0, minY: 0, maxX: 0, maxY: 0 };
+
+function beamBounds(beam: Beam, offsetX: number, offsetY: number): typeof beamBoundsScratch {
+  const rotation = beam.sprite.rotation;
+  const cos = Math.cos(rotation);
+  const sin = Math.sin(rotation);
+  const originX = beam.sprite.x + offsetX;
+  const originY = beam.sprite.y + offsetY;
+  let minX = Infinity;
+  let minY = Infinity;
+  let maxX = -Infinity;
+  let maxY = -Infinity;
+  // The sprite is anchored at the middle of its short edge, so its local corners
+  // are (+/-halfWidth, 0) and (+/-halfWidth, length).
+  for (const lx of [-beam.halfWidthWu, beam.halfWidthWu]) {
+    for (const ly of [0, beam.lengthWu]) {
+      const x = originX + lx * cos - ly * sin;
+      const y = originY + lx * sin + ly * cos;
+      if (x < minX) minX = x;
+      if (x > maxX) maxX = x;
+      if (y < minY) minY = y;
+      if (y > maxY) maxY = y;
+    }
+  }
+  beamBoundsScratch.minX = minX;
+  beamBoundsScratch.minY = minY;
+  beamBoundsScratch.maxX = maxX;
+  beamBoundsScratch.maxY = maxY;
+  return beamBoundsScratch;
+}
+
+function overlapArea(
+  bounds: typeof beamBoundsScratch,
+  left: number,
+  top: number,
+  right: number,
+  bottom: number,
+): number {
+  const w = Math.min(bounds.maxX, right) - Math.max(bounds.minX, left);
+  const h = Math.min(bounds.maxY, bottom) - Math.max(bounds.minY, top);
+  return w <= 0 || h <= 0 ? 0 : w * h;
 }
 
 /**

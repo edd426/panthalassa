@@ -79,11 +79,30 @@ import { bellPulsePhase, swimFrequencyHz, wavePhase } from './spine';
  * float, which is the variable that should give.
  *
  * Calibrated from a CPU-side measurement of ≈0.41 µs per emitted point plus
- * ≈6.5 µs fixed per body, against a ~7 ms target — the level below which R1's
- * governor will not demote and then immediately re-promote. That measurement
- * excludes GPU submit, the shell and the ambience layer, all of which land in
- * the same `renderMsEma`, so treat it as optimistic: **recalibrate against a
- * real browser profile by scaling this one number.**
+ * ≈6.5 µs fixed per body, against a ~7 ms target. 7 rather than the 11 ms
+ * demote threshold because 7 is the governor's *promote* gate: a tier that
+ * stays under it never enters the demote/re-promote machinery at all.
+ *
+ * ## What this budget does not cover
+ *
+ * It meters CPU-side path emission only. The other half of a frame is blended
+ * fill, which no budget here touches, and at the near tier the additive glow
+ * underlay dominates it — of 3.34 M blended pixels at 4 px/wu with 900 animals
+ * visible, 3.05 M is glow. (Those figures assume the whole population visible
+ * at every zoom, which viewport culling makes pessimistic as you zoom in; the
+ * far and abyss numbers, 0.74 M and 0.13 M, are the trustworthy ones.)
+ *
+ * So there are two knobs and they fix different symptoms:
+ *
+ * - frame time scaling with **population** → CPU-bound → this budget
+ * - frame time scaling with **zoom** at fixed population → fill-bound →
+ *   {@link GLOW_SPAN} and {@link GLOW_ALPHA} first, which cost look rather
+ *   than animals
+ *
+ * The alarm that says this budget has a hole is `rememberedCost.near > 0` on
+ * `__panthalassaRender` (R1's governor only records that after near actually
+ * overran 11 ms in the wild), or a tier sitting below what the LOD criteria
+ * call for. Prefer that signal to watching frame rate.
  */
 const NEAR_VERTEX_BUDGET = 17_000;
 
@@ -92,7 +111,13 @@ const BODY_FIXED_COST = 16;
 
 /** Hard ceiling on pooled `Graphics` however cheap the bodies get. */
 const NEAR_BODY_CAP = 250;
-/** Glow underlay diameter, in body lengths. */
+/**
+ * Glow underlay diameter, in body lengths. Deliberately *not* clamped in screen
+ * pixels the way the abyss dot is: this is a halo on a body the viewer can
+ * see, so it has to scale with the body, and pinning it to pixels would make it
+ * shrink relative to the animal as you zoom in. It is the layer's largest fill
+ * cost — see the budget note above before reaching for it.
+ */
 const GLOW_SPAN = 1.9;
 const GLOW_ALPHA = 0.32;
 const ABYSS_SPAN = 2.4;

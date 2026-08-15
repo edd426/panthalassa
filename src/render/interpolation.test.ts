@@ -143,6 +143,23 @@ describe('slot matching and interpolation', () => {
     expect(poseOf(frame, 0, POSE.speed)).toBeCloseTo(100, 3);
   });
 
+  it('treats a repeated sim tick as the same world, whatever the buffer says', () => {
+    const interpolator = new Interpolator();
+    const tints = new Uint32Array(1).fill(0x336699);
+    const alphas = new Float32Array(1).fill(1);
+    const at = (x: number, tick: number): SliceView => ({ ...makeSlice([{ slot: 5, x, y: 300 }]), tick });
+
+    expect(interpolator.ingest(at(100, 10), 0, tints, alphas)).toBe(true);
+    expect(interpolator.ingest(at(140, 11), 100, tints, alphas)).toBe(true);
+    // Same tick: the world has not advanced, so this is not new data even
+    // though the positions differ — trusting the buffer here would restart the
+    // interpolation window on every frame of a paused world.
+    expect(interpolator.ingest(at(900, 11), 200, tints, alphas)).toBe(false);
+    expect(poseOf(interpolator.sample(200, CAMERA), 0, POSE.x)).toBeCloseTo(140, 4);
+    // A new tick is new data again.
+    expect(interpolator.ingest(at(180, 12), 200, tints, alphas)).toBe(true);
+  });
+
   it('ignores a repeated slice while the sim is paused', () => {
     const interpolator = new Interpolator();
     feed(interpolator, [{ slot: 5, x: 100, y: 300 }], 0);

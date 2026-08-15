@@ -21,7 +21,8 @@ import { Application, Container } from 'pixi.js';
 import type { Texture } from 'pixi.js';
 import type { SimEvent } from '../contracts/events';
 import type { SimConfig } from '../contracts/types';
-import { toWorld as cameraToWorld } from './camera';
+import { toWorld as cameraToWorld, worldTransform } from './camera';
+import type { WorldTransform } from './camera';
 import { CameraController } from './cameraController';
 import { createColourMap, resolveColours } from './colourMap';
 import { createCrudeFallback } from './fallback';
@@ -59,6 +60,9 @@ const PAUSE_GRACE_MS = 500;
 
 const RENDER_MS_EMA_ALPHA = 0.1;
 
+/** Reused point for the debug hook's world-centre probe; allocating per frame would defeat the point. */
+const WORLD_CENTRE_PROBE = { x: 1000, y: 600 };
+
 interface MutableFrameContext {
   nowMs: number;
   dtMs: number;
@@ -90,23 +94,71 @@ function wantsCrudeRenderer(): boolean {
  * Asking the real `#world` canvas first would poison it: an element that has
  * handed out a WebGL context can never return a 2D one, and the crude fallback
  * needs exactly that.
+ *
+ * The probe *must* release what it takes. A browser keeps only a small number
+ * of live WebGL contexts (~16 per process) and drops the oldest when it runs
+ * out; a probe context left for the GC to collect is a context the real
+ * renderer may not get, which showed up as the same URL coming up on WebGL on
+ * one load and on the crude fallback on the next. `WEBGL_lose_context` hands it
+ * back immediately instead of whenever a collection happens to run.
  */
 function gpuContextAvailable(): boolean {
   if (typeof navigator !== 'undefined' && 'gpu' in navigator) return true;
+  let probe: HTMLCanvasElement | null = null;
+  let gl: WebGLRenderingContext | WebGL2RenderingContext | null = null;
   try {
-    const probe = document.createElement('canvas');
-    return probe.getContext('webgl2') !== null || probe.getContext('webgl') !== null;
+    probe = document.createElement('canvas');
+    gl = probe.getContext('webgl2') ?? probe.getContext('webgl');
+    return gl !== null;
   } catch {
     return false;
+  } finally {
+    gl?.getExtension('WEBGL_lose_context')?.loseContext();
+    if (probe !== null) {
+      probe.width = 0;
+      probe.height = 0;
+    }
   }
 }
 
+export type RendererKind = 'pixi' | 'crude-requested' | 'crude-no-gpu' | 'crude-init-failed';
+
+let activeKind: RendererKind = 'pixi';
+
+/**
+ * Which renderer the last `createRenderer` actually produced, and why. Exposed
+ * as a module query rather than on `WorldRenderer` because the seam is frozen;
+ * `main.ts` reads it to put the degradation in the event feed, where someone
+ * watching the ocean will see it without opening a console.
+ */
+export function rendererKind(): RendererKind {
+  return activeKind;
+}
+
 export async function createRenderer(canvas: HTMLCanvasElement, config: SimConfig): Promise<WorldRenderer> {
-  if (wantsCrudeRenderer() || !gpuContextAvailable()) return createCrudeFallback(canvas, config);
+  // Asked for explicitly: the Phase A picture, on purpose, without a warning.
+  if (wantsCrudeRenderer()) {
+    console.info('[panthalassa] ?renderer=crude — using the Phase A canvas renderer');
+    activeKind = 'crude-requested';
+    return createCrudeFallback(canvas, config);
+  }
+  // Every other route to the fallback is a degradation and has to say so. This
+  // path used to return silently, so a load that quietly lost the GPU was
+  // indistinguishable from one that never had it.
+  if (!gpuContextAvailable()) {
+    console.warn(
+      '[panthalassa] no WebGPU or WebGL context available; falling back to the crude canvas renderer',
+    );
+    activeKind = 'crude-no-gpu';
+    return createCrudeFallback(canvas, config);
+  }
   try {
-    return await createPixiRenderer(canvas, config);
+    const renderer = await createPixiRenderer(canvas, config);
+    activeKind = 'pixi';
+    return renderer;
   } catch (error) {
     console.warn('[panthalassa] pixi renderer unavailable; falling back to the crude canvas', error);
+    activeKind = 'crude-init-failed';
     return createCrudeFallback(canvas, config);
   }
 }
@@ -121,7 +173,11 @@ async function createPixiRenderer(canvas: HTMLCanvasElement, config: SimConfig):
     width,
     height,
     preference: ['webgpu', 'webgl'],
-    antialias: true,
+    // No MSAA. At resolution 2 the downsample already antialiases every edge in
+    // this scene, and multisampling a 2x buffer pays the fill cost twice — on
+    // a 1440x722 window that is 4.2M samples resolved every frame, which shows
+    // up as `renderMsEma` in the double digits before anything is drawn at all.
+    antialias: false,
     resolution: Math.min(window.devicePixelRatio, 2),
     autoDensity: true,
     background: ABYSS_COLOUR,
@@ -150,7 +206,7 @@ class PixiWorldRenderer implements WorldRenderer {
   private readonly interpolator = new Interpolator();
   private readonly colourMap = createColourMap();
   private readonly lod = createLod(performance.now());
-  private readonly layers: RenderLayer[];
+  private readonly layers: RenderLayer[] = [];
 
   private readonly queue: AmbientEvent[] = [];
   private readonly drained: AmbientEvent[] = [];
@@ -162,6 +218,7 @@ class PixiWorldRenderer implements WorldRenderer {
   private lastTemperature: FieldRaster | null = null;
   private lastFrameMs = 0;
   private renderMsEma = 0;
+  private readonly transformScratch: WorldTransform = { x: 0, y: 0, scale: 1 };
 
   constructor(app: Application, canvas: HTMLCanvasElement, config: SimConfig) {
     this.app = app;
@@ -214,9 +271,20 @@ class PixiWorldRenderer implements WorldRenderer {
         ),
     };
 
-    this.layers = createLayers();
-    for (const layer of this.layers) layer.mount(mount);
-    this.applyCamera(this.controller.state);
+    // Each layer is mounted in isolation. Letting one throw out of here would
+    // reject `createPixiRenderer` and drop the whole app to the crude canvas
+    // because a single flourish failed to bake — losing the ocean to save a
+    // god ray. A layer that cannot mount is dropped from the frame loop and
+    // says so; the rest of the world still draws.
+    for (const layer of createLayers()) {
+      try {
+        layer.mount(mount);
+        this.layers.push(layer);
+      } catch (error) {
+        console.error(`[panthalassa] render layer "${layer.name}" failed to mount and was dropped`, error);
+      }
+    }
+    this.applyCamera(this.syncViewport());
   }
 
   get pixelsPerWu(): number {
@@ -234,17 +302,20 @@ class PixiWorldRenderer implements WorldRenderer {
 
     this.absorb(frame, nowMs);
 
+    this.syncViewport();
     const camera = this.controller.update(nowMs);
     const creatures = this.interpolator.sliceGeneration > 0 ? this.interpolator.sample(nowMs, camera) : null;
+
+    // A paused world is watch speed 0; the LOD reads the speed the sim is
+    // actually being run at, which is what decides how much detail can survive.
+    const paused = frame.paused ?? this.derivePaused(nowMs);
+    const watchSpeed = paused ? 0 : (frame.speedMultiplier ?? 1);
 
     const lod = selectLod(this.lod, {
       nowMs,
       pxPerWu: camera.pxPerWu,
       visibleCount: creatures?.visibleCount ?? 0,
-      // SEAM GAP: `Frame` carries no watch speed, so the speed criterion cannot
-      // fire. Reported to the orchestrator rather than worked around; the frame
-      // -time governor still covers the case this would have caught early.
-      speedMultiplier: 1,
+      speedMultiplier: watchSpeed,
       renderMsEma: this.renderMsEma,
       medianSizeCm: this.interpolator.medianSizeCm,
     });
@@ -262,8 +333,8 @@ class PixiWorldRenderer implements WorldRenderer {
     context.kelp = frame.kelp ?? null;
     context.temperature = frame.temperature;
     context.selected = frame.selected;
-    context.paused = this.derivePaused(nowMs);
-    context.speedMultiplier = 1;
+    context.paused = paused;
+    context.speedMultiplier = watchSpeed;
     this.drainEvents();
 
     this.applyCamera(camera);
@@ -274,14 +345,47 @@ class PixiWorldRenderer implements WorldRenderer {
     const cost = performance.now() - startedMs;
     this.renderMsEma =
       this.renderMsEma === 0 ? cost : this.renderMsEma * (1 - RENDER_MS_EMA_ALPHA) + cost * RENDER_MS_EMA_ALPHA;
+
+    // Review-loop instrument, orchestrator-owned: what the pipeline actually
+    // produced this frame, readable from devtools. Cheap enough to keep.
+    //
+    // Extended (R1) with the scene-graph side. The pure-math figures agreeing
+    // with themselves tells you nothing about whether the world is on screen —
+    // that question is answered by where the world container actually puts a
+    // world point, and by whether the slots have any children to put there.
+    // `worldProbe` is the screen position of the world centre: with a fitted
+    // camera it must land near the middle of `screen`.
+    const probe = this.worldRoot.toGlobal(WORLD_CENTRE_PROBE, undefined, false);
+    const screen = this.app.renderer.screen;
+    (window as unknown as Record<string, unknown>)['__panthalassaRender'] = {
+      count: creatures?.count ?? -1,
+      visibleCount: creatures?.visibleCount ?? -1,
+      tier: lod.tier,
+      renderMsEma: this.renderMsEma,
+      pxPerWu: camera.pxPerWu,
+      sliceGeneration: this.interpolator.sliceGeneration,
+      speedMultiplier: watchSpeed,
+      paused,
+      rendererKind: activeKind,
+      screen: { w: screen.width, h: screen.height },
+      cameraViewport: { w: camera.viewportW, h: camera.viewportH },
+      worldRoot: { x: this.worldRoot.position.x, y: this.worldRoot.position.y, scale: this.worldRoot.scale.x },
+      worldProbe: { x: probe.x, y: probe.y },
+      slotChildren: {
+        backdrop: this.backdrop.children.length,
+        waterBelow: this.waterBelow.children.length,
+        creatures: this.creatureSlot.children.length,
+        waterAbove: this.waterAbove.children.length,
+        foreground: this.foreground.children.length,
+      },
+    };
   }
 
   resize(): void {
-    const width = Math.max(1, window.innerWidth);
-    const height = Math.max(1, window.innerHeight);
-    this.app.renderer.resize(width, height);
-    this.controller.resize(width, height);
-    this.applyCamera(this.controller.state);
+    this.app.renderer.resize(Math.max(1, window.innerWidth), Math.max(1, window.innerHeight));
+    // Re-read from the renderer rather than from the window: Pixi may adjust
+    // what it was asked for, and the projection is what the camera must match.
+    this.applyCamera(this.syncViewport());
   }
 
   toWorld(clientX: number, clientY: number): { x: number; y: number } {
@@ -339,11 +443,9 @@ class PixiWorldRenderer implements WorldRenderer {
   }
 
   /**
-   * SEAM GAP: `Frame` carries neither `paused` nor the watch speed, and
-   * `FrameContext` requires `paused`. Derived here from the one signal the
-   * renderer does have — a world that has stopped producing distinct slices —
-   * rather than by forking the contract. Reported to the orchestrator; a
-   * `paused` field on `Frame` replaces this with one line.
+   * Fallback for a `Frame` that carries no `paused` flag. The seam now has one
+   * and `main.ts` sets it, so this only covers a caller that predates the
+   * field: a world that has stopped producing distinct slices has stopped.
    */
   private derivePaused(nowMs: number): boolean {
     if (this.interpolator.sliceGeneration === 0) return false;
@@ -360,13 +462,36 @@ class PixiWorldRenderer implements WorldRenderer {
     this.queue.splice(0, take);
   }
 
+  /**
+   * Make the camera's viewport agree with the projection Pixi is actually
+   * rendering through.
+   *
+   * `renderer.screen` is the only authority on that rectangle. Reading
+   * `window.innerWidth` a second time to build the camera was a second source
+   * of truth separated from the first by an `await`, so a window that settled
+   * during `Application.init` — a scrollbar resolving, a devtools pane, a
+   * restoring window — left the camera centring the world for one viewport
+   * while the projection used another. The world then drew off to one side, or
+   * off-screen entirely, while every pure-math check still agreed with itself.
+   * Checked per frame rather than only on resize, so any future drift heals on
+   * the next frame instead of persisting for the run.
+   */
+  private syncViewport(): CameraState {
+    const screen = this.app.renderer.screen;
+    const width = Math.max(1, screen.width);
+    const height = Math.max(1, screen.height);
+    const camera = this.controller.state;
+    if (camera.viewportW !== width || camera.viewportH !== height) {
+      this.controller.resize(width, height);
+    }
+    return this.controller.state;
+  }
+
   private applyCamera(camera: CameraState): void {
     // Only the world slots move; backdrop and foreground are screen-space and
     // are deliberately left at identity.
-    this.worldRoot.scale.set(camera.pxPerWu);
-    this.worldRoot.position.set(
-      camera.viewportW / 2 - camera.centerX * camera.pxPerWu,
-      camera.viewportH / 2 - camera.centerY * camera.pxPerWu,
-    );
+    const transform = worldTransform(camera, this.transformScratch);
+    this.worldRoot.scale.set(transform.scale);
+    this.worldRoot.position.set(transform.x, transform.y);
   }
 }
