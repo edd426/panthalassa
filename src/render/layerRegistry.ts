@@ -12,15 +12,16 @@
  * selection halo stays legible on top of it.
  */
 
+import { createAmbienceLayer } from './ambience/ambienceLayer';
+import { createCreatureLayer } from './creatures/creatureLayer';
 import { createFieldOverlayLayer } from './fieldOverlay';
 import { createSelectionLayer } from './selectionLayer';
 import type { RenderLayer } from './contracts';
 
 export function createLayers(): RenderLayer[] {
   return [
-    // INTEGRATION POINT: R3's ambience layers (backdrop / waterBelow /
-    // foreground) and R2's creature layer (creatures) splice in here. They are
-    // landing in parallel with this file; do not import them until they exist.
+    createAmbienceLayer(),
+    createCreatureLayer(),
     createFieldOverlayLayer(),
     createSelectionLayer(),
   ];
