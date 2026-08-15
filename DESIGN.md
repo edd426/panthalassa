@@ -1186,6 +1186,47 @@ where re-evolution should fire) instead of the terminal strategy D5 caught.
 The test now asserts the crossover structure rather than the old
 abundance-time dominance.
 
+## Phase B — the render wave (2026-08-15 evening)
+
+The user gave the explicit Phase B go and four scope decisions (B1–B3 + UI
+restyle; deep-water cinematic; adaptive LOD; apply the carrion lever). Four
+parallel Opus implementers built against an orchestrator-authored seam
+(`src/render/contracts.ts`): R1 shell/camera/LOD/interpolation/colourMap,
+R2 procedural creatures, R3 ambience/flourishes, R4 the R/V Panthalassa
+chrome. The sample slice was widened 9→13 floats (contracts v1.5) so bodies
+draw from each organism's real evolving morphology traits — the point of the
+wave is watching bodies evolve, and deriving them from archetype typicals
+would have painted fabricated variation.
+
+**Verified on glass**: teal abyssal ocean with god rays, marine snow, field
+haze and procedural kelp; creatures at four LOD tiers from glow-motes at
+fit-all to full animated bodies (fins, eyes, undulation) at 60 fps near-tier;
+all six colour modes; meteor shockwave and event flourishes; the trends
+survey-trace; the specimen-label inspector with sonar-ping halo; 256× with
+~1,000 animals at ~50 fps and 0.7 ms render cost; a 35-generation deep-time
+run without a stutter. 399 tests, build, lint, probe:quick green.
+
+Bugs the browser review caught that headless probes could not (each fixed in
+an agent round, each now regression-tested): Pixi 8's `ParticleContainer
+.update()` never marks the view dirty (far/abyss rendered nothing, silently);
+the abyss tier billed 11× the far tier so the governor's escape tier bought
+no headroom (twice — the second time only at the default zoom, caught by
+enumerating the camera-reachable range instead of sample points); a
+hand-baked RGBA gradient rendered amber because buffer channel order is
+backend-dependent (the khaki ocean — now Pixi's own FillGradient); the WebGL
+probe context was never released so the same URL nondeterministically fell
+back to the crude renderer; MSAA on top of resolution 2 double-paid fill;
+zoom froze at the pan-clamp boundary; measurement-mode colours tuned against
+the crude renderer's light ground vanished on the abyss. Cross-layer fill
+figures must always name their unit — CSS px and device samples got summed
+once (`renderer.ts` MAX_RESOLUTION doc block is the durable rule).
+
+Residual polish queue: measurement modes still read subtle at fit-all; far
+tier and species-ring legibility by zoom; flourish timing review at 256×.
+Hidden-tab throttling stalls the ambient aquarium (Chrome suspends rAF and
+worker timers) — a Phase C catch-up concern, recorded here so it is not
+rediscovered as a bug.
+
 Directions we tried, considered seriously, or inherited and then abandoned —
 kept so they are not silently retried.
 

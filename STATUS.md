@@ -24,13 +24,20 @@ question, whether halved scavenging depresses P16's ~1/8 base rate. The
 carrion on-ramp unit test was re-scoped to the new crossover structure
 (famine bridge, not destination) — see the DESIGN.md entry.
 
-**The Phase B render wave is IN PROGRESS the same evening** — the user gave
-the explicit graphics go, approved scope (B1–B3 + UI restyle), art direction
-(deep-water cinematic), adaptive LOD, and delegation to Opus implementers.
-Plan: `~/.claude/plans/playful-wandering-dove.md`. R0 (render seam +
-sample-slice stride 9→13 carrying the four morphology traits) is committed;
-R1 (Pixi shell/camera/LOD) / R2 (procedural creatures) / R3 (ambience) / R4
-(UI restyle) run as parallel agents with briefs in `briefs/render-*.md`.
+**THE PHASE B RENDER WAVE LANDED THE SAME EVENING** — built by four parallel
+Opus agents (briefs in `briefs/render-*.md`), verified on glass through
+two orchestrator fix rounds, closed with 399 tests + probe:quick green.
+Full record: DESIGN.md "Phase B — the render wave" (including the browser-
+only bug list and the residual polish queue). The user watched the wave
+land and gave the overnight direction: (1) an **experiment bench** — UI for
+the existing barrier/climate/disturbance/mutant god commands so wall-off /
+migration / reunify experiments are clicks, (2) **detection to match** —
+deeper charts and per-side divergence instruments (closes the known
+per-deme trait-moments gap that blocks P8's second criterion), (3) a
+**G-wave design doc** (richer genome) to review in the morning — design
+only, since it invalidates tuning baselines. Overnight also: a 256× soak
+of the renderer, and the maxIntake-0.5 spec-run adjudication when
+`runs/full-maxintake05.log` lands (~02:45).
 
 The paragraph below is the pre-decision state, kept for context:
 
