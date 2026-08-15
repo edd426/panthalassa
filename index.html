@@ -3,23 +3,59 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <meta name="theme-color" content="#06202b" />
+    <meta name="theme-color" content="#041824" />
     <meta name="description" content="Panthalassa — an aquatic evolution simulation to watch." />
     <title>Panthalassa</title>
     <style>
       /*
-        WP-A6 crude shell. One full-window canvas with two text overlays; the
-        status block never takes pointer events so every click reaches the
-        water, while the inspector panel does, so its dump can be selected.
+        R/V PANTHALASSA station chrome (Phase B, R4).
+
+        The page is an oceanographic research vessel's instrument station: the
+        status block is the station log, the inspector is a specimen label, the
+        trend strip is the survey trace. Everything here is presentation — the
+        element ids are load-bearing for main.ts and the class names for hud.ts.
+
+        Two constraints survive from the crude shell and are not cosmetic: the
+        status block and the banner never take pointer events, so every click
+        reaches the water, while the inspector panel and the trend strip do, so
+        a click on them cannot select a fish hidden behind them.
       */
+
+      :root {
+        /* Station palette. --amber matches palette.ts's SEQUENTIAL_AMBER top step. */
+        --abyss: #041824;
+        --ink: #d8f2ff;
+        --ink-dim: #7fa8b8;
+        --phosphor: #6ff2c4;
+        --amber: #f0b747;
+        --alert: #ff8264;
+
+        /* Derived chrome. Panels are glass over the ocean, ruled with hairlines. */
+        --hairline: rgba(127, 168, 184, 0.26);
+        --hairline-soft: rgba(127, 168, 184, 0.13);
+        --glass: rgba(4, 24, 36, 0.62);
+        --glass-dense: rgba(4, 24, 36, 0.84);
+
+        /*
+          The trend strip is near-opaque on purpose (it hides the sea behind it
+          rather than muddling with it) and its lightness is what palette.ts
+          validated the series colours against — keep it at that depth.
+        */
+        --strip: rgba(3, 19, 29, 0.95);
+
+        --mono: ui-monospace, SFMono-Regular, Menlo, monospace;
+      }
+
       html,
       body {
         margin: 0;
         height: 100%;
         overflow: hidden;
-        background: #03151d;
-        color: #cfe9f2;
-        font: 12px/1.45 ui-monospace, SFMono-Regular, Menlo, monospace;
+        /* Coordinates with R3's in-world abyss gradient, so the first frame does not flash. */
+        background: linear-gradient(#06222e, #020b11);
+        color: var(--ink);
+        font: 12px/1.45 var(--mono);
+        -webkit-font-smoothing: antialiased;
       }
 
       #world {
@@ -29,64 +65,419 @@
         cursor: crosshair;
       }
 
-      #status {
-        position: fixed;
-        top: 10px;
-        left: 12px;
-        margin: 0;
-        white-space: pre;
-        pointer-events: none;
-        text-shadow: 0 1px 3px #000;
-        color: #d8f2ff;
+      /* ---------------------------------------------------------------- */
+      /* Shared station typography                                        */
+      /* ---------------------------------------------------------------- */
+
+      /* Letter-spaced small caps: every section header and field label wears this. */
+      .label {
+        font-size: 10px;
+        letter-spacing: 0.16em;
+        text-transform: uppercase;
+        color: var(--ink-dim);
       }
 
-      #panel {
-        position: fixed;
-        top: 10px;
-        right: 12px;
-        width: min(74ch, 52vw);
-        max-height: calc(100vh - 20px);
-        overflow: auto;
-        margin: 0;
-        padding: 8px 10px;
-        white-space: pre;
-        font-size: 11px;
-        line-height: 1.35;
-        color: #bcdfe9;
-        background: rgba(3, 21, 29, 0.82);
-        border: 1px solid rgba(150, 210, 230, 0.25);
+      .rule {
+        display: block;
+        height: 1px;
+        margin: 5px 0;
+        background: linear-gradient(90deg, var(--hairline), transparent);
       }
 
       /*
-        Extinction banner. An empty ocean is indistinguishable from a paused
-        one, so when the run ends it has to say so from across the room.
+        The signature element: a sonar ping ring. A slow expanding echo, used for
+        the extinction pulse and the specimen focus accent. It is only ever
+        triggered by a discrete event — the GPU belongs to the ocean.
       */
+      @keyframes sonar-ping {
+        from {
+          transform: scale(0.6);
+          opacity: 0.6;
+        }
+        to {
+          transform: scale(1.85);
+          opacity: 0;
+        }
+      }
+
+      @media (prefers-reduced-motion: reduce) {
+        .ping-ring {
+          animation: none !important;
+          opacity: 0 !important;
+        }
+      }
+
+      /* ---------------------------------------------------------------- */
+      /* #status — the station log                                        */
+      /* ---------------------------------------------------------------- */
+
+      #status {
+        position: fixed;
+        top: 12px;
+        left: 14px;
+        margin: 0;
+        padding: 9px 13px 10px;
+        /* 42vw + the panel's 50vw + both gutters: the two blocks never collide. */
+        max-width: min(62ch, 42vw);
+        pointer-events: none;
+        /* hud.ts builds styled spans, so the <pre> default would fight the layout. */
+        white-space: normal;
+        font: 12px/1.4 var(--mono);
+        color: var(--ink);
+        background: var(--glass);
+        border: 1px solid var(--hairline-soft);
+        border-left: 1px solid var(--hairline);
+        backdrop-filter: blur(3px);
+        text-shadow: 0 1px 3px rgba(0, 0, 0, 0.85);
+      }
+
+      .st-head {
+        display: flex;
+        align-items: baseline;
+        justify-content: space-between;
+        gap: 12px;
+      }
+
+      .st-ship {
+        font-size: 11px;
+        letter-spacing: 0.22em;
+        text-transform: uppercase;
+        color: var(--ink);
+      }
+
+      .st-seed-value {
+        color: var(--phosphor);
+        letter-spacing: 0.08em;
+      }
+
+      /*
+        Label/value pairs, two pairs per line: compact enough to overlay water.
+        The track widths are explicit rather than max-content so that every
+        block in the log shares one set of columns — three grids separated by
+        rules still have to read as one instrument face.
+      */
+      .st-grid {
+        display: grid;
+        grid-template-columns: 7.5ch 9.5ch 8.5ch 1fr;
+        gap: 1px 8px;
+        align-items: baseline;
+      }
+
+      .st-value {
+        color: var(--phosphor);
+        font-variant-numeric: tabular-nums;
+      }
+
+      .st-value--paused {
+        color: var(--amber);
+      }
+
+      .st-block {
+        display: block;
+      }
+
+      .st-tally {
+        display: block;
+        white-space: nowrap;
+        color: var(--ink-dim);
+        font-variant-numeric: tabular-nums;
+      }
+
+      .st-tally-value {
+        color: var(--ink);
+      }
+
+      .st-note {
+        display: block;
+        font-size: 10px;
+        color: var(--ink-dim);
+        opacity: 0.75;
+      }
+
+      .st-swatches {
+        display: block;
+        color: var(--amber);
+        font-size: 10px;
+        letter-spacing: 0.05em;
+      }
+
+      .st-desc {
+        display: block;
+        color: var(--ink-dim);
+      }
+
+      /* Key legend: the binding in phosphor, what it does in dim ink. */
+      .st-keys {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 1px 11px;
+        font-size: 10px;
+        color: var(--ink-dim);
+      }
+
+      .st-kbd {
+        color: var(--phosphor);
+        letter-spacing: 0.06em;
+      }
+
+      .st-feed {
+        display: block;
+      }
+
+      .st-feed-line {
+        display: block;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+        font-size: 11px;
+        color: var(--ink-dim);
+      }
+
+      /* The ping glyph that marks a log entry; the sonar motif in one character. */
+      .st-feed-line::before {
+        content: '◦ ';
+        color: var(--phosphor);
+        opacity: 0.8;
+      }
+
+      /*
+        The newest entry, in full ink. Spare feed slots stay in the DOM as
+        [hidden] siblings so the per-frame path never adds or removes nodes,
+        which is why "newest" is the last visible line rather than :last-child.
+      */
+      .st-feed-line:not([hidden]):has(+ [hidden]),
+      .st-feed-line:not([hidden]):last-child {
+        color: var(--ink);
+      }
+
+      [hidden] {
+        display: none !important;
+      }
+
+      /* ---------------------------------------------------------------- */
+      /* #panel — the specimen label                                      */
+      /* ---------------------------------------------------------------- */
+
+      #panel {
+        position: fixed;
+        top: 12px;
+        right: 14px;
+        /*
+          Sized to its content up to the cap, so the "nothing there" state is a
+          small tag rather than a full-height label with one line on it.
+        */
+        width: max-content;
+        max-width: min(76ch, 50vw);
+        max-height: calc(100vh - 24px);
+        overflow: auto;
+        margin: 0;
+        padding: 10px 13px 12px;
+        white-space: normal;
+        font: 11px/1.4 var(--mono);
+        color: var(--ink);
+        background: var(--glass-dense);
+        border: 1px solid var(--hairline-soft);
+        /* Mirrors the log's left accent: each block is lit from the screen edge it hugs. */
+        border-right: 1px solid var(--hairline);
+        backdrop-filter: blur(3px);
+        scrollbar-width: thin;
+        scrollbar-color: var(--hairline) transparent;
+      }
+
+      #panel::-webkit-scrollbar {
+        width: 8px;
+      }
+
+      #panel::-webkit-scrollbar-thumb {
+        background: var(--hairline);
+      }
+
+      .sp-head {
+        display: flex;
+        align-items: baseline;
+        justify-content: space-between;
+        gap: 10px;
+        position: relative;
+      }
+
+      /* The catalogue number is the specimen's identity, so it wears the accent. */
+      .sp-catalogue {
+        font-size: 13px;
+        letter-spacing: 0.14em;
+        text-transform: uppercase;
+        color: var(--amber);
+      }
+
+      /*
+        Focus accent: one echo ring behind the catalogue number when a new
+        specimen is picked up. Same motif as the in-world selection halo.
+      */
+      .sp-ping {
+        position: absolute;
+        left: -6px;
+        top: 50%;
+        width: 26px;
+        height: 26px;
+        margin-top: -13px;
+        border: 1px solid var(--phosphor);
+        border-radius: 50%;
+        opacity: 0;
+        pointer-events: none;
+      }
+
+      .sp-ping.ping-ring {
+        animation: sonar-ping 1.5s cubic-bezier(0.2, 0.7, 0.3, 1) 2 both;
+      }
+
+      .sp-sub {
+        display: block;
+        color: var(--ink-dim);
+        letter-spacing: 0.05em;
+      }
+
+      .sp-section {
+        display: block;
+        margin-top: 2px;
+      }
+
+      /* The aligned blocks: padded by hud.ts, so they keep the <pre> default. */
+      .sp-table {
+        display: block;
+        white-space: pre;
+        overflow-x: auto;
+        font-variant-numeric: tabular-nums;
+      }
+
+      .sp-thead {
+        display: block;
+        white-space: pre;
+        color: var(--ink-dim);
+      }
+
+      .sp-empty {
+        display: block;
+        color: var(--ink-dim);
+      }
+
+      /* ---------------------------------------------------------------- */
+      /* #banner — all-stations extinction notice                         */
+      /* ---------------------------------------------------------------- */
+
       #banner {
         position: fixed;
         top: 50%;
         left: 50%;
         transform: translate(-50%, -50%);
-        padding: 28px 44px;
-        white-space: pre;
+        padding: 26px 44px 24px;
+        min-width: 34ch;
         text-align: center;
         pointer-events: none;
-        font-size: 20px;
-        line-height: 1.6;
-        letter-spacing: 0.12em;
-        color: #ffd9d0;
-        background: rgba(8, 6, 14, 0.86);
-        border: 1px solid rgba(255, 130, 100, 0.55);
-        box-shadow: 0 0 60px rgba(0, 0, 0, 0.65);
-      }
-
-      #banner[hidden] {
-        display: none;
+        white-space: normal;
+        font: 12px/1.5 var(--mono);
+        color: var(--ink);
+        background: rgba(3, 14, 20, 0.9);
+        border: 1px solid rgba(255, 130, 100, 0.5);
+        box-shadow:
+          0 0 0 1px rgba(4, 24, 36, 0.8),
+          0 0 70px rgba(0, 0, 0, 0.7);
       }
 
       /*
-        Trend strip. Opaque and pointer-catching on purpose: it covers the
-        bottom of the sea, so a click there must not select a fish hidden
-        behind it.
+        Ping rings sit behind the notice and echo three times when it appears.
+        [hidden] is display:none, so unhiding the banner restarts them — which is
+        exactly the discrete trigger wanted, with nothing running the rest of the run.
+      */
+      .bn-ring {
+        position: absolute;
+        left: 50%;
+        top: 50%;
+        /* A circle, not the notice's own aspect: a sonar echo is round. */
+        width: 300px;
+        height: 300px;
+        margin: -150px 0 0 -150px;
+        border: 1px solid var(--alert);
+        border-radius: 50%;
+        opacity: 0;
+        pointer-events: none;
+        animation: sonar-ping 2.9s cubic-bezier(0.2, 0.7, 0.3, 1) 3 both;
+      }
+
+      .bn-ring--echo {
+        animation-delay: 0.95s;
+      }
+
+      .bn-eyebrow {
+        display: block;
+        font-size: 10px;
+        letter-spacing: 0.3em;
+        text-transform: uppercase;
+        color: var(--alert);
+      }
+
+      .bn-title {
+        display: block;
+        margin: 6px 0 2px;
+        font-size: 30px;
+        line-height: 1.1;
+        letter-spacing: 0.34em;
+        /* The tracking is on the right of each glyph; pull the block back to centre. */
+        text-indent: 0.34em;
+        color: var(--alert);
+      }
+
+      .bn-sub {
+        display: block;
+        font-size: 11px;
+        letter-spacing: 0.16em;
+        text-transform: uppercase;
+        color: var(--ink-dim);
+      }
+
+      .bn-rule {
+        display: block;
+        height: 1px;
+        margin: 14px auto;
+        width: 70%;
+        background: linear-gradient(90deg, transparent, rgba(255, 130, 100, 0.45), transparent);
+      }
+
+      /* Cause of loss as a clean two-column table, not a run-on line. */
+      .bn-tally {
+        display: grid;
+        grid-template-columns: max-content max-content;
+        gap: 2px 18px;
+        justify-content: center;
+        text-align: left;
+      }
+
+      .bn-tally-value {
+        color: var(--ink);
+        text-align: right;
+        font-variant-numeric: tabular-nums;
+      }
+
+      .bn-hint {
+        display: block;
+        font-size: 11px;
+        letter-spacing: 0.14em;
+        text-transform: uppercase;
+        color: var(--ink);
+      }
+
+      .bn-countdown {
+        display: block;
+        margin-top: 6px;
+        font-size: 10px;
+        color: var(--ink-dim);
+      }
+
+      /* ---------------------------------------------------------------- */
+      /* #charts — the survey trace                                       */
+      /* ---------------------------------------------------------------- */
+
+      /*
+        Height is mirrored by STRIP_HEIGHT_FRACTION in charts.ts — change one,
+        change the other.
       */
       #charts {
         position: fixed;
@@ -95,12 +486,9 @@
         bottom: 0;
         height: 34vh;
         display: block;
-        background: rgba(3, 21, 29, 0.94);
-        border-top: 1px solid rgba(150, 210, 230, 0.25);
-      }
-
-      #charts[hidden] {
-        display: none;
+        background: var(--strip);
+        border-top: 1px solid var(--hairline);
+        box-shadow: 0 -18px 40px rgba(2, 11, 17, 0.55);
       }
     </style>
   </head>

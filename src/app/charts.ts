@@ -1,5 +1,5 @@
 /**
- * Crude trend charts (WP-A6).
+ * The survey trace (WP-A6; restyled R4).
  *
  * Seven sparklines over generations, drawn on one canvas. The form follows from
  * the question: every one of these is change-over-time, so every one is a line.
@@ -97,8 +97,29 @@ interface Panel {
 
 const COLUMNS = 4;
 const PANEL_GAP = 10;
-const TITLE_HEIGHT = 14;
+const TITLE_HEIGHT = 15;
 const AXIS_WIDTH = 42;
+
+// ---------------------------------------------------------------------------
+// Station chrome (R4). Visual constants only — no series, scale or layout
+// semantics live here. Colour still comes from palette.ts; these are weights,
+// alphas and type, which is what decides whether the data or the frame is loud.
+// ---------------------------------------------------------------------------
+
+const DATA_FONT = '10px ui-monospace, SFMono-Regular, Menlo, monospace';
+
+/** Panel titles: letter-spaced small caps, matching the station log's section headers. */
+const TITLE_FONT = '600 9px ui-monospace, SFMono-Regular, Menlo, monospace';
+const TITLE_TRACKING = '0.14em';
+
+/** The mean line is the reading; 2px is the dataviz spec weight for a line mark. */
+const LINE_WIDTH = 2;
+
+/** ±1σ band. Quieter than the crude shell's 0.16 so the mean stays the figure. */
+const BAND_ALPHA = 0.1;
+
+/** The frame is orientation, not information: hairlines held well below the ink. */
+const FRAME_ALPHA = 0.72;
 
 /** Share of the window height the strip occupies; mirrored by `#charts` in index.html. */
 const STRIP_HEIGHT_FRACTION = 0.34;
@@ -140,19 +161,21 @@ export class TrendCharts {
   draw(series: TrendSeries): void {
     const context = this.context;
     context.clearRect(0, 0, this.cssWidth, this.cssHeight);
-    context.font = '10px ui-monospace, SFMono-Regular, Menlo, monospace';
+    context.font = DATA_FONT;
     context.textBaseline = 'middle';
 
     if (series.generation.length < 2) {
       context.fillStyle = INK_MUTED;
-      context.fillText('waiting for sample rows — the first lands at tick 200', 12, this.cssHeight / 2);
+      context.fillText('SURVEY TRACE — awaiting the first sample row (tick 200)', 12, this.cssHeight / 2);
       return;
     }
 
+    // Titles read as instrument labels: the quantity, then its unit in
+    // parentheses. Casing is applied at draw time so the strings stay legible here.
     const panels: readonly Panel[] = [
       { title: 'population', lines: [{ values: series.population, colour: SERIES_1, label: 'pop' }], include: [0] },
       {
-        title: 'tOpt vs water °C',
+        title: 'thermal optimum vs water (°C)',
         lines: [
           { values: series.tOptMean, colour: SERIES_1, label: 'tOpt', sd: series.tOptSd },
           { values: series.waterTempC, colour: SERIES_2, label: 'water' },
@@ -170,9 +193,9 @@ export class TrendCharts {
         lines: [{ values: series.predatorFraction, colour: SERIES_1, label: 'predators' }],
         include: [0, 1],
       },
-      { title: 'size (cm)', lines: [{ values: series.sizeMean, colour: SERIES_1, label: 'size', sd: series.sizeSd }] },
+      { title: 'body size (cm)', lines: [{ values: series.sizeMean, colour: SERIES_1, label: 'size', sd: series.sizeSd }] },
       {
-        title: 'speedCap (wu/tick)',
+        title: 'speed cap (wu/tick)',
         lines: [{ values: series.speedCapMean, colour: SERIES_1, label: 'speedCap', sd: series.speedCapSd }],
       },
       {
@@ -205,9 +228,15 @@ export class TrendCharts {
   private drawPanel(panel: Panel, generations: readonly number[], x: number, y: number, width: number, height: number): void {
     const context = this.context;
 
-    // maxWidth so a long title can never run into the next panel's.
+    // maxWidth so a long title can never run into the next panel's. Tracking is
+    // reset immediately: it is a canvas-wide state, and the data text below wants
+    // its natural monospace advance so the columns still line up.
     context.fillStyle = INK_SECONDARY;
-    context.fillText(panel.title, x, y + TITLE_HEIGHT / 2, Math.max(20, width - 4));
+    context.font = TITLE_FONT;
+    context.letterSpacing = TITLE_TRACKING;
+    context.fillText(panel.title.toUpperCase(), x, y + TITLE_HEIGHT / 2, Math.max(20, width - 4));
+    context.letterSpacing = '0px';
+    context.font = DATA_FONT;
 
     const plotX = x + AXIS_WIDTH;
     const plotY = y + TITLE_HEIGHT + 4;
@@ -238,9 +267,11 @@ export class TrendCharts {
       plotX + (generations.length < 2 ? 0 : (index / (generations.length - 1)) * plotWidth);
     const toY = (value: number): number => plotY + plotHeight - ((value - low) / (high - low)) * plotHeight;
 
-    // Recessive frame: a hairline baseline and top rule, no grid box.
-    context.strokeStyle = GRIDLINE;
+    // Recessive frame: a hairline baseline and top rule, no grid box. Both are
+    // held under FRAME_ALPHA so the trace is the only thing with full weight.
+    context.globalAlpha = FRAME_ALPHA;
     context.lineWidth = 1;
+    context.strokeStyle = GRIDLINE;
     context.beginPath();
     context.moveTo(plotX, plotY);
     context.lineTo(plotX + plotWidth, plotY);
@@ -249,7 +280,12 @@ export class TrendCharts {
     context.beginPath();
     context.moveTo(plotX, plotY + plotHeight);
     context.lineTo(plotX + plotWidth, plotY + plotHeight);
+    // The left rule: the one cue that ties the axis extremes to the plot they
+    // scale, and what makes seven sparklines read as one instrument panel.
+    context.moveTo(plotX, plotY);
+    context.lineTo(plotX, plotY + plotHeight);
     context.stroke();
+    context.globalAlpha = 1;
 
     // Axis extremes as text, which is all a sparkline needs and is also the
     // relief channel that lets the lines themselves stay thin and unlabelled.
@@ -262,7 +298,7 @@ export class TrendCharts {
     for (const line of panel.lines) {
       if (line.sd !== undefined) {
         context.fillStyle = line.colour;
-        context.globalAlpha = 0.16;
+        context.globalAlpha = BAND_ALPHA;
         context.beginPath();
         for (let index = 0; index < line.values.length; index += 1) {
           const point = (line.values[index] ?? 0) + (line.sd[index] ?? 0);
@@ -279,7 +315,8 @@ export class TrendCharts {
       }
 
       context.strokeStyle = line.colour;
-      context.lineWidth = 1.75;
+      context.lineWidth = LINE_WIDTH;
+      context.lineJoin = 'round';
       context.beginPath();
       for (let index = 0; index < line.values.length; index += 1) {
         const point = toY(line.values[index] ?? 0);
