@@ -201,6 +201,8 @@ class CreatureLayer implements RenderLayer {
     finPairs: 0,
     bodyAspect: 1,
     armorPlating: 0,
+    diet: 0,
+    defense: 0,
     tint: 0xffffff,
     alpha: 1,
     jitter: 0,

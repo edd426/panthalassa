@@ -344,6 +344,8 @@ export class Interpolator {
       next.visuals[v + VISUAL.bodyAspect] = this.morphOut.bodyAspect;
       next.visuals[v + VISUAL.armor] = this.morphOut.armor;
       next.visuals[v + VISUAL.speciesTag] = species;
+      next.visuals[v + VISUAL.diet] = data[base + SAMPLE_SLICE.diet] ?? 0;
+      next.visuals[v + VISUAL.defense] = data[base + SAMPLE_SLICE.defense] ?? 0;
 
       rowOfSlotNext[slot] = i;
 

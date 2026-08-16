@@ -199,7 +199,7 @@ export const POSE = Object.freeze({
   jitter: 5,
 });
 
-export const VISUAL_STRIDE = 8;
+export const VISUAL_STRIDE = 10;
 
 export const VISUAL = Object.freeze({
   /** Index into `CLADE_ARCHETYPES`. */
@@ -213,6 +213,11 @@ export const VISUAL = Object.freeze({
   bodyAspect: 5,
   armor: 6,
   speciesTag: 7,
+  // Expressed diet and defense, raw and unbounded (contracts v1.6): the two
+  // traits with real standing divergence, so bodies can differ where the
+  // evolution actually happens. Consumers clamp at draw time.
+  diet: 8,
+  defense: 9,
 });
 
 export interface CreatureFrame {
@@ -239,6 +244,10 @@ export interface CreatureVisual {
   finPairs: number;
   bodyAspect: number;
   armorPlating: number;
+  /** Expressed diet logit; negative grazes, positive hunts. Unclamped. */
+  diet: number;
+  /** Expressed defense; unclamped. */
+  defense: number;
   tint: number;
   alpha: number;
   jitter: number;
@@ -262,6 +271,8 @@ export function readCreatureVisual(frame: CreatureFrame, row: number, out: Creat
   out.finPairs = frame.visuals[v + VISUAL.finPairs] ?? 0;
   out.bodyAspect = frame.visuals[v + VISUAL.bodyAspect] ?? 1;
   out.armorPlating = frame.visuals[v + VISUAL.armor] ?? 0;
+  out.diet = frame.visuals[v + VISUAL.diet] ?? 0;
+  out.defense = frame.visuals[v + VISUAL.defense] ?? 0;
   out.tint = frame.tints[row] ?? 0xffffff;
   out.alpha = frame.alphas[row] ?? 1;
   out.jitter = frame.poses[p + POSE.jitter] ?? 0;

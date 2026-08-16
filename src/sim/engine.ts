@@ -669,6 +669,8 @@ class PanthalassaSim implements SimHandleInternal {
       buffer[base + SAMPLE_SLICE.finPairs] = traitAt(pools, slot, T.finPairs);
       buffer[base + SAMPLE_SLICE.bodyAspect] = traitAt(pools, slot, T.bodyAspect);
       buffer[base + SAMPLE_SLICE.armorPlating] = traitAt(pools, slot, T.armorPlating);
+      buffer[base + SAMPLE_SLICE.diet] = traitAt(pools, slot, T.diet);
+      buffer[base + SAMPLE_SLICE.defense] = traitAt(pools, slot, T.defense);
       if (traitValues !== undefined) traitValues[written] = pools.traits[slot * TRAIT_COUNT + traitIndex] ?? 0;
       written += 1;
     }

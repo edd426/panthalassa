@@ -42,7 +42,7 @@ import type { TraitKey } from './traits';
  * so the worker allocates a fresh one each request and the renderer hands the
  * previous buffer back on the next request when it can.
  */
-export const SAMPLE_SLICE_STRIDE = 13;
+export const SAMPLE_SLICE_STRIDE = 15;
 
 export const SAMPLE_SLICE = Object.freeze({
   /** Pool slot; stable frame to frame while the organism lives, so the renderer can interpolate. */
@@ -70,6 +70,15 @@ export const SAMPLE_SLICE = Object.freeze({
   finPairs: 10,
   bodyAspect: 11,
   armorPlating: 12,
+  /**
+   * Expressed diet and defense (contracts v1.6, R5): the two traits with real
+   * standing divergence — diet ratchets whole logits and defense answers
+   * selection — so creature *form* (jaw, spination) can be drawn from where the
+   * evolution actually happens rather than from the near-static morphology
+   * channels alone. Unbounded; the renderer clamps at draw time.
+   */
+  diet: 13,
+  defense: 14,
 });
 
 export interface SampleSlice {

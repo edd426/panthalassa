@@ -80,6 +80,8 @@ export const T = Object.freeze({
   finPairs: TRAIT_INDEX.finPairs,
   bodyAspect: TRAIT_INDEX.bodyAspect,
   armorPlating: TRAIT_INDEX.armorPlating,
+  diet: TRAIT_INDEX.diet,
+  defense: TRAIT_INDEX.defense,
 });
 
 export class OrganismStore implements EnginePools {
