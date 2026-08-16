@@ -385,8 +385,18 @@ describe('SimConfig', () => {
 });
 
 describe('measurement contracts', () => {
-  it('names four independent mortality channels', () => {
-    expect([...DEATH_CAUSES].sort()).toEqual(['catastrophe', 'predation', 'senescence', 'starvation', 'temperature']);
+  it('names five endogenous mortality channels plus catastrophe', () => {
+    // 'toxin' appended in v1.7.2 for G-B: a predator killed by eating a toxic
+    // victim. Whether it joins P7's endogenous death-mix accounting is a G4
+    // decision (src/probes/metrics.ts ENDOGENOUS_DEATH_CAUSES is its own list).
+    expect([...DEATH_CAUSES].sort()).toEqual([
+      'catastrophe',
+      'predation',
+      'senescence',
+      'starvation',
+      'temperature',
+      'toxin',
+    ]);
   });
 
   it('declares every event kind exactly once', () => {
