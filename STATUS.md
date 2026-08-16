@@ -26,12 +26,19 @@ seeds alive at 300 gens; P4 improved to PASS on s1/s2. Full record:
 DESIGN.md "G0 spec-length adjudication". Watch item for G4: the restated
 P3 must keep an explicit cap-contact criterion (~9% of late s3 births were
 cap-clipped — that much regulation-by-cap is why the criterion stays).
-**G2 (ontogeny biology, Opus, briefs/g2-ontogeny.md) is running** — the
-orchestrator re-runs its acceptance probe before commit. Still owed: quiet
-P12 measurement (spec run has drained; do it before the next heavy job),
-R5 glass review (user is around today — the trends-scroll bug they
-reported is fixed, 4f54b9d). Then G3 (aposematism) → G4 (probes/stats,
-P3-as-biomass) → G5 (render) → G6 (tuning).
+**G2 LANDED (0c2042c)**: juveniles/growth/genetic clutches/priced
+cannibalism; acceptance probe re-run by orchestrator, exit 0; record in
+DESIGN.md "G2 — ontogeny lands" (incl. the two G6 watch items: birthEnergy
+vs hatchling ceiling, conspecific damper pre-species-split; and G4's
+realised-length series debt). Contract follow-ups v1.7.1 (sizeCurrent on
+OrganismPools, d158b51) and v1.7.2 ('toxin' death cause, ac1c6e7). Quiet
+P12 done: 8.7–8.9e5, G1 costs ~2–3% real (DESIGN.md). **G3 (aposematism,
+Opus, briefs/g3-aposematism.md) is running** — orchestrator re-runs its
+probe before commit. Still owed: R5 glass review (user is around today —
+the trends-scroll bug they reported is fixed, 4f54b9d). Then G4
+(probes/stats: P3-as-biomass + P17/P18/P19 + realised-length series) → G5
+(render: slice widening 15→17 for lifeStage+conspicuousness is an
+ORCHESTRATOR pre-step) → G6 (tuning).
 
 **TASK #18 IS DECIDED AND PHASE B IS GO (2026-08-15).** The user chose the
 recommended lever: `carrion.maxIntake` 0.7 → 0.5 is committed as the default
