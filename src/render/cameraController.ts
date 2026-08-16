@@ -27,8 +27,13 @@ const INERTIA_STOP_PX_S = 12;
 /** Fit-all animation length. */
 const FIT_ANIMATION_MS = 420;
 
-/** Overlays that own their own scrolling; a wheel over these is not a zoom. */
-const SCROLLABLE_CHROME = '#panel, #charts';
+/**
+ * Overlays that own their own scrolling; a wheel over these is not a zoom.
+ * Every scrollable panel the app grows must be listed here, or the window
+ * wheel handler preventDefaults its scroll into a camera zoom (#trends was
+ * the bug: the deep-trends overlay could not be scrolled).
+ */
+const SCROLLABLE_CHROME = '#panel, #charts, #trends, #bench';
 
 function easeInOutCubic(t: number): number {
   return t < 0.5 ? 4 * t * t * t : 1 - Math.pow(-2 * t + 2, 3) / 2;
