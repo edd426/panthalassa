@@ -1456,3 +1456,50 @@ Not a defect — every endogenous channel stays in [0.05, 0.70] — but it is
 the first knob G6 should look at if the on-arm death mix reads starved.
 Carried to G4: stats report only target `size`; realised length needs its
 own series (the design says the recorder must report both).
+
+### G3 — aposematism lands: toxin, signal, and the population's memory (2026-08-16 afternoon)
+
+Built by an Opus agent against `briefs/g3-aposematism.md`; acceptance probe
+re-run by the orchestrator, exit 0 (575 tests; cliff 3 seeds × 45
+generations, sane death mix, zero dropped births). Off arm bit-identical:
+golden hash untouched, plus a direct ablation pin — every `aposematism.*`
+coefficient ×100 on one of two sims, hashes compared every 60 ticks over
+300 ticks.
+
+Shape of the mechanism as landed: toxin is a post-kill penalty (yield ×
+`toxinYieldMultiplier`, one-off predator hazard → the v1.7.2 `'toxin'`
+death cause; the kill stands — both die, which is the point of the trade);
+avoidance is the population statistic `hueBinToxicityAt`, riding the
+existing hue-grid pass with a gated accumulator (no second sweep);
+`aposematismLogit` and the G2 conspecific term both land as odds
+multipliers on the frozen kernel, so `formulas.ts` remains the single
+source of the probability. Conspicuousness pays in mate acceptance and
+costs in detection; toxicity bills metabolism against realised length.
+Fresh `toxinMacro` alleles emit `ToxinInventionEvent` via parent-genome
+comparison at the birth site (the one legal genome read outside birth
+phenotyping; no RNG). One deviation from the brief's letter, accepted on
+review: the hazard is rolled engine-side at the exact stream position of
+the kill, because `EcologyApi.tryPredation` is handed a `KillSink` and no
+`DeathSink`; if a future contract revision adds one, the roll moves into
+`predation.ts` with no stream change. `killerId` on a `'toxin'` death
+names the victim whose flesh did it — the contract doc was completed to
+say so (orchestrator edit, events.ts).
+
+**Tuning-log entry — the bootstrap fires early.** In the 45-generation
+cliff runs (defaults, toggle on), mean expressed toxicity rose from ~0.26
+at founding to 0.34–1.33 and mean conspicuousness reached +1.69 (s1) /
++1.08 (s2) while staying slightly negative on s3 (−0.10). The
+chicken-and-egg the design worried over resolves inside 45 generations on
+two of three seeds — the authored q63 coupling plus the macro route are
+enough. Toxin deaths are a trace channel (0.4–0.9%). Founding mean
+toxicity is 0.25–0.27 rather than softplus(0)=0.10 because the link's
+convexity lifts the mean over the founding variance — worth remembering
+when G6 reads "toxicity at founding" off a chart. G6 gets the
+`toxinMacro`-disabled ablation to separate the polygenic route from the
+macro route.
+
+Process note: the G3 agent caught a red contracts-shape test on a clean
+tree — my v1.7.2 commit had missed the DEATH_CAUSES pin, and my
+verification had piped `npm test` through `tail`, which returns the pipe
+tail's exit code. Fixed in c8f4dae. Lesson, now standing: **capture the
+exit code directly; never pipe a gate command's output through anything.**
