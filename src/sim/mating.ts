@@ -26,7 +26,7 @@ import type { MatingApi, SpatialIndex } from '../contracts/apis';
 import { hueDelta } from '../contracts/traits';
 import type { RandomSource, SimConfig, SimState, SlotIndex } from '../contracts/types';
 import { NO_SLOT, SEX_MALE } from '../contracts/types';
-import { T, energyCapacityOf, traitAt } from './organisms';
+import { T, energyCapacityOf, isMature, traitAt } from './organisms';
 
 /** Energy the mother is debited for a clutch of `clutchSize`. */
 export function maternalClutchCost(clutchSize: number, config: SimConfig): number {
@@ -38,12 +38,19 @@ export function paternalClutchCost(clutchSize: number, config: SimConfig): numbe
   return config.metabolism.reproductionEnergyCost * clutchSize * config.mating.paternalCostFraction;
 }
 
-/** Mature, off cooldown, and carrying enough energy to survey suitors. */
+/**
+ * Mature, off cooldown, and carrying enough energy to survey suitors.
+ *
+ * Maturity is {@link isMature}, which adds a realised-length floor to the age
+ * floor once ontogeny is on — a stunted female is not a small adult, she is
+ * still a juvenile, and the age at which she recruits is set by how well she
+ * has eaten rather than by a constant.
+ */
 export function isFemaleReady(state: SimState, slot: SlotIndex): boolean {
   const pop = state.pop;
   const config = state.config;
   if ((pop.sex[slot] ?? 0) === SEX_MALE) return false;
-  if ((pop.ageTicks[slot] ?? 0) < config.time.maturityTicks) return false;
+  if (!isMature(state, slot)) return false;
   if (state.tick - (pop.lastMatingTick[slot] ?? 0) < config.mating.matingCooldownTicks) return false;
   const capacity = energyCapacityOf(pop, slot, config);
   return (pop.energy[slot] ?? 0) >= config.mating.femaleReadyEnergyFraction * capacity;
@@ -55,7 +62,7 @@ export function isEligibleSuitor(state: SimState, slot: SlotIndex, femaleSlot: S
   const pop = state.pop;
   if ((pop.alive[slot] ?? 0) === 0) return false;
   if ((pop.sex[slot] ?? 0) !== SEX_MALE) return false;
-  return (pop.ageTicks[slot] ?? 0) >= state.config.time.maturityTicks;
+  return isMature(state, slot);
 }
 
 const NEIGHBOR_BUFFER_SIZE = 512;

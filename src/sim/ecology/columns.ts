@@ -27,6 +27,8 @@ export const T_FORAGE_BOLDNESS = TRAIT_INDEX.forageBoldness;
 export const T_GIVING_UP_TIME = TRAIT_INDEX.givingUpTime;
 export const T_DISPLAY_HUE = TRAIT_INDEX.displayHue;
 export const T_ARMOR_PLATING = TRAIT_INDEX.armorPlating;
+/** G-wave: the target adult length is the `size` trait; realised length is the `sizeCurrent` pool column. */
+export const T_GROWTH_ALLOCATION = TRAIT_INDEX.growthAllocation;
 
 /** Read one trait by its pre-resolved offset. */
 export function trait(packed: Float32Array, slot: number, offset: number): number {

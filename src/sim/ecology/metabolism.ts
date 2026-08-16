@@ -13,11 +13,12 @@
  * what makes a tuning campaign unable to attribute an effect.
  */
 
-import { senescenceHazard, temperatureHazard } from '../../contracts/formulas';
+import { senescenceHazard, somaticGrowthPerTick, temperatureHazard } from '../../contracts/formulas';
 import type { DeathSink } from '../../contracts/apis';
 import type { RandomSource, SimState, SlotIndex } from '../../contracts/types';
 import { NO_SLOT } from '../../contracts/types';
-import { T_OPT, T_WIDTH, trait } from './columns';
+import { sizeCurrentColumn } from '../organisms';
+import { T_GROWTH_ALLOCATION, T_OPT, T_SIZE, T_WIDTH, trait } from './columns';
 import { ensureOrganismCache, metabolicCostFor } from './derived';
 import { localTemperatureC } from './fields';
 import type { EcologyRuntime } from './runtime';
@@ -63,6 +64,8 @@ export function metabolismAndHazards(
     return;
   }
 
+  if (config.toggles.enableOntogeny) growSoma(runtime, state, slot, energy, burn);
+
   // Competing risks off a single uniform rather than a hazard roll each. An
   // organism dies once, so the causes have to be mutually exclusive anyway, and
   // partitioning one draw gives each channel its exact marginal rate — rolling
@@ -78,4 +81,55 @@ export function metabolismAndHazards(
   if (draw < thermal + senescence) {
     deaths.push(slot, 'senescence', NO_SLOT);
   }
+}
+
+/**
+ * Spend this tick's energy surplus on body length (G2, ontogeny only).
+ *
+ * **Surplus is intake minus the tick's burn** — what the animal ate this tick
+ * and did not have to spend staying alive. Intake is `runtime.tickIntake`,
+ * filled by the feeding stage and topped up by a kill claimed in the predation
+ * stage, both of which run before this one; the alternative operationalisation
+ * the brief allowed (energy above a fraction of capacity) would have needed a
+ * reserve-fraction constant that `GrowthConfig` does not have, and would have
+ * made a full-bellied animal grow on calories it ate a hundred ticks ago.
+ *
+ * Three properties follow and are what the unit tests pin:
+ *
+ * - Zero surplus is zero growth, so a starving animal stunts rather than
+ *   shrinking or dying of growth. Nothing here can reduce a length.
+ * - The spend is bounded by the energy actually on hand after the burn. That is
+ *   an energy constraint, not a cap on the trait — a predator whose kill energy
+ *   the engine credits at the end of the tick can still only build tissue out of
+ *   reserves it already holds.
+ * - There is **no cap at the target length**. `tissueCostPerCm` makes overshoot
+ *   quadratically-then-sharply expensive, so the asymptote recedes instead of
+ *   clamping.
+ */
+function growSoma(
+  runtime: EcologyRuntime,
+  state: SimState,
+  slot: SlotIndex,
+  energyAfterBurn: number,
+  burn: number,
+): void {
+  const surplus = (runtime.tickIntake[slot] ?? 0) - burn;
+  if (surplus <= 0) return;
+
+  const pop = state.pop;
+  const allocation = trait(pop.traits, slot, T_GROWTH_ALLOCATION);
+  if (!(allocation > 0)) return;
+
+  const spend = Math.min(allocation * surplus, energyAfterBurn);
+  if (!(spend > 0)) return;
+
+  const lengths = sizeCurrentColumn(pop);
+  const length = lengths[slot] ?? 0;
+  // The allocation share is already in `spend`, so it is passed as 1 rather
+  // than applied twice; what is left of the frozen formula is the tissue price.
+  const grown = somaticGrowthPerTick(spend, length, trait(pop.traits, slot, T_SIZE), 1, state.config);
+  if (!(grown > 0)) return;
+
+  lengths[slot] = length + grown;
+  pop.energy[slot] = energyAfterBurn - spend;
 }

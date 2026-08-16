@@ -13,6 +13,10 @@
  *    divergence through. Free slots hold stale column data that a restore
  *    reproduces byte for byte but that no future tick can read, so the hash
  *    covers the `alive` flags and the free list rather than dead-slot contents.
+ *    The two mechanism-gated exceptions (the carrion field, the ontogeny
+ *    columns) are always serialised and hashed only when their toggle is on,
+ *    where they are the sole carrier of the information; off the toggle each is
+ *    a constant restated elsewhere in the digest.
  *
  * Everything produced here is structured-clone-safe: plain objects, arrays,
  * strings, numbers and typed arrays only.
@@ -34,7 +38,7 @@ import type {
 } from '../contracts/types';
 import { DEATH_CAUSES, SNAPSHOT_FORMAT_VERSION } from '../contracts/types';
 import type { EnginePools, PoolColumnName } from './organisms';
-import { POOL_COLUMN_NAMES, SCALAR_COLUMN_NAMES, poolColumn } from './organisms';
+import { ONTOGENY_COLUMN_NAMES, POOL_COLUMN_NAMES, SCALAR_COLUMN_NAMES, poolColumn } from './organisms';
 import type { OrganismStore } from './organisms';
 
 // ---------------------------------------------------------------------------
@@ -120,6 +124,14 @@ export function computeStateHash(state: SimState, store: OrganismStore): string 
     for (const name of SCALAR_COLUMN_NAMES) {
       if (name === 'alive') continue;
       hasher.number(poolColumn(pools, name)[slot] ?? 0);
+    }
+    // The ontogeny columns are hashed only on the on arm, for the same reason
+    // the carrion field below is: with the toggle off `sizeCurrent` is written
+    // once at birth to the expressed `size` trait, which is already hashed
+    // three lines down, so folding it in would move the golden trajectory hash
+    // without any change to the world it describes.
+    if (state.config.toggles.enableOntogeny) {
+      for (const name of ONTOGENY_COLUMN_NAMES) hasher.number(poolColumn(pools, name)[slot] ?? 0);
     }
     hasher.numbers(pools.traits, slot * TRAIT_COUNT, TRAIT_COUNT);
     hasher.numbers(pools.traitsLatent, slot * TRAIT_COUNT, TRAIT_COUNT);

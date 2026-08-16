@@ -29,11 +29,11 @@ import {
   NO_SLOT,
   SEX_FEMALE,
 } from '../../contracts/types';
+import { isMature, sizeCurrentColumn } from '../organisms';
 import {
   T_DIET,
   T_GIVING_UP_TIME,
   T_OPT,
-  T_SIZE,
   T_WARINESS,
   T_WIDTH,
   trait,
@@ -51,7 +51,7 @@ const SEEK_MATE_SPEED_FRACTION = 0.5;
 /** A patch is worth staying in while it holds at least this share of its own capacity. */
 const FORAGE_SATISFACTION = 0.4;
 
-/** Half-widths of the predation size window, for "am I on its menu / is it on mine". */
+/** Half-widths of the predation size window, for "am I on its menu / is it on mine". Realised lengths, like the kernel itself. */
 const SIZE_WINDOW_TOLERANCE = 2;
 
 /** Below this the local gradient is noise and climbing it is a random walk with extra steps. */
@@ -81,7 +81,7 @@ export function decideBehavior(
   const traits = pop.traits;
   const x = pop.x[slot] ?? 0;
   const y = pop.y[slot] ?? 0;
-  const size = trait(traits, slot, T_SIZE);
+  const size = sizeCurrentColumn(pop)[slot] ?? 0;
   const diet = trait(traits, slot, T_DIET);
   ensureOrganismCache(runtime, state, slot);
   const energyFraction = (pop.energy[slot] ?? 0) / Math.max(1e-6, runtime.memoMaxEnergy[slot] ?? 0);
@@ -150,7 +150,7 @@ export function decideBehavior(
     }
   }
 
-  if (!hungry && (pop.ageTicks[slot] ?? 0) >= config.time.maturityTicks) {
+  if (!hungry && isMature(state, slot)) {
     const mate = nearestCourtshipTarget(state, slot, neighbors, found);
     if (mate !== NO_SLOT) {
       out.mode = BEHAVIOR_SEEK_MATE;
@@ -221,6 +221,7 @@ function nearestThreat(
   const reach = Math.min(wariness, state.config.behavior.neighborScanRadiusWu);
   if (!(reach > 0)) return NO_SLOT;
   const reachSq = reach * reach;
+  const lengths = sizeCurrentColumn(pop);
 
   let best = NO_SLOT;
   let bestSq = Number.POSITIVE_INFINITY;
@@ -229,7 +230,7 @@ function nearestThreat(
     if (other === slot || other === NO_SLOT) continue;
     if (trait(pop.traits, other, T_DIET) <= 0.5) continue;
     if ((pop.gutFill[other] ?? 0) > 0) continue;
-    const theirSize = trait(pop.traits, other, T_SIZE);
+    const theirSize = lengths[other] ?? 0;
     if (theirSize <= 0) continue;
     const ratio = size / theirSize;
     if (Math.abs(ratio - predation.sizeRatioOptimum) > SIZE_WINDOW_TOLERANCE * predation.sizeRatioWidth) continue;
@@ -256,13 +257,14 @@ function nearestPrey(
   const x = pop.x[slot] ?? 0;
   const y = pop.y[slot] ?? 0;
   if (size <= 0) return NO_SLOT;
+  const lengths = sizeCurrentColumn(pop);
 
   let best = NO_SLOT;
   let bestSq = Number.POSITIVE_INFINITY;
   for (let index = 0; index < found; index += 1) {
     const other = neighbors[index] ?? NO_SLOT;
     if (other === slot || other === NO_SLOT) continue;
-    const ratio = trait(pop.traits, other, T_SIZE) / size;
+    const ratio = (lengths[other] ?? 0) / size;
     if (Math.abs(ratio - predation.sizeRatioOptimum) > SIZE_WINDOW_TOLERANCE * predation.sizeRatioWidth) continue;
     const dx = (pop.x[other] ?? 0) - x;
     const dy = (pop.y[other] ?? 0) - y;
@@ -292,7 +294,7 @@ function nearestCourtshipTarget(
     const other = neighbors[index] ?? NO_SLOT;
     if (other === slot || other === NO_SLOT) continue;
     if ((pop.sex[other] ?? SEX_FEMALE) === ownSex) continue;
-    if ((pop.ageTicks[other] ?? 0) < state.config.time.maturityTicks) continue;
+    if (!isMature(state, other)) continue;
     const dx = (pop.x[other] ?? 0) - x;
     const dy = (pop.y[other] ?? 0) - y;
     const distanceSq = dx * dx + dy * dy;

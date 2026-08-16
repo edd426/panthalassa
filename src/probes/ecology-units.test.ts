@@ -16,7 +16,6 @@ import { describe, expect, it } from 'vitest';
 import type { BehaviorDecision, EcologyApi, SpatialIndex } from '../contracts/apis';
 import type {
   DeathCause,
-  OrganismPools,
   RandomSource,
   RngState,
   SimConfig,
@@ -39,6 +38,8 @@ import type { Genome } from '../contracts/genome';
 import { createEcology } from '../sim/ecology';
 import { logisticStep } from '../sim/ecology/resources';
 import { stepClimate } from '../sim/ecology/fields';
+import type { EnginePools } from '../sim/organisms';
+import { sizeCurrentColumn } from '../sim/organisms';
 import { createSpatialIndex } from '../sim/spatial';
 import { SeededRng } from '../sim/rng';
 
@@ -67,7 +68,13 @@ const ISOTHERMAL: SimConfigOverrides = {
   },
 };
 
-function makePools(capacity: number): OrganismPools {
+/**
+ * The engine's pools, not the bare contract ones: since G2 the ecology reads
+ * realised body length out of the `sizeCurrent` column, which lives on
+ * `EnginePools` because the frozen `OrganismPools` does not declare it. A
+ * fixture missing the column is a fixture that no longer matches the world.
+ */
+function makePools(capacity: number): EnginePools {
   return {
     capacity,
     alive: new Uint8Array(capacity),
@@ -91,6 +98,10 @@ function makePools(capacity: number): OrganismPools {
     behaviorState: new Uint8Array(capacity),
     behaviorTimer: new Uint16Array(capacity),
     targetSlot: new Int32Array(capacity).fill(NO_SLOT),
+    steerX: new Float32Array(capacity),
+    steerY: new Float32Array(capacity),
+    speedFraction: new Float32Array(capacity),
+    sizeCurrent: new Float32Array(capacity),
     traits: new Float32Array(capacity * TRAIT_COUNT),
     traitsLatent: new Float32Array(capacity * TRAIT_COUNT),
     traitsGenotypic: new Float32Array(capacity * TRAIT_COUNT),
@@ -148,6 +159,8 @@ interface SpawnSpec {
   readonly energyFraction?: number;
   readonly ageTicks?: number;
   readonly sex?: number;
+  /** Realised length, cm; defaults to the `size` trait (an adult at its target). */
+  readonly sizeCurrentCm?: number;
 }
 
 function spawn(state: SimState, slot: SlotIndex, spec: SpawnSpec): void {
@@ -167,7 +180,12 @@ function spawn(state: SimState, slot: SlotIndex, spec: SpawnSpec): void {
     pop.traitsLatent[slot * TRAIT_COUNT + TRAIT_INDEX[key]] = value;
   }
 
-  const ceiling = state.config.metabolism.maxEnergyPerSize * readTrait(pop.traits, slot, 'size');
+  // A spawned organism is an adult unless a test says otherwise: realised
+  // length starts at the target the `size` trait names, which is what the
+  // engine writes at birth with ontogeny off.
+  sizeCurrentColumn(pop)[slot] = spec.sizeCurrentCm ?? readTrait(pop.traits, slot, 'size');
+
+  const ceiling = state.config.metabolism.maxEnergyPerSize * (sizeCurrentColumn(pop)[slot] ?? 0);
   pop.energy[slot] = ceiling * (spec.energyFraction ?? 0.5);
   state.liveCount += 1;
 }

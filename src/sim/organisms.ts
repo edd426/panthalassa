@@ -14,14 +14,15 @@
 import type { Genome } from '../contracts/genome';
 import { TRAIT_COUNT, TRAIT_INDEX } from '../contracts/traits';
 import type { TraitKey } from '../contracts/traits';
-import type { OrganismPools, SimConfig, SlotIndex } from '../contracts/types';
+import type { OrganismPools, SimConfig, SimState, SlotIndex } from '../contracts/types';
 import { NO_SLOT } from '../contracts/types';
 
 /**
- * The contract columns plus the three the engine needs to carry a staggered
- * behaviour decision between the ticks on which it is re-taken. `OrganismPools`
- * may be extended but never trimmed (CLAUDE.md), and these travel in the
- * snapshot alongside the declared columns so a restore resumes mid-decision.
+ * The contract columns plus the ones the engine needs to carry state between
+ * ticks: a staggered behaviour decision, and (G2) realised body length.
+ * `OrganismPools` may be extended but never trimmed (CLAUDE.md), and these
+ * travel in the snapshot alongside the declared columns so a restore resumes
+ * mid-decision.
  */
 export interface EnginePools extends OrganismPools {
   /** Unit-ish steering direction from the last decision. */
@@ -29,6 +30,18 @@ export interface EnginePools extends OrganismPools {
   readonly steerY: Float32Array;
   /** Fraction of `speedCap` the last decision asked for. */
   readonly speedFraction: Float32Array;
+  /**
+   * Realised body length, cm — **state**, like `energy`, not phenotype.
+   *
+   * The `size` trait is the genetic *target* adult length once
+   * `toggles.enableOntogeny` is on; this is how long the animal actually is,
+   * and every consumer whose meaning is "current body length" (metabolic cost,
+   * storage ceiling, the predation size window, carrion biomass, bite scale,
+   * the render slice) reads this instead of the trait. With ontogeny off it is
+   * written once at birth to the expressed `size` trait and never changes, so
+   * those reads are bit-identical to reading the trait.
+   */
+  readonly sizeCurrent: Float32Array;
 }
 
 /** Every column that is one value per slot; the strided trait blocks are listed separately. */
@@ -59,11 +72,24 @@ export const SCALAR_COLUMN_NAMES = [
   'speedFraction',
 ] as const;
 
+/**
+ * Scalar columns the ontogeny axis added (G2), kept out of
+ * {@link SCALAR_COLUMN_NAMES} because the world hash walks that list and the
+ * off arm has to stay byte-identical. They are serialised like every other
+ * column; `computeStateHash` folds them in only when the toggle is on, where
+ * they carry information the `size` trait no longer does.
+ */
+export const ONTOGENY_COLUMN_NAMES = ['sizeCurrent'] as const;
+
 /** Per-organism blocks of `TRAIT_COUNT` values each. */
 export const STRIDED_COLUMN_NAMES = ['traits', 'traitsLatent', 'traitsGenotypic'] as const;
 
 /** Column names the snapshot serialises, scalar columns first then the strided trait blocks. */
-export const POOL_COLUMN_NAMES = [...SCALAR_COLUMN_NAMES, ...STRIDED_COLUMN_NAMES] as const;
+export const POOL_COLUMN_NAMES = [
+  ...SCALAR_COLUMN_NAMES,
+  ...ONTOGENY_COLUMN_NAMES,
+  ...STRIDED_COLUMN_NAMES,
+] as const;
 
 export type PoolColumnName = (typeof POOL_COLUMN_NAMES)[number];
 
@@ -82,6 +108,9 @@ export const T = Object.freeze({
   armorPlating: TRAIT_INDEX.armorPlating,
   diet: TRAIT_INDEX.diet,
   defense: TRAIT_INDEX.defense,
+  growthAllocation: TRAIT_INDEX.growthAllocation,
+  offspringSize: TRAIT_INDEX.offspringSize,
+  fecundity: TRAIT_INDEX.fecundity,
 });
 
 export class OrganismStore implements EnginePools {
@@ -116,6 +145,7 @@ export class OrganismStore implements EnginePools {
   readonly steerX: Float32Array;
   readonly steerY: Float32Array;
   readonly speedFraction: Float32Array;
+  readonly sizeCurrent: Float32Array;
 
   readonly traits: Float32Array;
   readonly traitsLatent: Float32Array;
@@ -159,6 +189,7 @@ export class OrganismStore implements EnginePools {
     this.steerX = new Float32Array(capacity);
     this.steerY = new Float32Array(capacity);
     this.speedFraction = new Float32Array(capacity);
+    this.sizeCurrent = new Float32Array(capacity);
 
     this.traits = new Float32Array(capacity * TRAIT_COUNT);
     this.traitsLatent = new Float32Array(capacity * TRAIT_COUNT);
@@ -239,10 +270,46 @@ export function traitByKey(pools: OrganismPools, slot: SlotIndex, key: TraitKey)
 }
 
 /**
- * Energy storage ceiling, `maxEnergyPerSize · size`. The floor on size is
- * numerical protection for the ratio, not a bound on the trait: `size` is
- * softplus-linked and can approach zero from above.
+ * The realised-length column.
+ *
+ * `sizeCurrent` lives on {@link EnginePools} because the frozen `OrganismPools`
+ * does not declare it (see the G2 report's contract gaps). Every `SimState.pop`
+ * in this project is an `OrganismStore`, so the widening is safe; it is done
+ * here rather than at each call site so there is one place to fix when the
+ * column joins the contract.
+ */
+export function sizeCurrentColumn(pools: OrganismPools): Float32Array {
+  return (pools as EnginePools).sizeCurrent;
+}
+
+/** Realised body length of one organism, cm. */
+export function sizeCurrentAt(pools: OrganismPools, slot: SlotIndex): number {
+  return (pools as EnginePools).sizeCurrent[slot] ?? 0;
+}
+
+/**
+ * Energy storage ceiling, `maxEnergyPerSize · sizeCurrent`. The floor on length
+ * is numerical protection for the ratio, not a bound on the trait: `size` is
+ * softplus-linked and can approach zero from above, and a juvenile's realised
+ * length is smaller still.
  */
 export function energyCapacityOf(pools: OrganismPools, slot: SlotIndex, config: SimConfig): number {
-  return config.metabolism.maxEnergyPerSize * Math.max(1e-3, traitAt(pools, slot, T.size));
+  return config.metabolism.maxEnergyPerSize * Math.max(1e-3, sizeCurrentAt(pools, slot));
+}
+
+/**
+ * Old enough *and*, with ontogeny on, long enough to breed.
+ *
+ * `time.maturityTicks` is kept as an age floor and `growth.maturityLengthFraction`
+ * adds a length floor against the genetic target, so age at maturity becomes an
+ * emergent, food-dependent quantity — a stunted fish stays juvenile — without a
+ * config constant naming it. Off the toggle this is the age test alone, which
+ * is what every caller used to do inline.
+ */
+export function isMature(state: SimState, slot: SlotIndex): boolean {
+  const config = state.config;
+  const pop = state.pop;
+  if ((pop.ageTicks[slot] ?? 0) < config.time.maturityTicks) return false;
+  if (!config.toggles.enableOntogeny) return true;
+  return sizeCurrentAt(pop, slot) >= config.growth.maturityLengthFraction * traitAt(pop, slot, T.size);
 }

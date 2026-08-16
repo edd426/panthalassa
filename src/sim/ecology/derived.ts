@@ -22,12 +22,12 @@ import {
 } from '../../contracts/formulas';
 import { TRAIT_META } from '../../contracts/traits';
 import type { SimConfig, SimState, SlotIndex } from '../../contracts/types';
+import { sizeCurrentAt } from '../organisms';
 import {
   T_ARMOR_PLATING,
   T_DIET,
   T_FORAGE_BOLDNESS,
   T_OPT,
-  T_SIZE,
   T_WARINESS,
   T_WIDTH,
   trait,
@@ -84,13 +84,19 @@ export function digestionRate(size: number, config: SimConfig): number {
 
 /**
  * Bring one organism's memo up to date. Keyed on `pop.id` — never reused — with
- * the size trait as a second witness, so a recycled slot or an edited phenotype
- * misses rather than reading the previous occupant's numbers.
+ * realised length as a second witness, so a recycled slot or an edited
+ * phenotype misses rather than reading the previous occupant's numbers.
+ *
+ * Length is the one input here that is *not* fixed for life once ontogeny is
+ * on, so a growing juvenile misses this cache on every tick it grows and pays
+ * the two `Math.pow`s again. That is the intended cost of the axis: everything
+ * scaled by body size has to track the body. Off the toggle `sizeCurrent` never
+ * changes and the memo behaves exactly as it did.
  */
 export function ensureOrganismCache(runtime: EcologyRuntime, state: SimState, slot: SlotIndex): void {
   const pop = state.pop;
   const id = pop.id[slot] ?? 0;
-  const size = trait(pop.traits, slot, T_SIZE);
+  const size = sizeCurrentAt(pop, slot);
   if (runtime.memoId[slot] === id && runtime.memoSize[slot] === size) return;
 
   const config = state.config;
@@ -124,9 +130,10 @@ export function ensureOrganismCache(runtime: EcologyRuntime, state: SimState, sl
  * The policies pick from a small fixed menu of cruising speeds, so the key
  * repeats tick after tick and the `Math.pow` on body size runs about once per
  * organism per policy change rather than once per tick. The 1/64 wu/tick
- * quantisation moves the cost by well under a tenth of a percent. Size, armor
- * and wariness are traits — constant for the organism's lifetime — so the
- * speed key alone identifies the cost.
+ * quantisation moves the cost by well under a tenth of a percent. Armor and
+ * wariness are traits — constant for the organism's lifetime — and the speed
+ * key is invalidated by {@link ensureOrganismCache} whenever realised length
+ * moves, so the speed key alone identifies the cost.
  */
 export function metabolicCostFor(
   runtime: EcologyRuntime,
@@ -138,7 +145,7 @@ export function metabolicCostFor(
   if (runtime.memoCostKey[slot] === key) return runtime.memoCostValue[slot] ?? 0;
 
   const value = metabolicCostPerTick(
-    trait(state.pop.traits, slot, T_SIZE),
+    sizeCurrentAt(state.pop, slot),
     key / SPEED_QUANTISATION,
     trait(state.pop.traits, slot, T_ARMOR_PLATING),
     trait(state.pop.traits, slot, T_WARINESS),

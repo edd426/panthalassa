@@ -59,7 +59,7 @@ import type {
   MutationRecord,
   SimEvent,
 } from '../contracts/events';
-import { thermalPerformance } from '../contracts/formulas';
+import { clutchInvestment, thermalPerformance } from '../contracts/formulas';
 import type { CladeArchetype, DiscreteLocusId, Genome, QuantLocusId } from '../contracts/genome';
 import {
   ANCESTRAL_ARCHETYPE,
@@ -79,7 +79,7 @@ import type {
 import { SAMPLE_SLICE, SAMPLE_SLICE_STRIDE } from '../contracts/protocol';
 import type { AncestryRecord, PhylogenyNode, SampleRow } from '../contracts/stats';
 import type { TraitKey } from '../contracts/traits';
-import { TRAIT_COUNT, TRAIT_INDEX, TRAIT_KEYS, unpackTraits } from '../contracts/traits';
+import { TRAIT_COUNT, TRAIT_INDEX, TRAIT_KEYS, TRAIT_META, applyTraitLink, unpackTraits } from '../contracts/traits';
 import type {
   BarrierSpec,
   BarrierState,
@@ -152,6 +152,32 @@ function thermalTaxOf(tOpt: number, tWidth: number, config: SimConfig): number {
 function thermalToleranceOf(temperatureC: number, tOpt: number, tWidth: number): number {
   const z = (temperatureC - tOpt) / Math.max(1e-3, tWidth);
   return Math.exp(-z * z);
+}
+
+/**
+ * Founder-population hatchling length, cm — the expressed `offspringSize` a
+ * founder genome sits at. Mirrors ecology's `referenceSizeCm`: read through the
+ * baseline override so A7/G6 can retune the trait without editing the frozen
+ * table, and through the link so it is on the same scale as the expressed
+ * trait it is divided into.
+ */
+function referenceOffspringSizeCm(config: SimConfig): number {
+  const baseline = config.genetics.traitBaselineOverrides.offspringSize ?? TRAIT_META.offspringSize.baseline;
+  return Math.max(1e-6, applyTraitLink('offspringSize', baseline));
+}
+
+/**
+ * How much reserve a hatchling of this length carries, as a multiple of
+ * `metabolism.birthEnergy`.
+ *
+ * `(offspringSize / baseline)^provisionExponent` — the same exponent the mother
+ * is billed at in `clutchInvestment`, so what she pays per egg and what the egg
+ * is worth scale together, and the ratio is exactly 1 at the founder baseline
+ * (the change is mean-preserving where A7 tuned `birthEnergy`).
+ */
+function provisioningRatio(offspringSizeCm: number, config: SimConfig): number {
+  const ratio = Math.max(0, offspringSizeCm) / referenceOffspringSizeCm(config);
+  return Math.pow(ratio, config.growth.provisionExponent);
 }
 
 /** Counters that describe the engine's own behaviour rather than the world's; not part of the hash or the snapshot. */
@@ -492,6 +518,7 @@ class PanthalassaSim implements SimHandleInternal {
         birthTick: -age,
         energy: config.metabolism.birthEnergy,
         emitCladeFounding: false,
+        newborn: false,
       });
       // Founders arrive as established adults, so they carry an adult's
       // reserves rather than a newborn's. Seeding a population of hatchlings
@@ -528,6 +555,13 @@ class PanthalassaSim implements SimHandleInternal {
       birthTick: number;
       energy: number;
       emitCladeFounding: boolean;
+      /**
+       * True for an organism entering the world as a newborn. With ontogeny on
+       * it hatches at its own expressed `offspringSize` and carries a reserve
+       * scaled by that provisioning; founders and god-tool arrivals are
+       * established adults and start at their target length.
+       */
+      newborn: boolean;
     },
   ): CladeArchetype {
     const state = this.state;
@@ -579,7 +613,16 @@ class PanthalassaSim implements SimHandleInternal {
     pools.y[slot] = spec.y;
     pools.vx[slot] = 0;
     pools.vy[slot] = 0;
-    pools.energy[slot] = spec.energy;
+
+    // Realised length. Read back out of the pool rather than off `phenotype`,
+    // so an adult's `sizeCurrent` is the same float32 the trait column holds
+    // and every rewired consumer reads exactly what it read before ontogeny
+    // existed.
+    const hatchling = config.toggles.enableOntogeny && spec.newborn;
+    pools.sizeCurrent[slot] = pools.traits[base + (hatchling ? T.offspringSize : T.size)] ?? 0;
+    pools.energy[slot] = hatchling
+      ? spec.energy * provisioningRatio(pools.sizeCurrent[slot] ?? 0, config)
+      : spec.energy;
     pools.gutFill[slot] = 0;
     pools.birthTick[slot] = spec.birthTick;
     pools.ageTicks[slot] = spec.ageTicks;
@@ -659,7 +702,8 @@ class PanthalassaSim implements SimHandleInternal {
       buffer[base + SAMPLE_SLICE.x] = pools.x[slot] ?? 0;
       buffer[base + SAMPLE_SLICE.y] = pools.y[slot] ?? 0;
       buffer[base + SAMPLE_SLICE.hue] = traitAt(pools, slot, T.displayHue);
-      buffer[base + SAMPLE_SLICE.size] = traitAt(pools, slot, T.size);
+      // Channel 4 is realised length, so juveniles draw small for free.
+      buffer[base + SAMPLE_SLICE.size] = pools.sizeCurrent[slot] ?? 0;
       buffer[base + SAMPLE_SLICE.speciesTag] = pools.speciesTag[slot] ?? 0;
       buffer[base + SAMPLE_SLICE.cladeId] = pools.cladeId[slot] ?? 0;
       buffer[base + SAMPLE_SLICE.archetype] = pools.archetype[slot] ?? 0;
@@ -1069,7 +1113,7 @@ class PanthalassaSim implements SimHandleInternal {
       const dy = pools.y[slot] ?? 0;
       const age = pools.ageTicks[slot] ?? 0;
       const speciesTag = pools.speciesTag[slot] ?? 0;
-      this.depositCarrion(dx, dy, traitAt(pools, slot, T.size));
+      this.depositCarrion(dx, dy, pools.sizeCurrent[slot] ?? 0);
       // `killerId` is genuinely absent for the three non-predation channels;
       // `exactOptionalPropertyTypes` means absent and `undefined` are not the
       // same thing, so the two shapes are built separately.
@@ -1113,12 +1157,22 @@ class PanthalassaSim implements SimHandleInternal {
    * Clutch size is the Poisson draw truncated to what both parents can actually
    * pay for, so energy is conserved by construction rather than by a
    * post-hoc `Math.max(0, …)` that would quietly mint energy.
+   *
+   * With ontogeny on the Poisson mean is the female's expressed `fecundity`
+   * rather than `mating.clutchLambda`, and her bill is `clutchInvestment` —
+   * which prices the clutch by the eggs' size as well as their number, so
+   * `offspringSize` and `fecundity` come out of one budget and the r/K tradeoff
+   * needs no authored valley. Provisioning **replaces** her flat
+   * `metabolism.reproductionEnergyCost`; the paternal share stays on that flat
+   * base, so `mating.paternalCostFraction` remains the anisogamy knob it was
+   * (the father contributes gametes, not yolk).
    */
   private stageReproduction(): void {
     const state = this.state;
     const pools = this.store;
     const config = state.config;
     const rng = this.rng.fork(`repro:${state.tick}`);
+    const ontogeny = config.toggles.enableOntogeny;
     const costPerOffspring = config.metabolism.reproductionEnergyCost;
     this.births.length = 0;
 
@@ -1130,9 +1184,12 @@ class PanthalassaSim implements SimHandleInternal {
       const male = this.mating.findMate(state, slot, this.spatial, rng);
       if (male === NO_SLOT) continue;
 
-      let clutch = rng.poisson(config.mating.clutchLambda);
-      if (costPerOffspring > 0) {
-        const motherBudget = Math.floor((pools.energy[slot] ?? 0) / costPerOffspring);
+      const eggSize = ontogeny ? traitAt(pools, slot, T.offspringSize) : 0;
+      // One draw either way, so the repro stream is identical off the toggle.
+      let clutch = rng.poisson(ontogeny ? traitAt(pools, slot, T.fecundity) : config.mating.clutchLambda);
+      const maternalCostPerOffspring = ontogeny ? clutchInvestment(eggSize, 1, config) : costPerOffspring;
+      if (maternalCostPerOffspring > 0) {
+        const motherBudget = Math.floor((pools.energy[slot] ?? 0) / maternalCostPerOffspring);
         const fatherCost = paternalClutchCost(1, config);
         const fatherBudget =
           fatherCost > 0 ? Math.floor((pools.energy[male] ?? 0) / fatherCost) : Number.POSITIVE_INFINITY;
@@ -1140,7 +1197,13 @@ class PanthalassaSim implements SimHandleInternal {
       }
       if (clutch <= 0) continue;
 
-      pools.energy[slot] = (pools.energy[slot] ?? 0) - maternalClutchCost(clutch, config);
+      // Billed per offspring rather than through `clutchInvestment(size, clutch)`
+      // so the debit is the same arithmetic the affordability test ran; the two
+      // forms differ in the last bit, which is enough to overdraw a mother who
+      // spent her budget exactly.
+      pools.energy[slot] = ontogeny
+        ? (pools.energy[slot] ?? 0) - maternalCostPerOffspring * clutch
+        : (pools.energy[slot] ?? 0) - maternalClutchCost(clutch, config);
       pools.energy[male] = (pools.energy[male] ?? 0) - paternalClutchCost(clutch, config);
       pools.lastMatingTick[slot] = state.tick;
       pools.lastMatingTick[male] = state.tick;
@@ -1218,6 +1281,7 @@ class PanthalassaSim implements SimHandleInternal {
         birthTick: state.tick,
         energy: config.metabolism.birthEnergy,
         emitCladeFounding: true,
+        newborn: true,
       });
 
       this.stats.onBirth(this.ancestryOf(slot, state.tick), this.store.traitsLatent, slot * TRAIT_COUNT);
@@ -1549,6 +1613,10 @@ class PanthalassaSim implements SimHandleInternal {
         birthTick: state.tick - config.time.maturityTicks,
         energy: config.metabolism.birthEnergy,
         emitCladeFounding: true,
+        // An injected mutant arrives at `maturityTicks` — an established adult,
+        // not a hatchling — so P10 measures one allele's fate rather than a
+        // cohort of fry that has to survive a juvenile stage first.
+        newborn: false,
       });
 
       this.stats.onBirth(this.ancestryOf(slot, state.tick), this.store.traitsLatent, slot * TRAIT_COUNT);

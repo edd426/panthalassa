@@ -1163,7 +1163,12 @@ describe('mating', () => {
     writeTrait(female, 'prefTarget', 200);
     writeTrait(female, 'choosiness', 1.25);
     writeTrait(male, 'displayHue', 245);
+    // Body length is two quantities since G2: the `size` trait is the genetic
+    // target and `sizeCurrent` is how long he actually is. The condition term
+    // divides by his storage ceiling, which is set by the latter, so the
+    // fixture writes both to keep meaning "a 10 cm male".
     writeTrait(male, 'size', 10);
+    pools.sizeCurrent[male] = 10;
     pools.energy[male] = 13.2;
 
     const sigma = config.mating.prefSigmaBaseDeg / (config.mating.choosinessScale * 1.25);
@@ -1192,6 +1197,8 @@ describe('mating', () => {
     pools.traits[0 * TRAIT_COUNT + TRAIT_INDEX.choosiness] = 4;
     pools.traits[1 * TRAIT_COUNT + TRAIT_INDEX.displayHue] = 20;
     pools.traits[1 * TRAIT_COUNT + TRAIT_INDEX.size] = 10;
+    // See above: realised length is what the storage ceiling reads (G2).
+    pools.sizeCurrent[1] = 10;
     pools.energy[1] = 22;
 
     const mating = createMating();

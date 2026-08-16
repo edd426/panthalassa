@@ -44,6 +44,21 @@ export function applyFeeding(
   slot: SlotIndex,
   rng: RandomSource,
 ): number {
+  // Recorded for the growth stage, which spends what is left of this tick's
+  // intake after the metabolic burn. Assignment, not accumulation: feeding runs
+  // over every live slot before any other intake stage, so this is where the
+  // tick's tally starts and a recycled slot cannot inherit one.
+  const gained = grazeAndScavenge(runtime, state, slot, rng);
+  runtime.tickIntake[slot] = gained;
+  return gained;
+}
+
+function grazeAndScavenge(
+  runtime: EcologyRuntime,
+  state: SimState,
+  slot: SlotIndex,
+  rng: RandomSource,
+): number {
   const pop = state.pop;
   const x = pop.x[slot] ?? 0;
   const y = pop.y[slot] ?? 0;

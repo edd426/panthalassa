@@ -22,12 +22,12 @@ import { predationKillProbability } from '../../contracts/formulas';
 import { HUE_PERIOD_DEG } from '../../contracts/traits';
 import type { RandomSource, SimState, SlotIndex } from '../../contracts/types';
 import { NO_SLOT } from '../../contracts/types';
+import { sizeCurrentColumn } from '../organisms';
 import {
   T_ATTACK,
   T_DEFENSE,
   T_DISPLAY_HUE,
   T_FORAGE_BOLDNESS,
-  T_SIZE,
   T_SPEED_CAP,
   trait,
 } from './columns';
@@ -148,7 +148,10 @@ export function tryPredation(
 
   if ((pop.gutFill[slot] ?? 0) > 0) return;
 
-  const size = trait(traits, slot, T_SIZE);
+  // Realised length on both sides of the kernel: the size window is about the
+  // bodies in the water, and juveniles are what put prey inside it.
+  const lengths = sizeCurrentColumn(pop);
+  const size = lengths[slot] ?? 0;
   if (size <= 0) return;
 
   ensureOrganismCache(runtime, state, slot);
@@ -171,6 +174,12 @@ export function tryPredation(
   const attack = trait(traits, slot, T_ATTACK);
   const speed = trait(traits, slot, T_SPEED_CAP);
   const preyYield = runtime.memoPreyYield[slot] ?? 0;
+  // Cannibalism is not banned — the kernel never checked species — it is
+  // priced. `growth.conspecificLogit` (negative) is added to the kill logit
+  // when predator and victim carry the same tag, which is the whole mechanism:
+  // eating your own recruitment stays possible and stays expensive.
+  const conspecificOdds = config.toggles.enableOntogeny ? Math.exp(config.growth.conspecificLogit) : 1;
+  const predatorTag = pop.speciesTag[slot] ?? 0;
 
   for (let index = 0; index < found; index += 1) {
     const victim = neighbors[index] ?? NO_SLOT;
@@ -178,7 +187,7 @@ export function tryPredation(
 
     const victimX = pop.x[victim] ?? 0;
     const victimY = pop.y[victim] ?? 0;
-    const victimSize = trait(traits, victim, T_SIZE);
+    const victimSize = lengths[victim] ?? 0;
 
     // A bold forager spends its time in open water, so the kelp it is nominally
     // standing in shelters it less. This is the cost side of `forageBoldness`.
@@ -186,7 +195,7 @@ export function tryPredation(
       kelpCoverAt(runtime, state, victimX, victimY) / Math.exp(trait(traits, victim, T_FORAGE_BOLDNESS));
     const cover = Math.min(config.resources.kelpCoverMax, shelter);
 
-    const probability = predationKillProbability(
+    let probability = predationKillProbability(
       attack,
       trait(traits, victim, T_DEFENSE),
       size,
@@ -198,10 +207,26 @@ export function tryPredation(
       config,
     );
 
+    // Adding the conspecific logit as an odds multiplier on the frozen kernel's
+    // output, rather than reimplementing the sum, keeps `formulas.ts` the single
+    // source of the probability. Written so p = 1 stays 1 instead of dividing by
+    // a zero complement.
+    if (conspecificOdds !== 1 && (pop.speciesTag[victim] ?? 0) === predatorTag) {
+      const scaled = probability * conspecificOdds;
+      probability = scaled / (1 - probability + scaled);
+    }
+
     if (!rng.chance(probability)) continue;
 
     const yielded = config.predation.energyPerPreySize * Math.max(0, victimSize) * preyYield;
     kills.push(slot, victim, yielded);
+    // Counted as intake for this tick's growth surplus even though the engine
+    // credits the energy when it drains the sink (after the metabolism stage):
+    // a pure carnivore's calories arrive here and nowhere else, and a predator
+    // that could not grow could never reach its target length. The growth spend
+    // is bounded by the energy actually on hand, so a kill the engine later
+    // ignores — a victim another predator claimed first — cannot mint any.
+    runtime.tickIntake[slot] = (runtime.tickIntake[slot] ?? 0) + yielded;
     // The predator's own satiation store; the engine credits the energy when it
     // drains the sink, but the handling time starts now.
     pop.gutFill[slot] = (pop.gutFill[slot] ?? 0) + yielded;

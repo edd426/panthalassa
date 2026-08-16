@@ -134,6 +134,15 @@ export interface EcologyRuntime {
   /** Metabolic cost keyed by quantised speed fraction; policies use a small fixed menu of speeds. */
   memoCostKey: Float32Array;
   memoCostValue: Float32Array;
+  /**
+   * Energy taken in by each organism during *this* tick — grazing and scavenging
+   * from `applyFeeding`, plus the yield of a kill claimed in `tryPredation`.
+   * Somatic growth spends the surplus over the tick's metabolic burn, and both
+   * intake stages run before `metabolismAndHazards` in every tick, so this never
+   * crosses a tick boundary and therefore never needs to survive a snapshot.
+   * Written unconditionally; read only when `toggles.enableOntogeny`.
+   */
+  tickIntake: Float32Array;
 }
 
 /**
@@ -229,6 +238,7 @@ function buildRuntime(state: SimState): EcologyRuntime {
     memoThermalTax: new Float32Array(capacity),
     memoCostKey: new Float32Array(capacity).fill(Number.NaN),
     memoCostValue: new Float32Array(capacity),
+    tickIntake: new Float32Array(capacity),
   };
 
   buildStaticFields(runtime, rng);
