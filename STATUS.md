@@ -37,15 +37,23 @@ statistic, signal costs/benefits, invention events; probe re-run exit 0;
 record in DESIGN.md "G3 — aposematism lands" (headline: the bootstrap
 fires inside 45 generations on 2/3 seeds — toxicity to 1.33, conspicuous-
 ness to +1.69). Contracts v1.8 landed (slice 15→17: lifeStage +
-conspicuousness). **G4 (probes/stats) and G5 (render) are running in
-parallel** (briefs/g4-probes-stats.md, briefs/g5-render-ontogeny.md;
-disjoint file sets, both told of the other) — orchestrator re-runs both
-probes before commit. G4's centerpiece is P3-as-biomass, answering the
-standing G0-run s3 gate red. Still owed: R5 glass review + now G5 glass
-review (user around today; trends-scroll fix 4f54b9d). Then G6 (tuning
-campaign: cliff-screen every knob, dose batches, sizeRatioOptimum/
-baseLogit pair, P19 9-seed base-rate panel, G-B last; wave ends with a
-fresh-seed P1 panel per the D5 lesson).
+conspicuousness). **G4 AND G5 BOTH LANDED (2731382, afdda35) — Wave 1's implementation
+phase is CLOSED.** All five packages (G0/G1/G2/G3 + G4/G5) committed,
+every acceptance probe re-run by the orchestrator, tree clean. P3 is now
+a biomass gate ([4000, 62000] cm, 2%-drop tolerance — derivations
+independently re-computed and reproduced exactly); the standing G0-run s3
+red resolves as the headcount artifact. Records: DESIGN.md "G4 + G5
+land". **A spec-length probe:full is running detached**
+(runs/full-gwave-impl.log, pid 18698, own pgid, persistent Monitor armed;
+FULL_SCENARIOS now includes the ontogeny and aposematism arms, so this
+run is both the restated-P3 confirmation at spec length AND G6's
+reference data). NEXT: adjudicate it, then the **G6 tuning campaign**
+(orchestrator-run: cliff-screen every knob 45g×3s, G-A dose batches,
+sizeRatioOptimum/baseLogit pair, P19+P10 9-seed base-rate panels, G-B
+last, biomass band re-derivation before ontogeny defaults on; wave ends
+with a fresh-seed P1 panel). Glass reviews owed at next display
+availability: R5 morphology divergence + G5 juveniles/signals (needs
+?ontogeny=1&aposematism=1 URL flags; default URL renders as R5).
 
 **TASK #18 IS DECIDED AND PHASE B IS GO (2026-08-15).** The user chose the
 recommended lever: `carrion.maxIntake` 0.7 → 0.5 is committed as the default
