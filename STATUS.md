@@ -47,10 +47,18 @@ with the Fst chart climbing → wall dropped at gen 100 (gif:
 un-hangable renderer boot (timeout + webgl retry + loud fallback), and the
 production-only TLA deadlock — pixi.js now lives in its own Rollup chunk
 (`vite.config.ts`); the prod bundle never booted Pixi before this. 491
-tests. Still pending tonight: the maxIntake-0.5 spec-run adjudication when
-`runs/full-maxintake05.log` lands (~02:45; watcher armed). The renderer
-soak is opportunistic only — Chrome throttles occluded windows, so tick
-counts, not wall-clock, measure what it actually exercised.
+tests. The renderer soak is opportunistic only — Chrome throttles occluded
+windows, so tick counts, not wall-clock, measure what it actually exercised.
+
+**THE SPEC RUN IS ADJUDICATED (2026-08-16 ~03:15): the lever stands.**
+Suite WARN, zero FAILs — P3 green on all seeds, P7 in-band on all seeds,
+P16 0/3 (inconclusive vs the ~1/8 base rate; the campaign still needs a
+panel). New watch-item: P4 variance decay on s1/s2 in the cooled world.
+Full record: DESIGN.md "The maxIntake lever at spec length — adjudicated".
+Next sim work: the predation-pays campaign (P7 share up, P16 base rate as
+the metric, P4 decay as a coupled watch-item) — and the user's morning
+review of `briefs/g-wave-design.md`, whose Wave 1 likely subsumes parts of
+that campaign.
 
 The paragraph below is the pre-decision state, kept for context:
 

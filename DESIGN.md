@@ -1164,6 +1164,35 @@ raise prey-capture payoff, or let carrion decay faster), measured against
 P7's predation share at spec length — that, not the shock machinery, is now
 the predator-persistence problem's centre.
 
+### The maxIntake lever at spec length — adjudicated (2026-08-16, ~03:15)
+
+`runs/full-maxintake05.log` (started 18:45, ~8.5 h): **suite WARN, zero
+FAILs.** The verdicts against the pre-lever reference
+(`runs/full-postfix2.log`):
+
+- **P3 is GREEN at spec length on all three seeds** (1.00 / 0.995 / 1.00
+  against ≥0.99) — the red that motivated the lever is fixed; no seed rides
+  the slot cap, no births dropped. The lever did its job.
+- **P7 predation share is in-band on all three seeds** (8.5 / 7.6 / 9.6%
+  against [5, 70]) — up from the 4–7% that triggered the D5 "scavenging as
+  terminal strategy" finding. Hunting is legal again, though barely; the
+  predation-pays campaign is still worth running.
+- **P16 re-ignition: 0/3, inconclusive and unmoved.** s3 reached 0.411 with
+  partial signals, s1 negative, s2 flat. Given the measured ~1/8 base rate,
+  0/3 has probability ≈ 0.67 under no-change — this neither shows the halved
+  scavenging depressed re-ignition nor that it helped. The D5 ruling stands:
+  the base rate is the campaign metric, and it needs a panel, not 3 seeds.
+- **New watch-item: P4 variance decay on s1/s2** (0.118 / 0.169 against a
+  0.25 floor; s3 3.49). The D-wave regime previously pumped variance
+  (variance-growth flip in the D5 record); the cooled world erodes it on two
+  seeds — plausibly smaller populations drifting harder now the carrion
+  subsidy is halved. Candidate coupling for the predation-pays campaign, not
+  a reason to revisit the lever.
+- Rest of the suite in line with history: P5 4.0×3 PASS, P9 1/3 (s2 0.992),
+  P15 pooled PASS, P11 0×3 (unchanged), P12 9.01e5 PASS on a busy machine.
+
+**Ruling: `carrion.maxIntake = 0.5` stands as the default.**
+
 ### The maxIntake lever lands (2026-08-15, task #18 decided)
 
 The user chose `carrion.maxIntake` 0.7 → 0.5 — the only screened lever that
