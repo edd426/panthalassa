@@ -72,9 +72,11 @@ export function karyotypeToSex(karyotype: Karyotype): Sex {
  * channels to carry between 5% and 70% of deaths — `catastrophe` is excluded
  * from that mix, because it is the user's hand, not selection.
  */
-export type DeathCause = 'starvation' | 'predation' | 'temperature' | 'senescence' | 'catastrophe';
+export type DeathCause = 'starvation' | 'predation' | 'temperature' | 'senescence' | 'catastrophe' | 'toxin';
 
-export const DEATH_CAUSES = ['starvation', 'predation', 'temperature', 'senescence', 'catastrophe'] as const satisfies readonly DeathCause[];
+// 'toxin' (v1.7.2): a predator killed by eating a toxic victim (G-B). Appended
+// last — recorder JSONL keys and the snapshot digest walk this list in order.
+export const DEATH_CAUSES = ['starvation', 'predation', 'temperature', 'senescence', 'catastrophe', 'toxin'] as const satisfies readonly DeathCause[];
 
 /** xoshiro128** state; see `src/sim/rng.ts`. Declared here so contracts stay dependency-free. */
 export type RngState = [number, number, number, number];

@@ -223,6 +223,7 @@ const CAUSE_CODE: Readonly<Record<DeathCause, number>> = Object.freeze({
   temperature: 2,
   senescence: 3,
   catastrophe: 4,
+  toxin: 5,
 });
 
 const NO_CAUSE = -1;

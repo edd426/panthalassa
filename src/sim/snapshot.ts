@@ -208,7 +208,13 @@ export function computeStateHash(state: SimState, store: OrganismStore): string 
     }
   }
 
-  for (const cause of DEATH_CAUSES) hasher.number(state.deathCounts[cause]);
+  for (const cause of DEATH_CAUSES) {
+    // Same mechanism-gated exception as the carrion field and the ontogeny
+    // columns: 'toxin' deaths exist only on the aposematism arm, and folding
+    // the constant 0 into the off-arm digest would move the golden hash.
+    if (cause === 'toxin' && !state.config.toggles.enableAposematism) continue;
+    hasher.number(state.deathCounts[cause]);
+  }
 
   return hasher.digest();
 }

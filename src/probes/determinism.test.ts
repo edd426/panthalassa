@@ -784,7 +784,7 @@ class StubStats implements StatsApi {
     deaths: 0,
     matings: 0,
     events: 0,
-    byCause: { starvation: 0, predation: 0, temperature: 0, senescence: 0, catastrophe: 0 },
+    byCause: { starvation: 0, predation: 0, temperature: 0, senescence: 0, catastrophe: 0, toxin: 0 },
     bornIds: [],
     diedIds: new Set<OrganismId>(),
     bornIdSet: new Set<OrganismId>(),

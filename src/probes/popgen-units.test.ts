@@ -129,7 +129,7 @@ function makeState(config: SimConfig, capacity: number, tick = 0): SimState {
     disturbance: { thermal: [], planktonCrashes: [], kelpStorms: [] },
     barriers: { cols: 1, rows: 1, cellSizeWu: config.world.widthWu, mask: new Uint8Array(1), specs: [] },
     events: [],
-    deathCounts: { starvation: 0, predation: 0, temperature: 0, senescence: 0, catastrophe: 0 },
+    deathCounts: { starvation: 0, predation: 0, temperature: 0, senescence: 0, catastrophe: 0, toxin: 0 },
     matingCount: 0,
     crossSpeciesMatingCount: 0,
   };

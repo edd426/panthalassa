@@ -86,6 +86,7 @@ const LOSS_ABBREVIATION: Readonly<Record<DeathCause, string>> = {
   temperature: 'therm',
   senescence: 'age',
   catastrophe: 'cat',
+  toxin: 'tox',
 };
 
 const SEX_GLYPH = { female: '♀', male: '♂' } as const;
