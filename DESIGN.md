@@ -1419,3 +1419,40 @@ discount is cashed out: G1's real cost is ~2–3% — 136-allele meiosis and
 23-trait phenotype loops. WARN tier, no ratchet action; the wave design
 already lists P12 among the probes G-A disturbs, and G6 owns the recovery
 if ontogeny's extra work pushes it further.
+
+### G2 — ontogeny lands: juveniles, growth, priced cannibalism (2026-08-16 afternoon)
+
+Built by an Opus agent against `briefs/g2-ontogeny.md`; acceptance probe
+re-run by the orchestrator, exit 0 (556 tests; cliff 3 seeds × 45
+generations: populations 709–1192, juvenile fraction 0.305–0.362,
+realised-length CV 0.45–0.52, range 0.49–54.6 cm, zero dropped births).
+Golden hash untouched — the off arm is inert by construction: `sizeCurrent`
+is written at birth from the same float32 the trait column holds, the
+Poisson clutch draw happens once on both arms, and the hash folds the new
+column in only when the toggle is on (the carrion-field pattern).
+
+Decisions the brief left open, as resolved (full rationale in the G2 report):
+surplus = tick intake minus burn via a tick-local `runtime.tickIntake` that
+never crosses a snapshot; a claimed kill counts as intake in the same tick
+(else pure carnivores can never grow) with the spend bounded by energy on
+hand; hatchlings express their *own* `offspringSize`; birth reserve scales
+by `(offspringSize/baseline)^provisionExponent`, mean-preserving at the
+baseline; provisioning replaces the maternal flat cost, the paternal share
+stays flat (anisogamy knob preserved); cannibalism is an odds multiplier on
+the frozen kernel's output so `formulas.ts` stays the single source.
+
+Contract follow-ups landed by the orchestrator the same hour: **v1.7.1**
+(`sizeCurrent` joins `OrganismPools` — closes the report's gap 1, removes a
+hot-path cast, unblocks `SampleRow.lifeHistory` for G4) and **v1.7.2**
+(`'toxin'` death cause for G-B, digest-gated off-arm).
+
+Carried to G6 from the report's measurements: (1) `metabolism.birthEnergy` 8
+exceeds a baseline hatchling's storage ceiling 5.5, so the provisioning
+ratio only bites above baseline; (2) with one founding species tag the
+conspecific penalty damps *all* predation until the detector splits species
+— measured 20-generation predation death-share 0.78 → 0.34–0.39 with the
+axis on (0.60 with the logit zeroed), starvation up from ~0.07 to ~0.40.
+Not a defect — every endogenous channel stays in [0.05, 0.70] — but it is
+the first knob G6 should look at if the on-arm death mix reads starved.
+Carried to G4: stats report only target `size`; realised length needs its
+own series (the design says the recorder must report both).
