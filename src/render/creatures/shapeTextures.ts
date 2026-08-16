@@ -326,6 +326,11 @@ function bakeParams(archetype: CladeArchetype, phase: number, pulsePhase: number
     armorPlating: archetype === 'armoredCrawler' ? 1.15 : 0.35,
     headForm: 0,
     spination: 0,
+    // Every bake is an adult. A juvenile bucket would double the flipbook set
+    // (144 → 288 frames, ≈30 MB of VRAM) to buy a fin-length difference that is
+    // sub-pixel on a 10–40 px sprite; the mid tier reads a juvenile through its
+    // length and its translucency instead, which cost no textures at all.
+    juvenile: 0,
     patternFamily: 'none',
     patternPhase: 0.5,
     phase,

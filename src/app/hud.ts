@@ -25,6 +25,9 @@ import type { OrganismDump } from '../contracts/protocol';
 import { TRAIT_KEYS, TRAIT_META } from '../contracts/traits';
 import type { DeathCause } from '../contracts/types';
 import { DEATH_CAUSES } from '../contracts/types';
+// The same mapping the renderer paints with, so the word this panel prints for
+// a signal and the saturation on screen can never disagree.
+import { conspicuousnessSignal } from '../render/contracts';
 import type { ColourLegend, FieldOverlay } from './crudeRenderer';
 
 /**
@@ -39,6 +42,22 @@ export interface ExtinctionNotice {
   readonly deaths: Readonly<Record<DeathCause, number>>;
   /** Whole seconds until an automatic reseed, or null once the countdown is cancelled. */
   readonly autoRestartInSeconds: number | null;
+}
+
+/**
+ * What the sample slice knows about the inspected organism and the selection
+ * dump does not: whether it has matured, and how long it actually is.
+ *
+ * These ride the slice rather than `OrganismDump` because they are per-tick
+ * state (`sizeCurrent` and the maturity test), and the dump is a genome-and-
+ * pedigree document. `main.ts` looks the organism's slot up in the slice it is
+ * already holding, so no extra worker round trip is spent on them.
+ */
+export interface SpecimenStage {
+  /** 1 mature, 0 juvenile. */
+  readonly lifeStage: number;
+  /** Realised body length, cm — against the dump's `size` trait, which is the target. */
+  readonly realisedLengthCm: number;
 }
 
 export interface HudModel {
@@ -238,6 +257,7 @@ export class Hud {
   private readonly catalogueField = new Field();
   private readonly specimenSubField = new Field();
   private readonly recordField = new Field();
+  private readonly lifeField = new Field();
   private readonly traitsField = new Field();
   private readonly quantField = new Field();
   private readonly discreteField = new Field();
@@ -355,6 +375,17 @@ export class Hud {
       specimenSub,
       span('rule'),
       this.section('observation', this.recordField, null),
+      span('rule'),
+      // Above morphometry on purpose. These three readings are the ones the
+      // world view cannot answer — a juvenile is only *small* on screen, and
+      // toxicity is deliberately absent from the slice so the watcher has to
+      // infer it the way the predators do. Buried at row 22 of the trait table
+      // they would be findable but never found.
+      this.section(
+        'life history & chemistry · toxicity is not on the world view — the eye has to infer it',
+        this.lifeField,
+        null,
+      ),
       span('rule'),
       this.section(
         'morphometry',
@@ -487,7 +518,7 @@ export class Hud {
     if (this.banner.hidden) this.banner.hidden = false;
   }
 
-  showSelection(dump: OrganismDump | null): void {
+  showSelection(dump: OrganismDump | null, stage: SpecimenStage | null = null): void {
     if (dump === null) {
       this.panelBody.hidden = true;
       this.panelEmpty.hidden = false;
@@ -503,6 +534,7 @@ export class Hud {
       `${SEX_GLYPH[dump.sex]} ${dump.sex} (${dump.karyotype}) · ${dump.archetype} · species ${dump.speciesTag} · clade ${dump.cladeId} · deme ${dump.deme}`,
     );
     this.recordField.set(formatRecord(dump));
+    this.lifeField.set(formatLifeAndChemistry(dump, stage));
     this.traitsField.set(formatTraits(dump));
     this.quantField.set(formatQuantLoci(dump));
     this.discreteField.set(formatDiscreteLoci(dump));
@@ -560,6 +592,51 @@ function formatRecord(dump: OrganismDump): string {
     `${pad('energy', 11)}${fixed(dump.energy, 2)} / ${fixed(dump.energyCapacity, 2)}`,
     `${pad('station', 11)}${fixed(dump.x, 1)}, ${fixed(dump.y, 1)}`,
     `${pad('parents', 11)}${SEX_GLYPH.female} ${dump.motherId}   ${SEX_GLYPH.male} ${dump.fatherId}`,
+  ].join('\n');
+}
+
+function signed(value: number, digits: number): string {
+  if (!Number.isFinite(value)) return '—';
+  return `${value >= 0 ? '+' : ''}${value.toFixed(digits)}`;
+}
+
+/**
+ * How the drawn signal reads, in the renderer's own terms.
+ *
+ * Printed next to the number because the number alone does not say what the
+ * watcher is looking at: `conspicuousness` is identity-linked and centred on 0,
+ * so the sign is the whole story and the label names which way the saturation
+ * went. The band matches the point where the mapping stops being a visible
+ * change rather than being a round number.
+ */
+function signalWord(conspicuousness: number): string {
+  const signal = conspicuousnessSignal(conspicuousness);
+  if (Math.abs(signal) < 0.12) return 'at the baseline';
+  return signal > 0 ? 'loud — drawn saturated' : 'cryptic — drawn toward the water';
+}
+
+/**
+ * The three readings the world view cannot give: stage, toxin load, signal.
+ *
+ * `stage` needs the slice, and the slice is not always there — a click that
+ * lands before the first one, or on an animal that has since died, prints an
+ * em dash rather than guessing a stage. Toxicity and conspicuousness come off
+ * the dump's expressed vector, so they are exact.
+ */
+function formatLifeAndChemistry(dump: OrganismDump, stage: SpecimenStage | null): string {
+  const target = dump.traits.size;
+  const stageLine =
+    stage === null
+      ? '—  (no sample slice for this organism)'
+      : // "immature" rather than "juvenile": the flag is `isMature`, which with
+        // ontogeny off is the age test alone, and an animal can be at its full
+        // target length and still not have bred. The two lengths beside it say
+        // which of the two floors it is short of.
+        `${stage.lifeStage < 0.5 ? 'immature' : 'mature'} · ${fixed(stage.realisedLengthCm, 1)} cm realised of ${fixed(target, 1)} cm target`;
+  return [
+    `${pad('stage', 11)}${stageLine}`,
+    `${pad('toxicity', 11)}${padStart(fixed(dump.traits.toxicity, 3), 8)}   ${meter(dump.traitPercentiles.toxicity)}`,
+    `${pad('signal', 11)}${padStart(signed(dump.traits.conspicuousness, 3), 8)}   ${meter(dump.traitPercentiles.conspicuousness)}   ${signalWord(dump.traits.conspicuousness)}`,
   ].join('\n');
 }
 

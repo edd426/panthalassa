@@ -25,12 +25,15 @@ import {
   percentileSpan,
   rampTintAt,
   resolveColours,
+  signalTint,
   speciesHueDeg,
   speciesRingTint,
 } from './colourMap';
 import type { FieldRaster, SliceView } from './contracts';
 
 const CONFIG = resolveSimConfig({});
+/** The G-B arm. `conspicuousness` only reaches a tint in a world that reads it. */
+const SIGNAL_CONFIG = resolveSimConfig({ toggles: { enableAposematism: true } });
 const THERMAL_REFERENCE_C = Math.max(0.5, CONFIG.thermal.referenceWidthC);
 
 function toInt(hex: string): number {
@@ -61,6 +64,7 @@ interface Row {
   y?: number;
   hue?: number;
   energy?: number;
+  conspicuousness?: number;
 }
 
 function makeSlice(rows: readonly Row[], traitValues?: readonly number[]): SliceView {
@@ -74,6 +78,7 @@ function makeSlice(rows: readonly Row[], traitValues?: readonly number[]): Slice
     buffer[base + SAMPLE_SLICE.size] = 12;
     buffer[base + SAMPLE_SLICE.speciesTag] = 1;
     buffer[base + SAMPLE_SLICE.energyFraction] = row.energy ?? 1;
+    buffer[base + SAMPLE_SLICE.conspicuousness] = row.conspicuousness ?? 0;
   });
   if (traitValues === undefined) return { count: rows.length, buffer };
   return { count: rows.length, buffer, traitValues: Float32Array.from(traitValues), traitKey: 'speedCap' };
@@ -311,6 +316,110 @@ describe('legibility on the abyss', () => {
     const now = contrast(composite(map.tints[0] ?? 0, ABYSS, map.alphas[0] ?? 0), ABYSS);
     const before = contrast(composite(toInt(SEQUENTIAL_AMBER[0] ?? '#000000'), ABYSS, ALPHA_FLOOR), ABYSS);
     expect(now).toBeGreaterThan(before * 1.5);
+  });
+});
+
+describe('conspicuousness → saturation and contrast', () => {
+  const ABYSS = 0x03151d;
+
+  function chroma(tint: number): number {
+    const r = (tint >> 16) & 255;
+    const g = (tint >> 8) & 255;
+    const b = tint & 255;
+    return Math.max(r, g, b) - Math.min(r, g, b);
+  }
+
+  function distanceToWater(tint: number): number {
+    const channel = (shift: number): number => ((tint >> shift) & 255) - ((ABYSS >> shift) & 255);
+    return Math.hypot(channel(16), channel(8), channel(0));
+  }
+
+  it('leaves an animal at the baseline pixel-identical', () => {
+    // The centring guarantee, asserted as integer equality rather than as a
+    // closeness: the off arm and every pre-G-wave world sit at conspicuousness
+    // 0, and they have to keep rendering as the colour they always did.
+    for (const hue of [0, 47, 118, 203, 299, 358]) {
+      expect(signalTint(identityTint(hue), 0)).toBe(identityTint(hue));
+    }
+    const map = createColourMap(8);
+    resolveColours(map, makeSlice([{ hue: 200, conspicuousness: 0 }]), 'identity', null, SIGNAL_CONFIG);
+    expect(map.tints[0]).toBe(identityTint(200));
+  });
+
+  it('paints nothing at all in a world with the aposematism axis off', () => {
+    // Measured on a default (off-arm) run: conspicuousness still carries ≈0.29
+    // SD of standing genetic variance, spanning ±1. Nothing in that sim reads
+    // it, so tinting by it would show the watcher a signal axis the world does
+    // not have — and would break the off-arm picture for every animal at once.
+    const rows = [
+      { hue: 200, conspicuousness: -1 },
+      { hue: 200, conspicuousness: 0 },
+      { hue: 200, conspicuousness: 1 },
+    ];
+    const map = createColourMap(8);
+    resolveColours(map, makeSlice(rows), 'identity', null, CONFIG);
+    expect([map.tints[0], map.tints[1], map.tints[2]]).toEqual([
+      identityTint(200),
+      identityTint(200),
+      identityTint(200),
+    ]);
+  });
+
+  it('is monotone in the signal, both ways from the baseline', () => {
+    const base = identityTint(200);
+    let previousChroma = -1;
+    let previousDistance = -1;
+    for (let signal = -0.99; signal <= 0.99; signal += 0.03) {
+      const tint = signalTint(base, signal);
+      // Loud is more of the animal's own colour; cryptic is less of it and
+      // closer to the water. Both are monotone, so drawn order is signal order.
+      expect(chroma(tint)).toBeGreaterThanOrEqual(previousChroma);
+      expect(distanceToWater(tint)).toBeGreaterThanOrEqual(previousDistance - 1);
+      previousChroma = chroma(tint);
+      previousDistance = distanceToWater(tint);
+    }
+  });
+
+  it('makes a loud animal more saturated and a cryptic one duller and closer to the water', () => {
+    const base = identityTint(200);
+    const loud = signalTint(base, 1);
+    const cryptic = signalTint(base, -1);
+    expect(chroma(loud)).toBeGreaterThan(chroma(base));
+    expect(chroma(cryptic)).toBeLessThan(chroma(base) * 0.5);
+    expect(distanceToWater(cryptic)).toBeLessThan(distanceToWater(base));
+    expect(relativeLuminance(loud)).toBeGreaterThan(relativeLuminance(base));
+  });
+
+  it('leaves a fully cryptic animal countable against the abyss', () => {
+    // The pull toward the water is the only thing bounding this, so the bound
+    // is asserted where a reader will look for it. Below 2:1 and the mark is
+    // one the watcher cannot count, which is the failure palette.ts exists to
+    // prevent.
+    const cryptic = signalTint(identityTint(200), -1);
+    const a = relativeLuminance(cryptic);
+    const b = relativeLuminance(ABYSS);
+    expect((Math.max(a, b) + 0.05) / (Math.min(a, b) + 0.05)).toBeGreaterThan(2);
+  });
+
+  it('reaches identity tints and leaves every measuring ramp alone', () => {
+    // A measurement ramp stands on ΔL ≥ 0.06 between adjacent steps; a cryptic
+    // animal costs ≈0.13, so two animals with the same trait value would read
+    // as two different values. The signal is carried by the near-tier glow in
+    // those modes instead.
+    const rows = [
+      { hue: 200, conspicuousness: -2.5 },
+      { hue: 200, conspicuousness: 0 },
+      { hue: 200, conspicuousness: 2.5 },
+    ];
+    const identity = createColourMap(8);
+    resolveColours(identity, makeSlice(rows), 'identity', null, SIGNAL_CONFIG);
+    expect(new Set([identity.tints[0], identity.tints[1], identity.tints[2]]).size).toBe(3);
+
+    for (const mode of ['speedCap', 'defense', 'energy'] as const) {
+      const map = createColourMap(8);
+      resolveColours(map, makeSlice(rows, [1, 1, 1]), mode, null, SIGNAL_CONFIG);
+      expect(new Set([map.tints[0], map.tints[1], map.tints[2]]).size).toBe(1);
+    }
   });
 });
 

@@ -44,9 +44,9 @@ import type {
   RenderLayer,
   WorldRenderer,
 } from './contracts';
-
-/** The abyss the sea is drawn on; matches the page background in `index.html`. */
-const ABYSS_COLOUR = 0x03151d;
+// The ground the creature tints are read against, so `colourMap` can pull a
+// cryptic animal toward the same water the shell clears the frame to.
+import { ABYSS_COLOUR } from './contracts';
 
 /** Events handed to the layers in one frame. A meteor can queue hundreds; flourishes cannot. */
 const MAX_EVENTS_PER_FRAME = 32;
@@ -106,6 +106,8 @@ interface MutableFrameContext {
   selected: { readonly x: number; readonly y: number } | null;
   paused: boolean;
   speedMultiplier: number;
+  ontogeny: boolean;
+  aposematism: boolean;
 }
 
 function wantsCrudeRenderer(): boolean {
@@ -407,6 +409,8 @@ class PixiWorldRenderer implements WorldRenderer {
       selected: null,
       paused: false,
       speedMultiplier: 1,
+      ontogeny: false,
+      aposematism: false,
     };
 
     const mount: MountContext = {
@@ -491,6 +495,11 @@ class PixiWorldRenderer implements WorldRenderer {
     context.selected = frame.selected;
     context.paused = paused;
     context.speedMultiplier = watchSpeed;
+    // Read per frame rather than at mount: this is the one place that owns the
+    // config, and a layer that cached it would keep drawing the old world after
+    // a tuning swap.
+    context.ontogeny = this.config.toggles.enableOntogeny;
+    context.aposematism = this.config.toggles.enableAposematism;
     this.drainEvents();
 
     this.applyCamera(camera);

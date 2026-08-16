@@ -13,7 +13,7 @@
  * clicked; everything else lives behind the worker protocol.
  */
 
-import { SPEED_MULTIPLIERS } from '../contracts/protocol';
+import { SAMPLE_SLICE, SAMPLE_SLICE_STRIDE, SPEED_MULTIPLIERS } from '../contracts/protocol';
 import type {
   ErrorMessage,
   EventsMessage,
@@ -32,6 +32,7 @@ import { createRenderer, rendererKind } from '../render/renderer';
 import { TrendCharts, appendTrendRow, createTrendSeries, resetTrendSeries } from './charts';
 import { GodTools } from './godTools';
 import { Hud, describeEvent } from './hud';
+import type { SpecimenStage } from './hud';
 import { createTrends } from './trends';
 import { SimClient } from './workerClient';
 
@@ -92,7 +93,39 @@ declare global {
   }
 }
 
-const overrides: SimConfigOverrides = {};
+/**
+ * Mechanism axes the URL asks for: `?ontogeny=1`, `?aposematism=1`.
+ *
+ * The G-wave axes are off in the authored defaults, and the app has no button
+ * for them — so without this there is no way to *look* at a world that is
+ * running them, which is the only way the juvenile and signal treatments can be
+ * reviewed at all. Query flags rather than a changed default, because the
+ * defaults are the probe suite's and not this file's to move.
+ *
+ * It has to happen here rather than through a `setToggle` command: the renderer
+ * reads these same toggles to decide whether to draw the two channels, and its
+ * config is this object. A toggle flipped in the worker mid-run would leave the
+ * picture describing the world the page was opened with.
+ */
+function requestedAxes(): SimConfigOverrides {
+  let params: URLSearchParams;
+  try {
+    params = new URLSearchParams(window.location.search);
+  } catch {
+    return {};
+  }
+  const ontogeny = params.get('ontogeny') === '1';
+  const aposematism = params.get('aposematism') === '1';
+  if (!ontogeny && !aposematism) return {};
+  return {
+    toggles: {
+      ...(ontogeny ? { enableOntogeny: true } : {}),
+      ...(aposematism ? { enableAposematism: true } : {}),
+    },
+  };
+}
+
+const overrides: SimConfigOverrides = requestedAxes();
 const config = resolveSimConfig(overrides);
 
 function requireElement<T extends Element>(id: string, kind: new () => T): T {
@@ -517,10 +550,36 @@ canvas.addEventListener('click', (event: MouseEvent) => {
     .then((organism) => {
       selection = organism;
       console.log('[panthalassa] selection', organism);
-      hud.showSelection(organism);
+      hud.showSelection(organism, organism === null ? null : stageOf(organism.slot));
     })
     .catch(fail);
 });
+
+/**
+ * The inspected organism's maturity and realised length, read out of the slice
+ * the main thread is already holding.
+ *
+ * Slot rather than id, because that is all a slice row carries — and it is
+ * sound only because this runs the moment the dump lands, while the animal is
+ * certainly still alive in the slot it was dumped from. A slot is reused the
+ * tick after its occupant dies, so this must never be re-read later to refresh
+ * a stale panel; the panel is a snapshot of the click, exactly like the halo.
+ */
+function stageOf(slot: number): SpecimenStage | null {
+  const held = slice;
+  if (held === null) return null;
+  const data = held.buffer;
+  const rows = Math.min(held.count, Math.floor(data.length / SAMPLE_SLICE_STRIDE));
+  for (let index = 0; index < rows; index += 1) {
+    const base = index * SAMPLE_SLICE_STRIDE;
+    if (Math.round(data[base + SAMPLE_SLICE.slot] ?? -1) !== slot) continue;
+    return {
+      lifeStage: data[base + SAMPLE_SLICE.lifeStage] ?? 1,
+      realisedLengthCm: data[base + SAMPLE_SLICE.size] ?? 0,
+    };
+  }
+  return null;
+}
 
 function cycleOverlay(): void {
   const next = (FIELD_OVERLAYS.indexOf(overlay) + 1) % FIELD_OVERLAYS.length;
@@ -656,6 +715,13 @@ function startWorld(nextSeed: string): void {
   }
 
   note(`seeding ${nextSeed}…`);
+  // A run with an axis on looks like a different model, so the feed says which
+  // ones are on rather than leaving the difference unexplained.
+  const axes = [
+    ...(config.toggles.enableOntogeny ? ['ontogeny'] : []),
+    ...(config.toggles.enableAposematism ? ['aposematism'] : []),
+  ];
+  if (axes.length > 0) note(`G-wave axes on: ${axes.join(', ')}`);
   // A run on the crude fallback looks like a run with the graphics turned off,
   // so the feed says which renderer is actually drawing and why. Repeated per
   // world because the feed is cleared on reseed.

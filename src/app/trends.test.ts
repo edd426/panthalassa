@@ -43,6 +43,8 @@ interface RowSpec {
   readonly sizeMean?: number;
   readonly sizeSd?: number;
   readonly fstBarrier?: number | null;
+  /** Absent by default: the recorder only fills `lifeHistory` with ontogeny on. */
+  readonly lifeHistory?: TrendRow['lifeHistory'];
 }
 
 function traitSample(mean: number, sd: number): TraitSample {
@@ -76,6 +78,7 @@ function makeRow(spec: RowSpec): TrendRow {
     },
     resources: { planktonTotal: 1000, kelpTotal: 500, meanTemperatureC: 18, climateOffsetC: 0 },
     deaths,
+    ...(spec.lifeHistory === undefined ? {} : { lifeHistory: spec.lifeHistory }),
   };
 }
 
@@ -283,6 +286,51 @@ describe('the store', () => {
     for (const column of store.deaths) expect(column).toHaveLength(length);
     expect(store.species[0]?.counts).toHaveLength(length);
   });
+
+  it('keeps a column for the two axes the world view cannot show', () => {
+    // `SampleRow.traits` carries every trait, not only the focal four, so these
+    // cost nothing to keep — and a chart is the only place toxicity is legible
+    // at all, because it is deliberately absent from the sample slice.
+    const store = createTrendStore(config);
+    ingestTrendRow(store, makeRow({ generation: 1 }));
+    for (const key of ['toxicity', 'conspicuousness'] as const) {
+      expect(store.traits.find((trait) => trait.key === key)?.mean).toHaveLength(1);
+    }
+  });
+
+  it('pads life history with nulls until the recorder starts reporting it', () => {
+    // Alignment, not politeness: every column is indexed by row against
+    // `generation`, so a column that only started appending when the field
+    // appeared would plot the whole run shifted by however many rows it missed.
+    const store = createTrendStore(config);
+    ingestTrendRow(store, makeRow({ generation: 1 }));
+    expect(store.lifeHistorySeen).toBe(false);
+    expect(store.juvenileFraction).toEqual([null]);
+
+    ingestTrendRow(
+      store,
+      makeRow({
+        generation: 2,
+        lifeHistory: {
+          meanLengthCm: 9,
+          sdLengthCm: 3,
+          juvenileFraction: 0.32,
+          meanAgeAtMaturityTicks: 400,
+          recruitment: 17,
+        },
+      }),
+    );
+    expect(store.lifeHistorySeen).toBe(true);
+    expect(store.lengthMean).toEqual([null, 9]);
+    expect(store.lengthUpper).toEqual([null, 12]);
+    expect(store.lengthLower).toEqual([null, 6]);
+    expect(store.juvenileFraction).toEqual([null, 0.32]);
+    expect(store.recruitment).toEqual([null, 17]);
+
+    resetTrendStore(store);
+    expect(store.lifeHistorySeen).toBe(false);
+    expect(store.lengthMean).toEqual([]);
+  });
 });
 
 describe('panel construction', () => {
@@ -309,6 +357,43 @@ describe('panel construction', () => {
   function allPanels(store: ReturnType<typeof createTrendStore>): PanelSpec[] {
     return sections(store).flatMap((section) => [...section.panels]);
   }
+
+  it('withholds the life-history section until a row has carried one, then aligns it', () => {
+    // An empty chart promising a reading nobody is taking is worse than no
+    // chart: it reads as "measured zero" rather than as "not instrumented".
+    const quiet = populated();
+    expect(sections(quiet).some((section) => section.title === 'life history')).toBe(false);
+    // The signal axis is not gated the same way: `SampleRow.traits` always
+    // carries both traits, so those two panels are real from the first row.
+    expect(sections(quiet).some((section) => section.title === 'the signal axis')).toBe(true);
+
+    const store = populated();
+    ingestTrendRow(
+      store,
+      makeRow({
+        generation: 41,
+        lifeHistory: {
+          meanLengthCm: 9,
+          sdLengthCm: 3,
+          juvenileFraction: 0.32,
+          meanAgeAtMaturityTicks: 400,
+          recruitment: 17,
+        },
+      }),
+    );
+    const life = sections(store).find((section) => section.title === 'life history');
+    expect(life?.panels.map((panel) => panel.title)).toEqual([
+      'realised length',
+      'juvenile fraction',
+      'recruitment',
+    ]);
+    for (const panel of life?.panels ?? []) {
+      const data = panelData(store, panel, null);
+      expect(data.length).toBe(panelSeries(panel).length);
+      const length = data[0]?.length ?? 0;
+      for (const column of data) expect(column).toHaveLength(length);
+    }
+  });
 
   it('gives every panel a title, a note and at least one series', () => {
     const panels = allPanels(populated());

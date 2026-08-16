@@ -24,7 +24,19 @@ import { ABYSS_MAX_PX, createCreatureLayer } from './creatureLayer';
 
 const COUNT = 24;
 
-function makeCreatures(): CreatureFrame {
+/** Which G-wave axes the sim under test is running. */
+interface Axes {
+  readonly ontogeny?: boolean;
+  readonly aposematism?: boolean;
+}
+
+interface Ontogeny {
+  /** 1 mature, 0 juvenile. Every animal in the fixture is mature by default. */
+  readonly lifeStage?: number;
+  readonly conspicuousness?: number;
+}
+
+function makeCreatures(ontogeny: Ontogeny = {}): CreatureFrame {
   const poses = new Float32Array(COUNT * POSE_STRIDE);
   const visuals = new Float32Array(COUNT * VISUAL_STRIDE);
   for (let i = 0; i < COUNT; i += 1) {
@@ -49,6 +61,8 @@ function makeCreatures(): CreatureFrame {
     visuals[v + VISUAL.speciesTag] = i % 5;
     visuals[v + VISUAL.diet] = ((i % 5) - 2) * 0.8;
     visuals[v + VISUAL.defense] = 0.3 + (i % 3) * 1.2;
+    visuals[v + VISUAL.lifeStage] = ontogeny.lifeStage ?? 1;
+    visuals[v + VISUAL.conspicuousness] = ontogeny.conspicuousness ?? 0;
   }
   return {
     count: COUNT,
@@ -98,7 +112,7 @@ function mountQuietly(layer: ReturnType<typeof createCreatureLayer>, mount: Moun
   }
 }
 
-function makeFrame(creatures: CreatureFrame | null, lod: LodState): FrameContext {
+function makeFrame(creatures: CreatureFrame | null, lod: LodState, axes: Axes = {}): FrameContext {
   return {
     nowMs: 1000,
     dtMs: 16.7,
@@ -115,6 +129,10 @@ function makeFrame(creatures: CreatureFrame | null, lod: LodState): FrameContext
     selected: null,
     paused: false,
     speedMultiplier: 1,
+    // Both on by default here: these tests are about what the layer draws, and
+    // the axis gate is asserted on its own below.
+    ontogeny: axes.ontogeny ?? true,
+    aposematism: axes.aposematism ?? true,
   };
 }
 
@@ -493,6 +511,107 @@ describe('near tier', () => {
     const bodyRoot = (roots(mount).near.children[2] as Container).children;
     const opaque = bodyRoot.filter((c) => c.visible).map((c) => c.alpha);
     expect(opaque.every((a) => a > 0)).toBe(true);
+    layer.destroy();
+  });
+});
+
+describe('ontogeny and the signal axis', () => {
+  /** Glow alphas at the near tier, in draw order. The glow is the layer's own alpha chain. */
+  function glowAlphas(mount: MountContext): number[] {
+    return (roots(mount).near.children[0] as Container).children.filter((c) => c.visible).map((c) => c.alpha);
+  }
+
+  function drawOnce(
+    creatures: CreatureFrame,
+    axes: Axes = {},
+  ): { mount: MountContext; layer: ReturnType<typeof createCreatureLayer> } {
+    const mount = makeMount();
+    const layer = createCreatureLayer();
+    mountQuietly(layer, mount);
+    layer.update(makeFrame(creatures, { tier: 'near', previousTier: null, blend: 1 }, axes));
+    return { mount, layer };
+  }
+
+  it('draws neither channel in a world that is not running the axis', () => {
+    // The off-arm guarantee, and it is not a formality: measured on a default
+    // run, `lifeStage` reads juvenile for 59–100% of the population (it is only
+    // the age test with ontogeny off, and every one of those animals is at full
+    // adult length), and conspicuousness carries ≈0.29 SD of variance nothing
+    // reads. Both would repaint the whole off-arm world.
+    const neutral = drawOnce(makeCreatures());
+    const wouldSignal = drawOnce(makeCreatures({ lifeStage: 0, conspicuousness: 3 }), {
+      ontogeny: false,
+      aposematism: false,
+    });
+    expect(glowAlphas(wouldSignal.mount)).toEqual(glowAlphas(neutral.mount));
+    neutral.layer.destroy();
+    wouldSignal.layer.destroy();
+  });
+
+  it('draws a mature, unsignalled animal exactly as it drew before the channels existed', () => {
+    // The off-arm guarantee at the layer: neither mapping may move an animal
+    // sitting at the neutral pair, so both fixtures have to agree to the bit.
+    const neutral = drawOnce(makeCreatures());
+    const explicit = drawOnce(makeCreatures({ lifeStage: 1, conspicuousness: 0 }));
+    expect(glowAlphas(explicit.mount)).toEqual(glowAlphas(neutral.mount));
+    neutral.layer.destroy();
+    explicit.layer.destroy();
+  });
+
+  it('burns the glow harder for a loud animal and softer for a cryptic one', () => {
+    const baseline = drawOnce(makeCreatures());
+    const loud = drawOnce(makeCreatures({ conspicuousness: 3 }));
+    const cryptic = drawOnce(makeCreatures({ conspicuousness: -3 }));
+    const at = (entry: { mount: MountContext }): number => glowAlphas(entry.mount)[0] ?? 0;
+    expect(at(loud)).toBeGreaterThan(at(baseline) * 1.4);
+    expect(at(cryptic)).toBeLessThan(at(baseline) * 0.6);
+    // The signal saturates rather than running away: this is what stops a
+    // ratcheting lineage from eventually drawing an opaque white halo.
+    expect(at(loud)).toBeLessThan(1);
+    expect(at(cryptic)).toBeGreaterThan(0);
+    for (const entry of [baseline, loud, cryptic]) entry.layer.destroy();
+  });
+
+  it('fades a juvenile without touching the tier it is drawn at', () => {
+    const adult = drawOnce(makeCreatures());
+    const juvenile = drawOnce(makeCreatures({ lifeStage: 0 }));
+    const adultGlow = glowAlphas(adult.mount);
+    const juvenileGlow = glowAlphas(juvenile.mount);
+    expect(juvenileGlow.length).toBe(adultGlow.length);
+    for (let i = 0; i < adultGlow.length; i += 1) {
+      expect(juvenileGlow[i] ?? 0).toBeLessThan(adultGlow[i] ?? 0);
+      expect(juvenileGlow[i] ?? 0).toBeGreaterThan((adultGlow[i] ?? 0) * 0.8);
+    }
+    adult.layer.destroy();
+    juvenile.layer.destroy();
+  });
+
+  it('eases the metamorphosis instead of popping it in one frame', () => {
+    // `lifeStage` is a flag and flips between two slices; the animal it flips
+    // for must not change shape inside a single frame.
+    const mount = makeMount();
+    const layer = createCreatureLayer();
+    mountQuietly(layer, mount);
+    layer.update(makeFrame(makeCreatures({ lifeStage: 0 }), { tier: 'near', previousTier: null, blend: 1 }));
+    const asJuvenile = glowAlphas(mount)[0] ?? 0;
+
+    // One frame after the flag flips the animal is still mostly a juvenile…
+    layer.update(makeFrame(makeCreatures({ lifeStage: 1 }), { tier: 'near', previousTier: null, blend: 1 }));
+    const oneFrameLater = glowAlphas(mount)[0] ?? 0;
+    expect(oneFrameLater).toBeGreaterThan(asJuvenile);
+
+    // …and a second later it has finished growing up.
+    for (let i = 0; i < 90; i += 1) {
+      layer.update(makeFrame(makeCreatures({ lifeStage: 1 }), { tier: 'near', previousTier: null, blend: 1 }));
+    }
+    const grown = glowAlphas(mount)[0] ?? 0;
+    expect(oneFrameLater).toBeLessThan(asJuvenile + (grown - asJuvenile) * 0.5);
+    // An exponential ease approaches rather than arrives, so this is "has
+    // finished as far as the eye is concerned", not equality.
+    const adult = drawOnce(makeCreatures());
+    const adultGlow = glowAlphas(adult.mount)[0] ?? 0;
+    expect(Math.abs(grown - adultGlow)).toBeLessThan(adultGlow * 0.02);
+    adult.layer.destroy();
     layer.destroy();
   });
 });

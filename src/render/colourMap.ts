@@ -17,7 +17,7 @@ import { SAMPLE_SLICE, SAMPLE_SLICE_STRIDE } from '../contracts/protocol';
 import { TRAIT_META } from '../contracts/traits';
 import type { SimConfig } from '../contracts/types';
 import { BASELINE, DIVERGING_COOL, DIVERGING_NEUTRAL, DIVERGING_WARM, INK_MUTED, SEQUENTIAL_AMBER } from '../app/palette';
-import { MAX_SLOTS } from './contracts';
+import { ABYSS_COLOUR, MAX_SLOTS, conspicuousnessSignal } from './contracts';
 import type { ColourLegend, ColourMode, FieldRaster, SliceView } from './contracts';
 import { sampleRaster } from './fieldSampling';
 
@@ -188,6 +188,92 @@ export function divergingTintLegible(signed: number): number {
   return rampTintAt(arm, (magnitude - 0.12) / 0.88);
 }
 
+// ---------------------------------------------------------------------------
+// Conspicuousness → saturation and contrast (G5)
+// ---------------------------------------------------------------------------
+
+/**
+ * Extra chroma at full loudness: deviations from the tint's own luma are scaled
+ * by `1 + gain`. 0.55 is as far as the identity hues can be pushed before the
+ * brightest of them start clipping a channel and turn hue as they saturate —
+ * and hue is the animal's identity, so it is the one thing this must not move.
+ */
+const SIGNAL_SATURATION_GAIN = 0.55;
+
+/**
+ * Luminance lift at full loudness, toward white. Small on purpose: contrast
+ * against the water is what "loud" has to read as, and the identity hues are
+ * already bright, so most of the read has to come from chroma.
+ */
+const SIGNAL_LUMINANCE_LIFT = 0.12;
+
+/** Chroma removed at full crypsis. A quarter of it survives, so a cryptic animal is dull, not grey. */
+const CRYPSIS_DESATURATION = 0.75;
+
+/**
+ * How far a fully cryptic animal is pulled toward the water it is sitting in.
+ *
+ * This bound *is* the legibility floor — there is no separate one. A 0.35 mix
+ * toward {@link ABYSS_COLOUR} costs a mid-ramp mark about 0.13 of relative
+ * luminance (0.24 → 0.11 measured on the middle amber step), which still leaves
+ * a countable mark on the abyss. Raising it is what would make a cryptic animal
+ * genuinely disappear, and an animal the watcher cannot count is the failure
+ * mode `palette.ts` spends its whole doc block avoiding.
+ */
+const CRYPSIS_WATER_PULL = 0.35;
+
+const WATER_R = (ABYSS_COLOUR >> 16) & 255;
+const WATER_G = (ABYSS_COLOUR >> 8) & 255;
+const WATER_B = ABYSS_COLOUR & 255;
+
+function packChannel(value: number): number {
+  return value < 0 ? 0 : value > 255 ? 255 : Math.round(value);
+}
+
+/**
+ * Fold expressed conspicuousness into a resolved tint.
+ *
+ * Centred by construction: {@link conspicuousnessSignal} is exactly 0 at the
+ * baseline and the early return makes that path return the argument itself, so
+ * an animal at conspicuousness 0 is drawn with the same integer it would have
+ * been drawn with before this channel existed. Monotone in `signal` on both
+ * arms — more signal is never less saturated — so the drawn order is the
+ * expressed order and a loud animal cannot read as a cryptic one.
+ *
+ * The two arms are deliberately not symmetric, because the biology is not:
+ * loud is *more of the animal's own colour* (chroma up, a little brighter),
+ * while cryptic is *less of it and more of the water* (chroma down, pulled
+ * toward the ground it is hiding against). Desaturating alone would make a
+ * cryptic animal grey, which stands out on blue water rather than vanishing
+ * into it.
+ */
+export function signalTint(tint: number, signal: number): number {
+  if (signal === 0) return tint;
+  const r = (tint >> 16) & 255;
+  const g = (tint >> 8) & 255;
+  const b = tint & 255;
+  const luma = 0.2126 * r + 0.7152 * g + 0.0722 * b;
+
+  if (signal > 0) {
+    const chroma = 1 + SIGNAL_SATURATION_GAIN * signal;
+    const lift = SIGNAL_LUMINANCE_LIFT * signal;
+    const loud = (channel: number): number => {
+      const saturated = luma + (channel - luma) * chroma;
+      return packChannel(saturated + (255 - saturated) * lift);
+    };
+    return (loud(r) << 16) | (loud(g) << 8) | loud(b);
+  }
+
+  const magnitude = -signal;
+  const chroma = 1 - CRYPSIS_DESATURATION * magnitude;
+  const pull = CRYPSIS_WATER_PULL * magnitude;
+  const cryptic = (channel: number, water: number): number => {
+    const dulled = luma + (channel - luma) * chroma;
+    return packChannel(dulled + (water - dulled) * pull);
+  };
+  return (cryptic(r, WATER_R) << 16) | (cryptic(g, WATER_G) << 8) | cryptic(b, WATER_B);
+}
+
 export function speciesHueDeg(tag: number): number {
   return (Math.round(tag) * SPECIES_HUE_STEP_DEG) % 360;
 }
@@ -333,6 +419,10 @@ export function resolveColours(
   // so a faded animal is still countable against the abyss.
   const alphaFloor = effective === 'identity' ? ALPHA_FLOOR : MEASUREMENT_ALPHA_FLOOR;
   const amber = effective === 'identity' ? SEQUENTIAL_AMBER_INTS : AMBER_LEGIBLE;
+  // With aposematism off, `conspicuousness` is standing genetic variance the
+  // sim never reads (≈0.29 SD at the defaults, measured) — painting it would
+  // show a signal axis that does not exist in that world.
+  const signalled = effective === 'identity' && config.toggles.enableAposematism;
 
   for (let index = 0; index < count; index += 1) {
     const base = index * SAMPLE_SLICE_STRIDE;
@@ -368,7 +458,19 @@ export function resolveColours(
         break;
     }
 
-    map.tints[index] = tint;
+    // Identity only, and the exclusion is measured rather than tasteful. In a
+    // measuring mode the tint *is* the reading, and the ramps stand on an
+    // ordinal guarantee of ΔL ≥ 0.06 between adjacent steps (see
+    // `MEASUREMENT_LUMINANCE_FLOOR`). A fully cryptic animal costs ≈0.13 of
+    // relative luminance — two ramp steps — so inheriting the signal here would
+    // let two animals with the same trait value read as two different values,
+    // which is the one thing a measurement mode may not do. Identity mode has
+    // no such contract: there the colour is the animal, and how loud the animal
+    // is wearing it is exactly what this channel means. The signal still shows
+    // in every mode through the near tier's glow, which touches no ramp.
+    map.tints[index] = signalled
+      ? signalTint(tint, conspicuousnessSignal(data[base + SAMPLE_SLICE.conspicuousness] ?? 0))
+      : tint;
     map.alphas[index] = conditionAlpha(energyFraction, alphaFloor);
   }
 }

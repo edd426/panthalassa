@@ -341,6 +341,43 @@ export function headShapedProfile(s: number, base: number, headForm: number): nu
 const SERRATION_GAIN = 0.45;
 
 // ---------------------------------------------------------------------------
+// Ontogeny → appendage development and eye proportion
+// ---------------------------------------------------------------------------
+
+/**
+ * How far short of the adult a juvenile's appendages fall — fins, tentacles and
+ * limbs alike.
+ *
+ * **Length, never count.** `nearVertexCount` is the layer's drawing budget and
+ * it is a function of `(archetype, segmentCount, finPairs)` only; dropping a fin
+ * pair on juveniles would make the budget wrong for exactly the animals it was
+ * billed for, and `bodies.test.ts` asserts the count against the built geometry.
+ * Shortening reads as underdeveloped anyway — a fry has its fin buds, they are
+ * just not the adult's fins yet.
+ */
+const JUVENILE_APPENDAGE_SHORTENING = 0.42;
+
+/**
+ * Extra eye radius on a juvenile, as a fraction of the adult's.
+ *
+ * The eye is in body-length units, so this is a *proportion*: a juvenile is
+ * already drawn small by channel 4, and what makes it read as young rather than
+ * merely far away is that the head furniture has not shrunk with the body. Kept
+ * to a third because the size difference is the main signal and this is the
+ * confirmation.
+ */
+const JUVENILE_EYE_GAIN = 0.34;
+
+/** 1 for an adult — exactly, so an animal at `lifeStage` 1 draws bit-identically to before. */
+function appendageScale(juvenile: number): number {
+  return 1 - JUVENILE_APPENDAGE_SHORTENING * clamp(juvenile, 0, 1);
+}
+
+function eyeScale(juvenile: number): number {
+  return 1 + JUVENILE_EYE_GAIN * clamp(juvenile, 0, 1);
+}
+
+// ---------------------------------------------------------------------------
 // Undulation
 // ---------------------------------------------------------------------------
 
@@ -397,6 +434,12 @@ export interface BodyParams {
   readonly headForm: number;
   /** 0..1 dorsal spination; see `divergence.spinationFrom`. */
   readonly spination: number;
+  /**
+   * 0 adult … 1 juvenile (the slice's `lifeStage`, eased by the layer across
+   * the metamorphosis). Shortens appendages and enlarges the eye relative to
+   * the body; emits exactly the same points either way.
+   */
+  readonly juvenile: number;
   readonly patternFamily: PatternFamily;
   /** 0..1, stable per slot: shifts the species marks so schoolmates are not stencils. */
   readonly patternPhase: number;
@@ -524,6 +567,7 @@ function placeEye(
   maxHalfWidth: number,
   profile: (s: number) => number,
   headForm: number,
+  juvenile: number,
   out: BodyGeometry,
 ): void {
   const n = chain.count;
@@ -540,7 +584,11 @@ function placeEye(
   const h = maxHalfWidth * headShapedProfile(at, profile(at), headForm);
   out.eyeX = cx + nx * h * 0.45;
   out.eyeY = cy + ny * h * 0.45;
-  out.eyeR = clamp(0.34 * h * (1 + 0.45 * headForm), 0.011, 0.062);
+  // The juvenile gain multiplies the *clamped* radius rather than joining the
+  // clamp's argument: the bounds are what keep an eye readable and inside the
+  // head at the ends of the morphology range, and a juvenile is allowed to
+  // exceed the adult ceiling — that oversized eye is the read.
+  out.eyeR = clamp(0.34 * h * (1 + 0.45 * headForm), 0.011, 0.062) * eyeScale(juvenile);
 }
 
 // ---------------------------------------------------------------------------
@@ -676,7 +724,7 @@ function buildUndulator(params: BodyParams, out: BodyGeometry): void {
   const chain = out.chain;
   buildTrunkChain(params, segments, maxHalfWidth, chain);
   offsetOutline(chain, maxHalfWidth, fusiformProfile, params.headForm, out.spination, out.outline);
-  placeEye(chain, maxHalfWidth, fusiformProfile, params.headForm, out);
+  placeEye(chain, maxHalfWidth, fusiformProfile, params.headForm, params.juvenile, out);
   buildMouth(chain, maxHalfWidth, params.headForm, out);
   buildTrunkPatterns(
     chain,
@@ -689,6 +737,7 @@ function buildUndulator(params: BodyParams, out: BodyGeometry): void {
   );
 
   const n = chain.count;
+  const finLength = FIN_LENGTH * appendageScale(params.juvenile);
   for (let pair = 0; pair < finPairs; pair += 1) {
     const at = Math.max(1, Math.min(n - 2, Math.round(((pair + 1) / (finPairs + 1)) * (n - 1))));
     const flutter = FIN_FLUTTER * Math.sin(params.phase - pair * FIN_PHASE_LAG);
@@ -712,7 +761,7 @@ function buildUndulator(params: BodyParams, out: BodyGeometry): void {
       push(fin, ax - tx * spread, ay - ty * spread);
       const cs = Math.cos(flutter * sign);
       const sn = Math.sin(flutter * sign);
-      push(fin, ax + (nx * cs + tx * sn) * FIN_LENGTH, ay + (ny * cs + ty * sn) * FIN_LENGTH);
+      push(fin, ax + (nx * cs + tx * sn) * finLength, ay + (ny * cs + ty * sn) * finLength);
       out.finCount += 1;
     }
   }
@@ -812,6 +861,7 @@ function buildDrifter(params: BodyParams, out: BodyGeometry): void {
   }
 
   const lagged = params.pulsePhase - TENTACLE_LAG;
+  const tentacleLength = TENTACLE_LENGTH * appendageScale(params.juvenile);
   for (let pair = 0; pair < finPairs; pair += 1) {
     const spread = 0.35 + (0.55 * pair) / Math.max(1, finPairs - 1);
     for (let side = 0; side < 2; side += 1) {
@@ -825,7 +875,7 @@ function buildDrifter(params: BodyParams, out: BodyGeometry): void {
       for (let m = 0; m < TENTACLE_POINTS; m += 1) {
         const u = m / (TENTACLE_POINTS - 1);
         const wobble = TENTACLE_CURL * u * u * Math.sin(2 * Math.PI * lagged + u * 2.2);
-        push(tentacle, ax - TENTACLE_LENGTH * u, ay + sign * wobble);
+        push(tentacle, ax - tentacleLength * u, ay + sign * wobble);
       }
       out.strokeCount += 1;
     }
@@ -836,7 +886,7 @@ function buildDrifter(params: BodyParams, out: BodyGeometry): void {
   // The bell nucleus stands in for an eye: the one bright interior mark.
   out.eyeX = -height * 0.4;
   out.eyeY = 0;
-  out.eyeR = clamp(width * 0.13, 0.012, 0.06);
+  out.eyeR = clamp(width * 0.13, 0.012, 0.06) * eyeScale(params.juvenile);
 }
 
 // --- armoredCrawler ---------------------------------------------------------
@@ -859,7 +909,7 @@ function buildCrawler(params: BodyParams, out: BodyGeometry): void {
   const chain = out.chain;
   buildTrunkChain(params, segments + 1, maxHalfWidth, chain);
   offsetOutline(chain, maxHalfWidth, carapaceProfile, params.headForm, out.spination, out.outline);
-  placeEye(chain, maxHalfWidth, carapaceProfile, params.headForm, out);
+  placeEye(chain, maxHalfWidth, carapaceProfile, params.headForm, params.juvenile, out);
   buildMouth(chain, maxHalfWidth, params.headForm, out);
   buildTrunkPatterns(
     chain,
@@ -892,7 +942,7 @@ function buildCrawler(params: BodyParams, out: BodyGeometry): void {
     out.plateCount += 1;
   }
 
-  const limbLength = 0.16 + 0.5 * maxHalfWidth;
+  const limbLength = (0.16 + 0.5 * maxHalfWidth) * appendageScale(params.juvenile);
   for (let pair = 0; pair < finPairs; pair += 1) {
     const at = Math.max(1, Math.min(n - 2, Math.round(((pair + 0.5) / finPairs) * (n - 1))));
     const sweep = LIMB_SWEEP * Math.sin(params.phase - pair * METACHRONAL_LAG);

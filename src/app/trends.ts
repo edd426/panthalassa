@@ -101,6 +101,10 @@ export type TrendRow = Pick<
   | 'popgen'
   | 'resources'
   | 'deaths'
+  // Optional in the contract and absent until the recorder fills it, which is
+  // why every life-history column is nullable and its section only appears once
+  // a row has actually carried one.
+  | 'lifeHistory'
 >;
 
 /**
@@ -149,11 +153,29 @@ export interface TrendStore {
   readonly kelp: number[];
   readonly heterozygosity: number[];
   readonly neTemporal: (number | null)[];
+  /**
+   * Realised length, the juvenile share and recruitment.
+   *
+   * `null` on any row whose `lifeHistory` was absent, rather than skipped:
+   * every column in this store is indexed by row against `generation`, so a
+   * column that only starts appending part-way through would silently plot the
+   * whole run shifted. uPlot draws the nulls as gaps, which is the truth.
+   */
+  readonly lengthMean: (number | null)[];
+  readonly lengthUpper: (number | null)[];
+  readonly lengthLower: (number | null)[];
+  readonly juvenileFraction: (number | null)[];
+  readonly recruitment: (number | null)[];
+  /** Whether any row has carried a `lifeHistory` yet; the section is absent until one does. */
+  lifeHistorySeen: boolean;
   readonly slotCapacity: number;
   readonly demeCols: number;
   /** Generation of the previous row, for the per-generation death rate. */
   lastGeneration: number;
 }
+
+/** Trait series the panel keeps columns for: the focal four, then the two G-wave axes. */
+const TREND_TRAIT_KEYS: readonly TraitKey[] = [...FOCAL_TRAIT_KEYS, 'toxicity', 'conspicuousness'];
 
 export function createTrendStore(config: SimConfig): TrendStore {
   const demeCols = Math.max(1, config.world.demeCols);
@@ -163,7 +185,11 @@ export function createTrendStore(config: SimConfig): TrendStore {
     capacity: [],
     species: [],
     speciesOther: [],
-    traits: FOCAL_TRAIT_KEYS.map((key) => ({ key, mean: [], upper: [], lower: [] })),
+    // The focal four plus the two G-wave axes. `SampleRow.traits` carries every
+    // trait ("not only the focal four"), so this costs nothing but the columns
+    // — and toxicity and conspicuousness are the two the world view cannot
+    // show, which makes a chart the only place they can be read at all.
+    traits: TREND_TRAIT_KEYS.map((key) => ({ key, mean: [], upper: [], lower: [] })),
     waterTempC: [],
     attack: [],
     defense: [],
@@ -176,6 +202,12 @@ export function createTrendStore(config: SimConfig): TrendStore {
     kelp: [],
     heterozygosity: [],
     neTemporal: [],
+    lengthMean: [],
+    lengthUpper: [],
+    lengthLower: [],
+    juvenileFraction: [],
+    recruitment: [],
+    lifeHistorySeen: false,
     slotCapacity: config.world.slotCapacity,
     demeCols,
     lastGeneration: 0,
@@ -207,6 +239,12 @@ export function resetTrendStore(store: TrendStore): void {
   store.kelp.length = 0;
   store.heterozygosity.length = 0;
   store.neTemporal.length = 0;
+  store.lengthMean.length = 0;
+  store.lengthUpper.length = 0;
+  store.lengthLower.length = 0;
+  store.juvenileFraction.length = 0;
+  store.recruitment.length = 0;
+  store.lifeHistorySeen = false;
   store.lastGeneration = 0;
 }
 
@@ -235,6 +273,22 @@ export function ingestTrendRow(store: TrendStore, row: TrendRow): void {
   store.neTemporal.push(row.popgen.neTemporal);
   store.plankton.push(row.resources.planktonTotal);
   store.kelp.push(row.resources.kelpTotal);
+
+  const life = row.lifeHistory;
+  if (life === undefined) {
+    store.lengthMean.push(null);
+    store.lengthUpper.push(null);
+    store.lengthLower.push(null);
+    store.juvenileFraction.push(null);
+    store.recruitment.push(null);
+  } else {
+    store.lifeHistorySeen = true;
+    store.lengthMean.push(life.meanLengthCm);
+    store.lengthUpper.push(life.meanLengthCm + life.sdLengthCm);
+    store.lengthLower.push(life.meanLengthCm - life.sdLengthCm);
+    store.juvenileFraction.push(life.juvenileFraction);
+    store.recruitment.push(life.recruitment);
+  }
 
   for (let column = 0; column < store.demeCols; column += 1) {
     let total = 0;
@@ -478,9 +532,46 @@ export function sections(store: TrendStore): readonly SectionSpec[] {
     column: store.deaths[index] ?? [],
   }));
 
+  // Realised length, not target `size`: with ontogeny on they are different
+  // quantities and the difference is the whole mechanism. The panels appear
+  // only once a row has carried a `lifeHistory` — an empty chart promising a
+  // reading the recorder is not taking yet is worse than no chart.
+  const lifePanels: PanelSpec[] = store.lifeHistorySeen
+    ? [
+        {
+          title: 'realised length',
+          note: 'mean ±1σ · cm actually swum, against the target size above',
+          series: [{ label: 'length', colour: SERIES_1, column: store.lengthMean }],
+          band: [store.lengthUpper, store.lengthLower],
+          zeroBased: true,
+        },
+        {
+          title: 'juvenile fraction',
+          note: 'share below maturity · a population with no juveniles has stopped recruiting',
+          series: [{ label: 'juveniles', colour: SERIES_1, column: store.juvenileFraction }],
+          zeroBased: true,
+        },
+        {
+          title: 'recruitment',
+          note: 'births in the window that survived to maturity',
+          series: [{ label: 'recruits', colour: SERIES_1, column: store.recruitment }],
+          zeroBased: true,
+        },
+      ]
+    : [];
+
+  // Both axes are off the world view by design — toxicity is kept off the slice
+  // entirely, and conspicuousness only tints in identity mode — so these charts
+  // are where the aposematism story is actually legible.
+  const signalPanels = [traitPanel(store, 'toxicity'), traitPanel(store, 'conspicuousness')].filter(
+    (panel): panel is PanelSpec => panel !== null,
+  );
+
   return [
     { title: 'census', panels: [populationPanel] },
     { title: 'the focal traits', panels: traitPanels },
+    ...(lifePanels.length === 0 ? [] : [{ title: 'life history', panels: lifePanels }]),
+    ...(signalPanels.length === 0 ? [] : [{ title: 'the signal axis', panels: signalPanels }]),
     {
       title: 'the arms race',
       panels: [

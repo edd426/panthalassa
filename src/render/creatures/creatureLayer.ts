@@ -20,6 +20,14 @@
  * **The selected animal is always a near-tier body**, promoted out of whatever
  * tier it would otherwise land in, because the inspected animal has to be the
  * drawn animal.
+ *
+ * The two G-wave channels (contracts v1.8) are spent where each tier can carry
+ * them. `lifeStage` reshapes the near-tier body — shorter appendages, a
+ * proportionally larger eye — and thins every tier's alpha a little; the size
+ * difference is already doing most of the work, because channel 4 has carried
+ * realised length since G2. `conspicuousness` reaches the tint upstream in
+ * `colourMap`, and reaches *every* colour mode here as glow strength. Both
+ * mappings are exactly neutral at `lifeStage` 1 and conspicuousness 0.
  */
 
 import type { Container } from 'pixi.js';
@@ -41,6 +49,8 @@ import {
   VISUAL,
   VISUAL_STRIDE,
   archetypeFromIndex,
+  conspicuousnessSignal,
+  isJuvenile,
   readCreatureVisual,
 } from '../contracts';
 import type { CladeArchetype } from '../../contracts/genome';
@@ -157,6 +167,39 @@ const FAR_MIN_PX = 3;
 const ABYSS_MIN_PX = 2.5;
 
 /**
+ * Opacity a fully juvenile animal keeps.
+ *
+ * The third of the juvenile read, and the only one that survives past the near
+ * tier — a mid sprite is a flat tint and a far particle is a blob, so
+ * translucency is all either of them can carry. Deliberately shallow: it rides
+ * on top of the condition alpha, which is already spending 0.3–1.0 of the same
+ * channel on how hungry the animal is, and a juvenile must not be mistaken for
+ * a starving adult.
+ */
+const JUVENILE_ALPHA = 0.85;
+
+/**
+ * Metamorphosis easing, ms.
+ *
+ * `lifeStage` is a flag and flips between one slice and the next, but a fish
+ * that grows fins and loses its outsized eye inside a single frame is a pop,
+ * and the one event this channel exists to show is exactly that transition.
+ * Eased per slot, on the animation clock, so a paused watch freezes it too.
+ */
+const MATURATION_TAU_MS = 600;
+
+/**
+ * Glow swing across the signal axis, at the near tier.
+ *
+ * Conspicuousness reaches the tint through `colourMap`, but only in identity
+ * mode — a measuring ramp cannot afford it (see `resolveColours`). The halo is
+ * the channel that carries the signal in *every* mode, because it is contrast
+ * against the water rather than a colour that has to mean something. Exactly
+ * 1× at the baseline, so an animal at conspicuousness 0 glows as it did before.
+ */
+const SIGNAL_GLOW_GAIN = 0.6;
+
+/**
  * Screen-space ceiling on an abyssal glow dot, and the constant that keeps the
  * cheapest tier actually cheapest.
  *
@@ -225,6 +268,8 @@ class CreatureLayer implements RenderLayer {
     armorPlating: 0,
     diet: 0,
     defense: 0,
+    lifeStage: 1,
+    conspicuousness: 0,
     tint: 0xffffff,
     alpha: 1,
     jitter: 0,
@@ -240,6 +285,7 @@ class CreatureLayer implements RenderLayer {
     armorPlating: 0.35,
     headForm: 0,
     spination: 0,
+    juvenile: 0,
     patternFamily: 'none',
     patternPhase: 0.5,
     phase: 0,
@@ -261,11 +307,21 @@ class CreatureLayer implements RenderLayer {
   private aspectBucket = 0;
   private headForm = 0;
   private spination = 0;
+  private juvenile = 0;
   private patternFamily: PatternFamily = 'none';
 
   /** Heading per slot, resolved once per frame so a cross-fade cannot double-integrate. */
   private readonly headingCache = new Float32Array(MAX_SLOTS);
   private readonly headingSeen = new Uint8Array(MAX_SLOTS);
+
+  /**
+   * Eased juvenile weight per slot, 0 adult … 1 juvenile. Same idiom as the
+   * heading cache and for the same reason: slot indices are stable across
+   * slices, which is what makes an exponential ease meaningful, and `reset()`
+   * drops the cache with the world.
+   */
+  private readonly juvenileCache = new Float32Array(MAX_SLOTS);
+  private readonly juvenileSeen = new Uint8Array(MAX_SLOTS);
 
   /**
    * Wall-clock animation time. Accumulated rather than read straight off
@@ -281,6 +337,14 @@ class CreatureLayer implements RenderLayer {
    */
   private animationDtMs = 0;
   private pxPerWu = 1;
+
+  /**
+   * This frame's G-wave axes, off `FrameContext`. Held for the duration of the
+   * frame only — the seam forbids caching config across frames, and these are
+   * refreshed at the top of every `update`.
+   */
+  private ontogenyOn = false;
+  private aposematismOn = false;
 
   mount(ctx: MountContext): void {
     // Baking is the one step here that can fail (it is the only one that talks
@@ -353,6 +417,8 @@ class CreatureLayer implements RenderLayer {
     this.animationDtMs = frame.paused ? 0 : Math.max(0, frame.dtMs);
     this.animationMs += this.animationDtMs;
     this.pxPerWu = Math.max(1e-6, frame.camera.pxPerWu);
+    this.ontogenyOn = frame.ontogeny;
+    this.aposematismOn = frame.aposematism;
 
     const creatures = frame.creatures;
     if (creatures === null || creatures.visibleCount === 0) {
@@ -379,7 +445,7 @@ class CreatureLayer implements RenderLayer {
       }
     }
 
-    this.resolveHeadings(creatures);
+    this.resolveSlotState(creatures);
     const selected = this.findSelected(frame, creatures);
 
     this.renderTier(incoming, frame, creatures, textures);
@@ -400,6 +466,7 @@ class CreatureLayer implements RenderLayer {
 
   reset(): void {
     this.headingSeen.fill(0);
+    this.juvenileSeen.fill(0);
     this.animationMs = 0;
     for (const tier of LOD_TIERS) {
       // Force the release: a reseed must empty every pool, including tiers that
@@ -432,17 +499,36 @@ class CreatureLayer implements RenderLayer {
   // -------------------------------------------------------------------------
 
   /**
-   * Smooth every visible heading once, into a per-slot cache. Slot indices are
-   * stable across slices (the pool reuses them), which is what makes the
-   * exponential smoothing meaningful; `reset()` drops the cache with the world.
+   * The two per-slot quantities that are eased rather than read: a drifter's
+   * heading and the juvenile weight. Resolved once per frame, before any tier
+   * draws, so a cross-fade rendering two tiers cannot integrate either of them
+   * twice. Slot indices are stable across slices (the pool reuses them), which
+   * is what makes an exponential ease meaningful; `reset()` drops both with the
+   * world.
    */
-  private resolveHeadings(creatures: CreatureFrame): void {
-    const k = 1 - Math.exp(-this.animationDtMs / DRIFTER_HEADING_TAU_MS);
+  private resolveSlotState(creatures: CreatureFrame): void {
+    const headingK = 1 - Math.exp(-this.animationDtMs / DRIFTER_HEADING_TAU_MS);
+    const maturationK = 1 - Math.exp(-this.animationDtMs / MATURATION_TAU_MS);
     for (let i = 0; i < creatures.visibleCount; i += 1) {
       const row = creatures.visible[i] ?? 0;
       if (row >= MAX_SLOTS) continue;
+      const v = row * VISUAL_STRIDE;
+
+      // With ontogeny off the flag is only the age test and the animal is at
+      // full adult length, so there is no juvenile to draw.
+      const target = this.ontogenyOn && isJuvenile(creatures.visuals[v + VISUAL.lifeStage] ?? 1) ? 1 : 0;
+      if (this.juvenileSeen[row] !== 1) {
+        // First sight of a slot is not a transition: an animal that is already
+        // a juvenile when it enters the viewport has not just been born.
+        this.juvenileCache[row] = target;
+        this.juvenileSeen[row] = 1;
+      } else {
+        const held = this.juvenileCache[row] ?? target;
+        this.juvenileCache[row] = held + (target - held) * maturationK;
+      }
+
       const heading = creatures.poses[row * POSE_STRIDE + POSE.heading] ?? 0;
-      const isDrifter = Math.round(creatures.visuals[row * VISUAL_STRIDE + VISUAL.archetype] ?? 0) === DRIFTER_INDEX;
+      const isDrifter = Math.round(creatures.visuals[v + VISUAL.archetype] ?? 0) === DRIFTER_INDEX;
       if (!isDrifter || this.headingSeen[row] !== 1) {
         this.headingCache[row] = heading;
         this.headingSeen[row] = 1;
@@ -451,7 +537,7 @@ class CreatureLayer implements RenderLayer {
       const previous = this.headingCache[row] ?? heading;
       let delta = heading - previous;
       delta -= 2 * Math.PI * Math.round(delta / (2 * Math.PI));
-      this.headingCache[row] = previous + delta * k;
+      this.headingCache[row] = previous + delta * headingK;
     }
   }
 
@@ -490,8 +576,14 @@ class CreatureLayer implements RenderLayer {
     this.speciesTag = creatures.visuals[row * VISUAL_STRIDE + VISUAL.speciesTag] ?? 0;
     this.amplifiedAspect = amplifiedBodyAspect(this.visual.archetype, this.visual.bodyAspect);
     this.aspectBucket = aspectBucketFor(this.visual.archetype, this.amplifiedAspect);
+    this.juvenile = row < MAX_SLOTS ? (this.juvenileCache[row] ?? 0) : 0;
     this.style.tint = this.visual.tint;
-    this.style.alpha = clamp01(this.visual.alpha * this.visual.fade);
+    // Condition × birth/death fade × ontogeny. The juvenile factor is exactly 1
+    // for an adult, so every animal the previous wave could draw still resolves
+    // to the same alpha it did.
+    this.style.alpha = clamp01(
+      this.visual.alpha * this.visual.fade * (1 - (1 - JUVENILE_ALPHA) * this.juvenile),
+    );
     // Only the tiers that actually stroke a rim pay for resolving one.
     this.style.rimTint = -1;
   }
@@ -531,6 +623,7 @@ class CreatureLayer implements RenderLayer {
     this.bodyParams.armorPlating = visual.armorPlating;
     this.bodyParams.headForm = this.headForm;
     this.bodyParams.spination = this.spination;
+    this.bodyParams.juvenile = this.juvenile;
     this.bodyParams.patternFamily = this.patternFamily;
     this.bodyParams.patternPhase = patternPhaseFor(visual.jitter);
     this.bodyParams.phase = wavePhase(this.animationMs, this.beatHz(), visual.jitter);
@@ -686,7 +779,11 @@ class CreatureLayer implements RenderLayer {
     glow.position.set(x + Math.cos(heading) * -0.5 * lengthWu, y + Math.sin(heading) * -0.5 * lengthWu);
     glow.scale.set(lengthWu * GLOW_SPAN);
     glow.tint = this.visual.tint;
-    glow.alpha = this.style.alpha * GLOW_ALPHA;
+    // Strength, not span: the halo is the near tier's largest fill cost and its
+    // area is budgeted, so the signal is spent on how hard it burns rather than
+    // on how far it reaches.
+    const signal = this.aposematismOn ? conspicuousnessSignal(this.visual.conspicuousness) : 0;
+    glow.alpha = this.style.alpha * GLOW_ALPHA * (1 + SIGNAL_GLOW_GAIN * signal);
 
     this.buildCurrentBody();
     const g = bodyPool.next();

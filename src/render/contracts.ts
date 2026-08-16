@@ -129,6 +129,45 @@ export const MAX_SLOTS = 4096;
  */
 export const ARMOR_RENDER_RANGE: readonly [number, number] = [0, 2.5];
 
+/** The abyss the sea is drawn on; matches the page background in `index.html`. */
+export const ABYSS_COLOUR = 0x03151d;
+
+/**
+ * Expressed `conspicuousness` per unit of drawn signal.
+ *
+ * The trait is identity-linked, baseline 0, and unbounded in both directions —
+ * negative is cryptic, positive is loud. G3's 45-generation cliff runs put
+ * population means at +1.69 / +1.08 / −0.10, so ±1.6 maps to ±0.66 and the
+ * measured range uses two thirds of the axis with the tails still climbing.
+ */
+export const CONSPICUOUSNESS_SCALE = 1.6;
+
+/**
+ * Expressed conspicuousness → a signed drawn signal in (−1, 1).
+ *
+ * `tanh` rather than a clamp, for the reason `divergence.headFormFromDiet`
+ * gives for diet: the trait is unbounded and ratchets, so the drawing has to
+ * saturate smoothly or a lineage that keeps getting louder pops at the edge of
+ * the range. Exactly 0 at 0, strictly monotone, and odd — which together are
+ * what make every mapping downstream centred, so an animal at the baseline
+ * draws exactly as it did before this channel existed.
+ */
+export function conspicuousnessSignal(conspicuousness: number): number {
+  if (conspicuousness === 0) return 0;
+  return Math.tanh(conspicuousness / CONSPICUOUSNESS_SCALE);
+}
+
+/**
+ * `lifeStage` is a flag, not a ramp: 1 is mature, 0 is a juvenile (the age
+ * floor, plus the length floor when ontogeny is on). Read through a threshold
+ * rather than compared to 0 so a channel that ever carries an intermediate —
+ * an old-stride slice, a partially written row — still resolves to one of the
+ * two states the sim actually has.
+ */
+export function isJuvenile(lifeStage: number): boolean {
+  return lifeStage < 0.5;
+}
+
 // ---------------------------------------------------------------------------
 // The outward-facing renderer API (main.ts talks to this; the crude fallback
 // is wrapped to satisfy it too)
@@ -199,7 +238,7 @@ export const POSE = Object.freeze({
   jitter: 5,
 });
 
-export const VISUAL_STRIDE = 10;
+export const VISUAL_STRIDE = 12;
 
 export const VISUAL = Object.freeze({
   /** Index into `CLADE_ARCHETYPES`. */
@@ -218,6 +257,14 @@ export const VISUAL = Object.freeze({
   // evolution actually happens. Consumers clamp at draw time.
   diet: 8,
   defense: 9,
+  // G-wave (contracts v1.8, G5). `lifeStage` is the 0/1 maturity flag and is
+  // never interpolated — a slot whose flag moved is an animal that grew up, or
+  // a slot that was reused, and blending the two would draw an animal that is
+  // half a juvenile. `conspicuousness` is expressed once at birth and immutable
+  // after it, so it needs no interpolation either: a row whose value changed is
+  // a different organism, which the continuity test already turns into a birth.
+  lifeStage: 10,
+  conspicuousness: 11,
 });
 
 export interface CreatureFrame {
@@ -248,6 +295,10 @@ export interface CreatureVisual {
   diet: number;
   /** Expressed defense; unclamped. */
   defense: number;
+  /** 1 mature, 0 juvenile. Defaults to 1, so a missing channel draws an adult. */
+  lifeStage: number;
+  /** Expressed signal amplitude; negative is cryptic. Unclamped — see {@link conspicuousnessSignal}. */
+  conspicuousness: number;
   tint: number;
   alpha: number;
   jitter: number;
@@ -273,6 +324,8 @@ export function readCreatureVisual(frame: CreatureFrame, row: number, out: Creat
   out.armorPlating = frame.visuals[v + VISUAL.armor] ?? 0;
   out.diet = frame.visuals[v + VISUAL.diet] ?? 0;
   out.defense = frame.visuals[v + VISUAL.defense] ?? 0;
+  out.lifeStage = frame.visuals[v + VISUAL.lifeStage] ?? 1;
+  out.conspicuousness = frame.visuals[v + VISUAL.conspicuousness] ?? 0;
   out.tint = frame.tints[row] ?? 0xffffff;
   out.alpha = frame.alphas[row] ?? 1;
   out.jitter = frame.poses[p + POSE.jitter] ?? 0;
@@ -379,6 +432,21 @@ export interface FrameContext {
   readonly selected: { readonly x: number; readonly y: number } | null;
   readonly paused: boolean;
   readonly speedMultiplier: number;
+  /**
+   * Which G-wave axes the sim is actually running, read fresh from
+   * `SimConfig.toggles` by the shell every frame (a layer must not cache
+   * config — see {@link MountContext.config}).
+   *
+   * The channels are on the slice whether or not the mechanisms are on, and
+   * off-arm they are **not** neutral: `lifeStage` is then only the age test, so
+   * 59–100% of a default run reads juvenile while every one of those animals is
+   * at full adult length, and `conspicuousness` carries ≈0.29 SD of standing
+   * genetic variance that nothing in the sim reads. Drawing either would show
+   * the watcher a mechanism that is switched off, so the two mappings are held
+   * at their neutral values here instead.
+   */
+  readonly ontogeny: boolean;
+  readonly aposematism: boolean;
 }
 
 export interface RenderLayer {

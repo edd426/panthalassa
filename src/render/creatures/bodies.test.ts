@@ -31,6 +31,7 @@ function params(archetype: CladeArchetype, overrides: Partial<BodyParams> = {}):
     armorPlating: 0.35,
     headForm: 0,
     spination: 0,
+    juvenile: 0,
     patternFamily: 'none',
     patternPhase: 0.5,
     phase: 0,
@@ -743,5 +744,88 @@ describe('geometry reuse', () => {
     expect(geometry.plateCount).toBe(0);
     expect(geometry.strokeCount).toBe(0);
     expect(geometry.finCount).toBe(4);
+  });
+});
+
+describe('ontogeny', () => {
+  /** Farthest any emitted point of an appendage reaches from the body midline chain. */
+  function appendageReach(geometry: BodyGeometry): number {
+    let reach = 0;
+    const walk = (lines: readonly Polyline[], count: number): void => {
+      for (let i = 0; i < count; i += 1) {
+        const line = lines[i];
+        if (line === undefined) continue;
+        for (let p = 0; p < line.count; p += 1) {
+          reach = Math.max(reach, Math.hypot(line.points[p * 2] ?? 0, line.points[p * 2 + 1] ?? 0));
+        }
+      }
+    };
+    walk(geometry.fins, geometry.finCount);
+    walk(geometry.strokes, geometry.strokeCount);
+    return reach;
+  }
+
+  it('still costs exactly what the near-tier budget bills it for', () => {
+    // The budget currency. `nearVertexCount` sees only (archetype, segments,
+    // finPairs), so a juvenile that dropped a fin pair would be under-billed at
+    // the near tier — and it is the small animals the budget reaches last, so
+    // the error would land exactly where it is hardest to see.
+    const geometry = createBodyGeometry();
+    for (const archetype of CLADE_ARCHETYPES) {
+      const schema = CLADE_SCHEMA[archetype];
+      const segments = schema.segmentCount.typical;
+      const finPairs = Math.max(1, schema.finPairs.typical);
+      for (const juvenile of [0, 0.5, 1]) {
+        buildBody(params(archetype, { segmentCount: segments, finPairs, juvenile }), geometry);
+        let emitted = geometry.outline.count + geometry.mouth.count;
+        for (let i = 0; i < geometry.finCount; i += 1) emitted += geometry.fins[i]?.count ?? 0;
+        for (let i = 0; i < geometry.plateCount; i += 1) emitted += geometry.plates[i]?.count ?? 0;
+        for (let i = 0; i < geometry.strokeCount; i += 1) emitted += geometry.strokes[i]?.count ?? 0;
+        for (let i = 0; i < geometry.patternCount; i += 1) emitted += geometry.patterns[i]?.count ?? 0;
+        expect(nearVertexCount(archetype, segments, finPairs), `${archetype} juvenile=${juvenile}`).toBe(emitted);
+      }
+    }
+  });
+
+  it('draws an adult identically to the body that had no ontogeny at all', () => {
+    // The centring guarantee in geometry: at `juvenile` 0 both scale factors are
+    // exactly 1, so an animal at lifeStage 1 is bit-identical to the R5 body.
+    const geometry = createBodyGeometry();
+    const undulator = createBodyGeometry();
+    buildBody(params('undulator', { juvenile: 0, finPairs: 3, amplitudeScale: 0 }), geometry);
+    buildBody(params('undulator', { finPairs: 3, amplitudeScale: 0 }), undulator);
+    expect(geometry.eyeR).toBe(undulator.eyeR);
+    expect(samePoints(geometry.fins[0] as Polyline, undulator.fins[0] as Polyline)).toBe(true);
+  });
+
+  it('shortens appendages and enlarges the eye, monotonically', () => {
+    const geometry = createBodyGeometry();
+    for (const archetype of CLADE_ARCHETYPES) {
+      let previousReach = Infinity;
+      let previousEye = 0;
+      for (const juvenile of [0, 0.25, 0.5, 0.75, 1]) {
+        buildBody(params(archetype, { juvenile, finPairs: 3, amplitudeScale: 0 }), geometry);
+        const reach = appendageReach(geometry);
+        expect(reach).toBeLessThanOrEqual(previousReach + 1e-12);
+        expect(geometry.eyeR).toBeGreaterThanOrEqual(previousEye);
+        previousReach = reach;
+        previousEye = geometry.eyeR;
+      }
+      // And the treatment is a read, not a rounding difference.
+      buildBody(params(archetype, { juvenile: 0, finPairs: 3, amplitudeScale: 0 }), geometry);
+      const adultEye = geometry.eyeR;
+      buildBody(params(archetype, { juvenile: 1, finPairs: 3, amplitudeScale: 0 }), geometry);
+      expect(geometry.eyeR).toBeGreaterThan(adultEye * 1.2);
+    }
+  });
+
+  it('keeps a juvenile outline simple, which is what the amplification can break', () => {
+    const geometry = createBodyGeometry();
+    for (const archetype of CLADE_ARCHETYPES) {
+      for (const juvenile of [0.5, 1]) {
+        buildBody(params(archetype, { juvenile, spination: 1, segmentCount: 14, headForm: 1 }), geometry);
+        expect(selfCrossing(geometry.outline)).toBeNull();
+      }
+    }
   });
 });

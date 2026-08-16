@@ -21,6 +21,8 @@ interface Row {
   hue?: number;
   archetype?: number;
   energy?: number;
+  lifeStage?: number;
+  conspicuousness?: number;
 }
 
 const CAMERA: CameraState = { centerX: 1000, centerY: 600, pxPerWu: 0.65, viewportW: 1440, viewportH: 780 };
@@ -42,6 +44,10 @@ function makeSlice(rows: readonly Row[]): SliceView {
     buffer[base + SAMPLE_SLICE.finPairs] = 2;
     buffer[base + SAMPLE_SLICE.bodyAspect] = 3.2;
     buffer[base + SAMPLE_SLICE.armorPlating] = 0.35;
+    // Mature and at the signal baseline unless a case says otherwise: that is
+    // the state every assertion written before contracts v1.8 assumed.
+    buffer[base + SAMPLE_SLICE.lifeStage] = row.lifeStage ?? 1;
+    buffer[base + SAMPLE_SLICE.conspicuousness] = row.conspicuousness ?? 0;
   });
   return { count: rows.length, buffer };
 }
@@ -171,6 +177,46 @@ describe('slot matching and interpolation', () => {
     // instead of restarting the lerp from a standstill every frame.
     expect(poseOf(interpolator.sample(400, CAMERA), 0, POSE.x)).toBeCloseTo(140, 4);
     expect(interpolator.sliceGeneration).toBe(2);
+  });
+});
+
+describe('the G-wave channels', () => {
+  function visualOf(frame: CreatureFrame, row: number, channel: number): number {
+    return frame.visuals[row * VISUAL_STRIDE + channel] ?? 0;
+  }
+
+  it('carries lifeStage and conspicuousness through to the frame', () => {
+    const interpolator = new Interpolator();
+    feed(interpolator, [{ slot: 5, x: 100, y: 300, lifeStage: 0, conspicuousness: -1.4 }], 0);
+    feed(interpolator, [{ slot: 5, x: 110, y: 300, lifeStage: 0, conspicuousness: -1.4 }], 100);
+    const frame = interpolator.sample(150, CAMERA);
+    expect(visualOf(frame, 0, VISUAL.lifeStage)).toBe(0);
+    expect(visualOf(frame, 0, VISUAL.conspicuousness)).toBeCloseTo(-1.4, 5);
+  });
+
+  it('snaps lifeStage rather than blending it half-way through a maturation', () => {
+    // A 0/1 flag has no half. Sampled at the middle of the interpolation window,
+    // where every position is a genuine blend, the flag must still read as one
+    // of the two states the sim has — a body drawn from 0.5 would be a fish with
+    // half a fin set.
+    const interpolator = new Interpolator();
+    feed(interpolator, [{ slot: 5, x: 100, y: 300, lifeStage: 0 }], 0);
+    feed(interpolator, [{ slot: 5, x: 120, y: 300, lifeStage: 1 }], 100);
+    const frame = interpolator.sample(150, CAMERA);
+    expect(poseOf(frame, 0, POSE.x)).toBeCloseTo(110, 4);
+    expect(visualOf(frame, 0, VISUAL.lifeStage)).toBe(1);
+  });
+
+  it('keeps the stage and signal of a dead animal on its ghost', () => {
+    // The ghost is drawn from the previous snapshot's visuals, so a juvenile
+    // that dies has to fade out as a juvenile rather than as an adult.
+    const interpolator = new Interpolator();
+    feed(interpolator, [{ slot: 5, x: 100, y: 300, lifeStage: 0, conspicuousness: 2 }], 0);
+    feed(interpolator, [], 100);
+    const frame = interpolator.sample(150, CAMERA);
+    expect(frame.count).toBe(1);
+    expect(visualOf(frame, 0, VISUAL.lifeStage)).toBe(0);
+    expect(visualOf(frame, 0, VISUAL.conspicuousness)).toBeCloseTo(2, 5);
   });
 });
 

@@ -346,6 +346,11 @@ export class Interpolator {
       next.visuals[v + VISUAL.speciesTag] = species;
       next.visuals[v + VISUAL.diet] = data[base + SAMPLE_SLICE.diet] ?? 0;
       next.visuals[v + VISUAL.defense] = data[base + SAMPLE_SLICE.defense] ?? 0;
+      // Both are copied straight through by `sample`, never blended between the
+      // two held slices — see the note on the `VISUAL` offsets for why neither
+      // channel is a quantity it is meaningful to interpolate.
+      next.visuals[v + VISUAL.lifeStage] = data[base + SAMPLE_SLICE.lifeStage] ?? 1;
+      next.visuals[v + VISUAL.conspicuousness] = data[base + SAMPLE_SLICE.conspicuousness] ?? 0;
 
       rowOfSlotNext[slot] = i;
 

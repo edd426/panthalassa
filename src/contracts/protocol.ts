@@ -84,7 +84,12 @@ export const SAMPLE_SLICE = Object.freeze({
    * length since G2, so juveniles draw small for free; these two finish the
    * on-screen story. `lifeStage` is 1 when `isMature` (age floor AND, with
    * ontogeny on, the length floor) — a juvenile is a life stage, not merely a
-   * small adult. `conspicuousness` drives saturation/contrast at draw time.
+   * small adult. NOTE: with ontogeny OFF the flag is the age test alone, and
+   * in a steady-state population most living animals are young — the channel
+   * reads 0 for over half the world while every animal sits at full adult
+   * length (G5 measured 59–100% off-arm). Renderers gate juvenile treatment on
+   * `enableOntogeny`, never on this flag alone.
+   * `conspicuousness` drives saturation/contrast at draw time.
    * `toxicity` is deliberately NOT on the slice: if the watcher could see who
    * is toxic, the mimicry read would be given away for free — it appears in
    * the inspector and the charts only.
