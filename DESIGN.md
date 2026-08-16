@@ -1503,3 +1503,55 @@ tree — my v1.7.2 commit had missed the DEATH_CAUSES pin, and my
 verification had piped `npm test` through `tail`, which returns the pipe
 tail's exit code. Fixed in c8f4dae. Lesson, now standing: **capture the
 exit code directly; never pipe a gate command's output through anything.**
+
+### G4 + G5 land — the wave's implementation phase closes (2026-08-16 evening)
+
+Both built by concurrent Opus agents on disjoint file sets, both probe-re-run
+by the orchestrator, exit 0 (G5: 214 render tests + build; G4: 252 tests +
+probe:quick with the restated P3 at gate).
+
+**G4 (probes/stats, 2731382).** P3 is now a biomass band, [4000, 62000] cm
+over sigma-realised-length, derived from the six reference seeds' envelope so
+both edges bite; the 0-drops criterion became a 2%-of-attempted-births
+tolerance that separates the G0 artifact seed (1.19%) from sustained
+cap-regulation (3.17%) and is insensitive to the births-per-mating
+conversion. The orchestrator re-derived both numbers independently from
+runs/ and reproduced them exactly. The standing s3 gate red resolves as the
+headcount artifact the adjudication called it. Under the restated gate the
+retired 0.7-config runs flip informatively: their biomass maxima sat INSIDE
+the reference envelope — biomass was conserved while headcount was not,
+which is why the band had to move and why the cap criterion, not the band,
+catches cap-and-starve. P17 at warn PASS on the ontogeny arm (length CV
+0.503); P18/P19 at warn WARN on the aposematism arm — P18's measured
+genotypic r clears its analytic null on 2/3 arm seeds but not q1, P19's
+free-rider fraction peaks at ~0.53 against a provisional 0.6 bar
+(TODO(G6): 9-seed base-rate panel, per the P16 ruling). P10 now tracks
+neutralD:3 — the old cladeMacroA:3 line conflated a 1/2N start, body-plan
+selection, and crash reversal; the new one reports drift SDs against an
+observed baseline. Deferred by decision: an onMaturity StatsApi hook (the
+sampled age-at-maturity is honestly labelled; G6 demonstrates need or it
+stays); ungating traitsByDeme off-arm (JSONL byte-identity); the weak
+toxicBinFloor (G6, with evidence).
+
+**G5 (render, afdda35).** Juveniles read as young (appendage length -42%,
+never count — nearVertexCount is the budget currency; eye +34%; alpha
+x0.85; eased 600ms on the animation clock), conspicuousness reads as
+saturation via tanh(c/1.6) with asymmetric arms (loud = own colour, louder;
+cryptic = toward the water — grey stands out on blue). Identity mode only:
+the measurement ramps stand on a DL>=0.06 ordinal guarantee that full
+crypsis (~0.13) would break, so the other modes get the signal through
+near-tier glow. G5's key finding, now a protocol.ts warning: the brief's
+off-arm premise was false — lifeStage reads 0 for 59-100% of an off-arm
+world (age floor alone; most of a steady-state population is young), and
+conspicuousness carries 0.29 SD of unread standing variance — so both
+treatments are toggle-gated, not merely centred. ?ontogeny=1&aposematism=1
+URL flags stage the glass review; the default URL renders pixel-identical
+to R5.
+
+**Follow-ups carried (owner):** biomass band re-derivation when ontogeny
+becomes a default (G6, mandatory — the on-arm halves standing crop and s1
+would fail today's band); P19 + P10 base-rate panels (G6); thin on-arm
+predator guild, 8-26 expressed-diet predators (G6 watch; P9 would likely
+read red there); recorder's pre-existing cached this.config (small fix,
+next probes/stats touch); OrganismDump lacking sizeCurrent/maturity (next
+protocol revision, with the inspector-refresh case).
