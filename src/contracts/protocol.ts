@@ -42,7 +42,7 @@ import type { TraitKey } from './traits';
  * so the worker allocates a fresh one each request and the renderer hands the
  * previous buffer back on the next request when it can.
  */
-export const SAMPLE_SLICE_STRIDE = 15;
+export const SAMPLE_SLICE_STRIDE = 17;
 
 export const SAMPLE_SLICE = Object.freeze({
   /** Pool slot; stable frame to frame while the organism lives, so the renderer can interpolate. */
@@ -79,6 +79,18 @@ export const SAMPLE_SLICE = Object.freeze({
    */
   diet: 13,
   defense: 14,
+  /**
+   * G-wave (contracts v1.8, G5): `size` (channel 4) already carries realised
+   * length since G2, so juveniles draw small for free; these two finish the
+   * on-screen story. `lifeStage` is 1 when `isMature` (age floor AND, with
+   * ontogeny on, the length floor) — a juvenile is a life stage, not merely a
+   * small adult. `conspicuousness` drives saturation/contrast at draw time.
+   * `toxicity` is deliberately NOT on the slice: if the watcher could see who
+   * is toxic, the mimicry read would be given away for free — it appears in
+   * the inspector and the charts only.
+   */
+  lifeStage: 15,
+  conspicuousness: 16,
 });
 
 export interface SampleSlice {

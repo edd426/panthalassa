@@ -117,7 +117,7 @@ import {
 } from '../contracts/types';
 import { createMating, isFemaleReady, maternalClutchCost, paternalClutchCost } from './mating';
 import type { EnginePools } from './organisms';
-import { OrganismStore, T, energyCapacityOf, traitAt } from './organisms';
+import { OrganismStore, T, energyCapacityOf, isMature, traitAt } from './organisms';
 import { SeededRng } from './rng';
 import { applySnapshot, computeStateHash, serializeSnapshot } from './snapshot';
 
@@ -752,6 +752,8 @@ class PanthalassaSim implements SimHandleInternal {
       buffer[base + SAMPLE_SLICE.armorPlating] = traitAt(pools, slot, T.armorPlating);
       buffer[base + SAMPLE_SLICE.diet] = traitAt(pools, slot, T.diet);
       buffer[base + SAMPLE_SLICE.defense] = traitAt(pools, slot, T.defense);
+      buffer[base + SAMPLE_SLICE.lifeStage] = isMature(this.state, slot) ? 1 : 0;
+      buffer[base + SAMPLE_SLICE.conspicuousness] = traitAt(pools, slot, TRAIT_INDEX.conspicuousness);
       if (traitValues !== undefined) traitValues[written] = pools.traits[slot * TRAIT_COUNT + traitIndex] ?? 0;
       written += 1;
     }
