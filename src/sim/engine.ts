@@ -1417,7 +1417,7 @@ class PanthalassaSim implements SimHandleInternal {
 
   private depositCarrion(x: number, y: number, biomass: number): void {
     const state = this.state;
-    if (!state.config.toggles.enableDisturbances) return;
+    if (!state.config.toggles.enableCarrion) return;
     const field = state.field;
     const col = Math.floor(x / field.cellSizeWu);
     const row = Math.floor(y / field.cellSizeWu);
@@ -1582,6 +1582,8 @@ class PanthalassaSim implements SimHandleInternal {
       this.state.disturbance.thermal.length = 0;
       this.state.disturbance.planktonCrashes.length = 0;
       this.state.disturbance.kelpStorms.length = 0;
+    }
+    if (toggle === 'enableCarrion' && !value) {
       this.state.field.carrion.fill(0);
     }
   }

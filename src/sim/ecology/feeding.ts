@@ -15,6 +15,7 @@ import { carrionIntake, grazingIntake } from '../../contracts/formulas';
 import type { RandomSource, SimState, SlotIndex } from '../../contracts/types';
 import { T_METABOLIC_EFF, T_OPT, T_WIDTH, trait } from './columns';
 import { ensureOrganismCache, thermalToleranceOf } from './derived';
+import { carrionEnabled } from './resources';
 import type { EcologyRuntime } from './runtime';
 import { fieldCellAt } from './runtime';
 
@@ -49,7 +50,7 @@ export function applyFeeding(
   const cell = fieldCellAt(runtime, x, y);
   const plankton = state.field.plankton[cell] ?? 0;
   const carrion = state.field.carrion[cell] ?? 0;
-  if (plankton <= 0 && (!state.config.toggles.enableDisturbances || carrion <= 0)) return 0;
+  if (plankton <= 0 && (!carrionEnabled(state) || carrion <= 0)) return 0;
 
   ensureOrganismCache(runtime, state, slot);
   const headroom = (runtime.memoMaxEnergy[slot] ?? 0) - (pop.energy[slot] ?? 0);
@@ -89,7 +90,7 @@ export function applyFeeding(
     remainingHeadroom -= gained;
   }
 
-  if (!state.config.toggles.enableDisturbances || carrion <= 0 || remainingHeadroom <= 0) return totalGained;
+  if (!carrionEnabled(state) || carrion <= 0 || remainingHeadroom <= 0) return totalGained;
   const grazingMax = state.config.resources.grazingMaxIntake;
   const biteScale = grazingMax > 0 ? (runtime.memoBite[slot] ?? 0) / grazingMax : 0;
   let carrionHarvest = carrionIntake(

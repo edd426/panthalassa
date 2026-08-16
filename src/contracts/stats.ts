@@ -85,6 +85,45 @@ export interface SampleRow {
   readonly popgen: PopgenSample;
   /** Fraction of the population above/below the diet midpoint; P9 needs both guilds to persist. */
   readonly guilds: GuildSample;
+
+  // --- G-wave v1.7 detection (populated by the G4 recorder; optional until
+  // then so the v1.6 recorder keeps compiling — a missing field means "not
+  // instrumented yet", never "measured zero"). ---
+  /** Age/size structure; the demographic quantities the model previously could not report at all. */
+  readonly lifeHistory?: LifeHistorySample;
+  /** Per hue bin (length `predation.hueBinCount`): the aposematism/mimicry readout. */
+  readonly hueBins?: readonly HueBinSample[];
+  /**
+   * Within the most-toxic hue bin, the fraction of members whose toxicity is
+   * below the population median — the Batesian free-rider fraction. `null`
+   * when no bin is meaningfully toxic.
+   */
+  readonly mimicryIndex?: number | null;
+  /**
+   * Per-deme trait moments, indexed by `DemeId`, restricted to
+   * `speciation.clusterTraits` plus the G-wave axes — the instrument gap that
+   * blocked P8's second criterion (a global mean hides divergence).
+   */
+  readonly traitsByDeme?: readonly Readonly<Partial<Record<TraitKey, TraitSample>>>[];
+}
+
+/** G-wave v1.7: the recruitment/age-structure readout (P17's data source). */
+export interface LifeHistorySample {
+  readonly meanLengthCm: number;
+  readonly sdLengthCm: number;
+  /** Fraction below size-based maturity. */
+  readonly juvenileFraction: number;
+  /** Mean age at which currently-mature organisms crossed maturity; null with none. */
+  readonly meanAgeAtMaturityTicks: number | null;
+  /** Births in the window that survived to maturity. */
+  readonly recruitment: number;
+}
+
+/** G-wave v1.7: one hue bin's aposematism statistics (P18/P19's data source). */
+export interface HueBinSample {
+  readonly count: number;
+  readonly meanToxicity: number;
+  readonly meanConspicuousness: number;
 }
 
 export interface ResourceSample {

@@ -52,6 +52,8 @@ import { SeededRng } from '../sim/rng';
 // ---------------------------------------------------------------------------
 
 const CONFIG = resolveSimConfig();
+/** The G-wave gates expressed — the arm where all 23 traits are live. */
+const GATES_ON_CONFIG = resolveSimConfig({ toggles: { enableOntogeny: true, enableAposematism: true } });
 
 /** Mutation off, so segregation and recombination are measured without noise. */
 const NO_MUTATION = resolveSimConfig({ toggles: { enableMutation: false } });
@@ -126,6 +128,7 @@ function founderColumns(
   count: number,
   seed: string,
   z: number,
+  config = CONFIG,
 ): { genotypic: number[][]; latent: number[][] } {
   const genetics = createGenetics();
   const rng = new SeededRng(seed);
@@ -133,8 +136,8 @@ function founderColumns(
   const latent: number[][] = TRAIT_KEYS.map(() => []);
   const context: PhenotypeContext = { localTemperatureAnomalyZ: z, parentArchetype: 'undulator' };
   for (let index = 0; index < count; index += 1) {
-    const genome = genetics.buildFounderGenome(rng, CONFIG);
-    const result = genetics.computePhenotype(genome, rng, CONFIG, context);
+    const genome = genetics.buildFounderGenome(rng, config);
+    const result = genetics.computePhenotype(genome, rng, config, context);
     for (let trait = 0; trait < TRAIT_COUNT; trait += 1) {
       (genotypic[trait] as number[]).push(result.genotypicValues[trait] ?? 0);
       (latent[trait] as number[]).push(result.traitsLatent[trait] ?? 0);
@@ -403,11 +406,37 @@ describe('phenotype', () => {
 });
 
 describe('founders', () => {
-  it('gives every trait strictly positive genotypic variance at generation 0', () => {
-    const columns = founderColumns(500, 'founder-variance', 0).genotypic;
+  it('gives every trait strictly positive genotypic variance at generation 0 (gates on)', () => {
+    // The no-null-allele rule applies to every EXPRESSED axis, so this runs
+    // with the G-wave gates on; the dark-arm counterpart is pinned below.
+    const columns = founderColumns(500, 'founder-variance', 0, GATES_ON_CONFIG).genotypic;
     for (const [index, key] of TRAIT_KEYS.entries()) {
       const observed = variance(columns[index] as number[]);
       expect(observed, `trait ${key} has no founder variance`).toBeGreaterThan(0);
+    }
+  });
+
+  it('keeps dark chromosomes inert: at the defaults only the always-on cross-loads reach the G-wave traits', () => {
+    // The dark-chromosome rule (contracts v1.7): with enableOntogeny and
+    // enableAposematism off, A5/A6 express nothing. The G-wave traits still
+    // carry variance from the always-on A1–A4 cross-loads (q05/q10/q21 →
+    // growthAllocation, q31/q32 → toxicity, q37 → conspicuousness — the free
+    // entanglement of §3), and the gate-aware analytic must match exactly
+    // that, sitting strictly below the gates-on analytic.
+    const columns = founderColumns(2_000, 'founder-dark', 0).genotypic;
+    const dark = { ontogeny: false, aposematism: false } as const;
+    for (const key of ['growthAllocation', 'offspringSize', 'fecundity', 'toxicity', 'conspicuousness'] as const) {
+      const index = TRAIT_KEYS.indexOf(key);
+      const analyticDark = founderGeneticVariance(key, CONFIG.genetics.founderSdScale, dark);
+      const analyticOn = founderGeneticVariance(key, CONFIG.genetics.founderSdScale);
+      expect(analyticDark, `trait ${key} dark < on`).toBeLessThan(analyticOn);
+      const observed = variance(columns[index] as number[]);
+      if (analyticDark === 0) {
+        expect(observed, `trait ${key}`).toBe(0);
+      } else {
+        expect(observed / analyticDark, `trait ${key}`).toBeGreaterThan(0.85);
+        expect(observed / analyticDark, `trait ${key}`).toBeLessThan(1.15);
+      }
     }
   });
 
@@ -416,7 +445,7 @@ describe('founders', () => {
     // `founderGeneticVariance` folds in `Var_a(δ)/2` per discrete effect locus
     // (Gate A-1 defect 2), so hue, preference and choosiness are covered here
     // rather than exempted.
-    const columns = founderColumns(2_000, 'founder-analytic', 0).genotypic;
+    const columns = founderColumns(2_000, 'founder-analytic', 0, GATES_ON_CONFIG).genotypic;
     for (const [index, key] of TRAIT_KEYS.entries()) {
       const analytic = founderGeneticVariance(key, CONFIG.genetics.founderSdScale);
       const observed = variance(columns[index] as number[]);
@@ -508,7 +537,9 @@ describe('GxE', () => {
   }
 
   it('stores the raw genotypic value, identical at every birth temperature', () => {
-    const { cold, warm } = sameGenomeAcrossZ(-1.5, 2.5);
+    // Gates on, so the G-wave traits carry a nonzero value for the invariance
+    // assertion to bite on.
+    const { cold, warm } = sameGenomeAcrossZ(-1.5, 2.5, GATES_ON_CONFIG);
 
     for (const [index, key] of TRAIT_KEYS.entries()) {
       // A genotypic value of 0 is invariant under a multiply as well, so the

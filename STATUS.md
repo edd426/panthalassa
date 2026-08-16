@@ -60,6 +60,17 @@ allowed with a cost knob, P3 restated in biomass. **G0 IS IMPLEMENTED**
 d60c12703108a788 → 2937150f89939ef6; 498 tests) — record in DESIGN.md
 "G0 — the genome made growable". Its probe:full verification run must be
 adjudicated (regime unchanged in kind?) before G1 contracts work starts.
+**G1 IS LANDED THE SAME MORNING** — the full v1.7 contract surface (5
+traits, A5/A6, strategy macros, config blocks, formulas, SampleRow shapes,
+toxinInvention event, snapshot v4, enableCarrion split) with the
+**dark-chromosome rule** resolving the design doc's self-contradiction:
+A5/A6 accumulate variation from tick 0 but express nothing until their
+toggle is on, which is what keeps the off-arm byte-identical to G0
+(verified against G0 source via worktree diff — exit 0) and makes the G0
+spec run adjudicate G1's defaults too. 540 tests; quick green (P12
+discounted, busy machine). Record: DESIGN.md "G1 — the v1.7 contracts
+land". Next after the spec adjudication: G2 (ontogeny biology, Opus) then
+G3 (aposematism), G4 (probes/stats incl. P3-as-biomass), G5 (render).
 The same message asked for **more divergent creature morphology** ("too
 samey, even when zoomed in") — contracts v1.6 landed (slice stride 15 +
 visual stride 10 carrying expressed diet/defense, commit 78f9139) and render

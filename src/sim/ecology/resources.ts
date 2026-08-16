@@ -29,9 +29,18 @@ const PROPAGULE_FRACTION = 1e-3;
 /** Kelp regrows from the holdfast, so it needs a larger seed than drifting plankton. */
 const KELP_PROPAGULE_FRACTION = 5e-3;
 
+/**
+ * Carrion flows iff `enableCarrion` (v1.7). Split from `enableDisturbances` —
+ * the D-wave's owed debt — so recycling and shocks can be measured separately:
+ * a no-shocks arm may now keep the carrion channel, and vice versa.
+ */
+export function carrionEnabled(state: SimState): boolean {
+  return state.config.toggles.enableCarrion;
+}
+
 /** Exponential carrion decay over an arbitrary tick span. */
 export function decayCarrion(state: SimState, elapsedTicks: number): void {
-  if (!state.config.toggles.enableDisturbances) return;
+  if (!carrionEnabled(state)) return;
   const halfLifeTicks = state.config.carrion.decayHalfLifeGenerations * state.config.time.generationTicks;
   const decay = Math.exp((-Math.LN2 * elapsedTicks) / Math.max(1e-9, halfLifeTicks));
   for (let cell = 0; cell < state.field.carrion.length; cell += 1) {
@@ -88,7 +97,7 @@ export function regrowResources(runtime: EcologyRuntime, state: SimState): void 
     plankton[cell] = logisticStep(plankton[cell] ?? 0, carryingCapacity[cell] ?? 0, planktonRate);
   }
 
-  if (state.config.toggles.enableDisturbances) {
+  if (carrionEnabled(state)) {
     decayCarrion(state, RESOURCE_UPDATE_INTERVAL);
   }
 

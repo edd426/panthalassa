@@ -151,6 +151,22 @@ export interface KelpStormEvent extends EventBase {
   readonly region: DisturbanceRegion;
 }
 
+/**
+ * G-wave v1.7: chemical defence was invented — a `toxinMacro` allele appeared
+ * or an organism's expressed toxicity first cleared the noteworthy floor.
+ * Emitted by G3's aposematism stage; worth a feed line for the same reason
+ * clade foundings are.
+ */
+export interface ToxinInventionEvent extends EventBase {
+  readonly kind: 'toxinInvention';
+  readonly id: OrganismId;
+  readonly x: number;
+  readonly y: number;
+  readonly toxicity: number;
+  /** True when the jump came through the macro-locus rather than the polygenic tail. */
+  readonly viaMacroLocus: boolean;
+}
+
 export type SimEvent =
   | BirthEvent
   | DeathEvent
@@ -164,7 +180,8 @@ export type SimEvent =
   | MutantIntroducedEvent
   | ThermalShockEvent
   | PlanktonCrashEvent
-  | KelpStormEvent;
+  | KelpStormEvent
+  | ToxinInventionEvent;
 
 export type SimEventKind = SimEvent['kind'];
 

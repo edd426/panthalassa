@@ -137,6 +137,8 @@ export function describeEvent(event: SimEvent): string {
       return `t${event.tick} plankton crash · ×${fixed(event.productivityMultiplier, 2)} ${event.region === null ? 'global' : event.region.kind} (${event.durationTicks} ticks remaining)`;
     case 'kelpStorm':
       return `t${event.tick} kelp storm · cleared ${fixed(event.clearFraction * 100, 0)}% ${event.region.kind} (${event.durationTicks} ticks remaining)`;
+    case 'toxinInvention':
+      return `t${event.tick} toxin invented · org ${event.id} load ${fixed(event.toxicity, 2)}${event.viaMacroLocus ? ' (macro-locus)' : ''}`;
     case 'birth':
     case 'death':
       return `t${event.tick} ${event.kind} ${event.id}`;

@@ -37,7 +37,7 @@
  *    `applyTraitLink`, and the links are strictly increasing.
  */
 
-import type { CladeArchetype, Genome } from '../../contracts/genome';
+import type { ActiveGates, CladeArchetype, DiscreteEffectsByLocus, Genome, WRowsByTrait } from '../../contracts/genome';
 import {
   CLADE_SCHEMA,
   DISCRETE_EFFECTS_BY_LOCUS,
@@ -45,6 +45,8 @@ import {
   DISCRETE_LOCUS_COUNT,
   QUANT_LOCUS_COUNT,
   W_ROWS_BY_TRAIT,
+  activeDiscreteEffectsByLocus,
+  activeWRowsByTrait,
   expressedCladeArchetype,
   founderGeneticVariance,
 } from '../../contracts/genome';
@@ -81,6 +83,9 @@ interface DerivedConstants {
   readonly environmentSds: Float64Array;
   /** 1 where the trait is subject to spatial GxE. */
   readonly gxeMask: Uint8Array;
+  /** Gate-filtered W and discrete-effect views (the dark-chromosome rule). */
+  readonly wRows: WRowsByTrait;
+  readonly discreteEffects: DiscreteEffectsByLocus;
 }
 
 const DERIVED_CACHE = new WeakMap<SimConfig, DerivedConstants>();
@@ -95,6 +100,14 @@ function derive(config: SimConfig): DerivedConstants {
   if (cached !== undefined) return cached;
 
   const { targetFounderHeritability, environmentDeviationScale, founderSdScale, gxeTraits } = config.genetics;
+  // Dark-chromosome rule: with a wave's toggle off, its loci contribute
+  // neither genotypic value nor founder variance, so the off-arm's
+  // environmental SDs — and therefore its every deviation draw — match the
+  // pre-wave world exactly.
+  const gates: ActiveGates = {
+    ontogeny: config.toggles.enableOntogeny,
+    aposematism: config.toggles.enableAposematism,
+  };
   // Domain guard on the tuning surface, not a trait bound: h² = 0 asks for an
   // infinite environmental deviation and h² > 1 for an imaginary one.
   const heritability = Math.min(1, Math.max(1e-6, targetFounderHeritability));
@@ -108,13 +121,19 @@ function derive(config: SimConfig): DerivedConstants {
     baselines[index] = resolveBaseline(key, config);
     // v1.3: this analytic now folds in discrete-locus effect variance, which is
     // what makes the h² target hold for hue and preference (Gate A-1 defect 2).
-    const geneticVariance = founderGeneticVariance(key, founderSdScale);
+    const geneticVariance = founderGeneticVariance(key, founderSdScale, gates);
     environmentSds[index] =
       Math.sqrt((geneticVariance * (1 - heritability)) / heritability) * environmentDeviationScale;
   }
   for (const key of gxeTraits) gxeMask[TRAIT_INDEX[key]] = 1;
 
-  const derived: DerivedConstants = { baselines, environmentSds, gxeMask };
+  const derived: DerivedConstants = {
+    baselines,
+    environmentSds,
+    gxeMask,
+    wRows: activeWRowsByTrait(gates),
+    discreteEffects: activeDiscreteEffectsByLocus(gates),
+  };
   DERIVED_CACHE.set(config, derived);
   return derived;
 }
@@ -125,13 +144,18 @@ function derive(config: SimConfig): DerivedConstants {
  * `meiosis.ts`, which has to know what a genome currently expresses before it
  * can shift it onto a new body plan's schema.
  */
-export function accumulateGenotypicValues(genome: Genome, out: Float64Array): void {
+export function accumulateGenotypicValues(
+  genome: Genome,
+  out: Float64Array,
+  wRows: WRowsByTrait = W_ROWS_BY_TRAIT,
+  effectsByLocus: DiscreteEffectsByLocus = DISCRETE_EFFECTS_BY_LOCUS,
+): void {
   const { quant, discrete } = genome;
 
   for (let index = 0; index < TRAIT_COUNT; index += 1) {
     const key = TRAIT_KEYS[index] as TraitKey;
     let value = 0;
-    for (const row of W_ROWS_BY_TRAIT[key]) {
+    for (const row of wRows[key]) {
       const maternal = quant[row.locusIndex] ?? 0;
       const paternal = quant[QUANT_LOCUS_COUNT + row.locusIndex] ?? 0;
       value += row.weight * (maternal + paternal);
@@ -142,7 +166,7 @@ export function accumulateGenotypicValues(genome: Genome, out: Float64Array): vo
   // Discrete alleles are additive at half weight per copy, so a heterozygote
   // sits midway and a homozygote gets the full authored delta.
   for (const locus of DISCRETE_LOCI) {
-    const effects = DISCRETE_EFFECTS_BY_LOCUS[locus.id];
+    const effects = effectsByLocus[locus.id];
     if (effects.length === 0) continue;
     const maternal = discrete[locus.index] ?? 0;
     const paternal = discrete[DISCRETE_LOCUS_COUNT + locus.index] ?? 0;
@@ -183,7 +207,7 @@ export function computePhenotype(
   rng.next();
   const deviationRng = rng.fork('envDeviation');
 
-  accumulateGenotypicValues(genome, genotypicScratch);
+  accumulateGenotypicValues(genome, genotypicScratch, derive(config).wRows, derive(config).discreteEffects);
 
   for (let index = 0; index < TRAIT_COUNT; index += 1) {
     const key = TRAIT_KEYS[index] as TraitKey;

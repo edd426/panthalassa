@@ -39,19 +39,31 @@ import {
 import { DEFAULT_SIM_CONFIG, DEATH_CAUSES, demeAt, demeCount, resolveSimConfig } from './types';
 
 describe('locus table shape', () => {
-  it('has 48 quantitative loci, 12 discrete loci and a sex locus', () => {
-    expect(QUANT_LOCI).toHaveLength(48);
-    expect(QUANT_LOCUS_COUNT).toBe(48);
-    expect(DISCRETE_LOCI).toHaveLength(12);
-    expect(DISCRETE_LOCUS_COUNT).toBe(12);
+  it('has 68 quantitative loci, 18 discrete loci and a sex locus (v1.7: A5/A6 appended)', () => {
+    expect(QUANT_LOCI).toHaveLength(68);
+    expect(QUANT_LOCUS_COUNT).toBe(68);
+    expect(DISCRETE_LOCI).toHaveLength(18);
+    expect(DISCRETE_LOCUS_COUNT).toBe(18);
     expect(SEX_LOCUS.chromosome).toBe('XY');
   });
 
-  it('spreads 12 quantitative and 3 discrete loci over each of the 4 autosomes', () => {
+  it('keeps the pre-G-wave layout frozen: indices 0..47 / 0..11 name the same loci as v1.6', () => {
+    // Append-only is the layout contract (CLAUDE.md G0 conventions): these
+    // spot pins fail if anyone interleaves or reorders instead of appending.
+    expect(QUANT_LOCI[0]?.id).toBe('q01');
+    expect(QUANT_LOCI[47]?.id).toBe('q48');
+    expect(QUANT_LOCI[48]?.id).toBe('q49');
+    expect(QUANT_LOCI[48]?.chromosome).toBe('A5');
+    expect(DISCRETE_LOCI[11]?.id).toBe('neutralD');
+    expect(DISCRETE_LOCI[12]?.chromosome).toBe('A5');
+  });
+
+  it('spreads the loci over the autosomes: 12q+3d on A1-A5, 8q+3d on A6', () => {
     for (const chromosome of AUTOSOME_IDS) {
-      expect(QUANT_LOCI.filter((locus) => locus.chromosome === chromosome)).toHaveLength(12);
+      const quant = chromosome === 'A6' ? 8 : 12;
+      expect(QUANT_LOCI.filter((locus) => locus.chromosome === chromosome)).toHaveLength(quant);
       expect(DISCRETE_LOCI.filter((locus) => locus.chromosome === chromosome)).toHaveLength(3);
-      expect(CHROMOSOMES[chromosome].loci).toHaveLength(15);
+      expect(CHROMOSOMES[chromosome].loci).toHaveLength(quant + 3);
     }
   });
 
@@ -73,8 +85,8 @@ describe('locus table shape', () => {
   it('indexes loci contiguously from zero (the allele-array layout contract)', () => {
     expect(QUANT_LOCI.map((locus) => locus.index)).toEqual(QUANT_LOCI.map((_, index) => index));
     expect(DISCRETE_LOCI.map((locus) => locus.index)).toEqual(DISCRETE_LOCI.map((_, index) => index));
-    expect(new Set(QUANT_LOCI.map((locus) => locus.id)).size).toBe(48);
-    expect(new Set(DISCRETE_LOCI.map((locus) => locus.id)).size).toBe(12);
+    expect(new Set(QUANT_LOCI.map((locus) => locus.id)).size).toBe(68);
+    expect(new Set(DISCRETE_LOCI.map((locus) => locus.id)).size).toBe(18);
   });
 
   it('derives every mutation sigma from the founder sd, so founders and mutants share a scale', () => {
@@ -96,12 +108,21 @@ describe('locus table shape', () => {
 });
 
 describe('discrete loci', () => {
-  it('has 2 clade macro-loci, 4 pigment, 2 preference modifiers and 4 neutral markers', () => {
+  it('has 2 clade macros, 6 pigments, 2 preference modifiers, 6 neutral markers and the 2 strategy macros', () => {
     const byKind = (kind: string): number => DISCRETE_LOCI.filter((locus) => locus.kind === kind).length;
     expect(byKind('cladeMacro')).toBe(2);
-    expect(byKind('pigment')).toBe(4);
+    expect(byKind('pigment')).toBe(6);
     expect(byKind('preferenceModifier')).toBe(2);
-    expect(byKind('neutralMarker')).toBe(4);
+    expect(byKind('neutralMarker')).toBe(6);
+    expect(byKind('lifeHistoryMacro')).toBe(1);
+    expect(byKind('toxinMacro')).toBe(1);
+  });
+
+  it('gives the strategy macros no effect at their ancestral allele (the mean-preserving rule)', () => {
+    for (const id of ['lifeHistoryMacro', 'toxinMacro'] as const) {
+      expect(DISCRETE_EFFECTS.some((effect) => effect.locus === id && effect.allele === 0)).toBe(false);
+      expect(DISCRETE_EFFECTS.some((effect) => effect.locus === id)).toBe(true);
+    }
   });
 
   it('gives neutral markers k = 8 alleles', () => {
@@ -121,7 +142,7 @@ describe('discrete loci', () => {
 
   it('leaves neutral markers truly neutral — zero rows in every effect table', () => {
     const neutralIds = new Set(DISCRETE_LOCI.filter((locus) => locus.kind === 'neutralMarker').map((locus) => locus.id));
-    expect(neutralIds.size).toBe(4);
+    expect(neutralIds.size).toBe(6);
     for (const effect of DISCRETE_EFFECTS) {
       expect(neutralIds.has(effect.locus)).toBe(false);
     }
@@ -307,8 +328,8 @@ describe('clade archetypes', () => {
 describe('genome layout', () => {
   it('allocates two haplotypes of every locus', () => {
     const genome = createEmptyGenome('XX');
-    expect(genome.quant).toHaveLength(96);
-    expect(genome.discrete).toHaveLength(24);
+    expect(genome.quant).toHaveLength(136);
+    expect(genome.discrete).toHaveLength(36);
     expect(genome.karyotype).toBe('XX');
   });
 });
@@ -332,7 +353,12 @@ describe('SimConfig', () => {
   });
 
   it('enables every variance mechanism by default and lets each be switched off alone', () => {
-    for (const value of Object.values(DEFAULT_SIM_CONFIG.toggles)) expect(value).toBe(true);
+    // v1.7: the G-wave biology toggles ship dark — off is their default until
+    // the G2/G3 campaigns land and tune them. Everything else defaults on.
+    const dark = new Set(['enableOntogeny', 'enableAposematism']);
+    for (const [key, value] of Object.entries(DEFAULT_SIM_CONFIG.toggles)) {
+      expect(value).toBe(!dark.has(key));
+    }
     const off = resolveSimConfig({ toggles: { enableClimateWalk: false } });
     expect(off.toggles.enableClimateWalk).toBe(false);
     expect(off.toggles.enableMutation).toBe(true);

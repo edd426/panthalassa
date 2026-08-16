@@ -1308,3 +1308,65 @@ section.
 `d60c12703108a788` → `2937150f89939ef6` — a deliberate trajectory change,
 recorded in `disturbance-units.test.ts`. 498 tests green. probe:quick and a
 G0 `probe:full` (regime-unchanged-in-kind check) adjudicate below.
+
+### G1 — the v1.7 contracts land, and the dark-chromosome rule (2026-08-16 morning)
+
+The full Wave 1 contract surface is in: 5 traits appended (`growthAllocation`,
+`offspringSize`, `fecundity`, `toxicity`, `conspicuousness`), autosomes A5
+(12q: q49–q60, the life-history bank with the q53/q54 provisioning linkage
+block) and A6 (8q: q61–q68, chemical defence with the q63/q64 aposematism
+block), six cross-loads on existing loci, the founder-fixed strategy macros
+(`lifeHistoryMacro`, `toxinMacro` — ancestral 0/0, neighbour-step mutable, so
+a strategy or the invention of toxin arrives as an *event*), `pigmentE/F` +
+`neutralE/F` (drift instrumentation 4 → 6 markers — the free measurement win),
+`growth` + `aposematism` config blocks, `growth.conspecificLogit` (cannibalism
+as a cost, per the user's §9 approval), six pure formulas
+(`tissueCostPerCm`, `somaticGrowthPerTick`, `clutchInvestment`,
+`toxinYieldMultiplier`/`toxinConsumptionHazard`, `aposematismLogit`,
+`toxinMetabolicCostPerTick`), optional `SampleRow` detection shapes
+(`lifeHistory`, `hueBins`, `mimicryIndex`, `traitsByDeme`), the
+`toxinInvention` event, snapshot v4, and the D-wave's owed debt paid:
+**`enableCarrion` split from `enableDisturbances`** (independent; the golden
+off-arm test now disables both, and `TOGGLE_KEYS` gained the carrion arm).
+
+**The design doc contradicted itself, and the resolution is the wave's most
+important structural decision.** Its §4 tables load A5/A6 loci onto *old*
+traits (q52→size, q64→displayHue — deliberate entanglement), and seed
+pigmentE/F morphs at founding; its §7 acceptance requires the off-arm to
+reproduce G0's world byte-for-byte. Both cannot hold: founder-seeded new loci
+loading old traits necessarily shift old traits' founder distributions. The
+first equivalence run measured exactly that (plankton fields diverging by
+tick 50 through hue→mating→behaviour). Resolution: **dark chromosomes**
+(`chromosomeGate` in genome.ts). A5/A6 recombine, mutate and accumulate
+variation from tick 0, but no effect of theirs — quant load or discrete
+effect — expresses until the wave's toggle is on. `founderGeneticVariance`
+and the phenotype pass are gate-aware, so the off-arm's derived environmental
+SDs match the pre-wave world exactly. Two payoffs: the toggles are strict
+marginal-contribution controls (the G0 doctrine survives contact with the
+authored tables), and when a toggle flips on mid-run it reveals variation
+that has been accumulating cryptically — standing genetic variation, ready
+for selection, which is more biologically honest than a cold start.
+
+**Off-arm equivalence: verified against G0 source, byte-for-byte.** The
+D-wave's cross-source pattern: the golden scenario (seed
+`disturbance-off-golden`, 50 ticks) dumped organism ids/positions/energies/
+first-18 latent traits + both resource fields from a G0-commit worktree
+(fa6c990) and from the G1 tree — `diff` exit 0. The golden hash moved anyway
+(`2937150f89939ef6` → `67c311b3a0e40aa6`) because the hashed arrays grew
+(23-trait stride, 136-allele genomes); that is a layout change, not a
+trajectory change, and the dump is what proves it. A corollary worth having:
+**the G0 spec run adjudicates G1's defaults too**, since they are provably
+the same trajectory.
+
+Tests: 540 green (contracts shape tests updated to the v1.7 layout;
+append-only spot pins added; the dark rule pinned against the gate-aware
+analytic in genetics-units). All numbers in the new tables are authored
+starting guesses in exactly the DEFAULT_SIM_CONFIG sense — G6 moves them.
+
+G1's probe:quick: exit 0, gates PASS (`runs/quick-post-g1.log`). P12 read
+7.84e5 against the 9.0e5 warn line, measured while the G0 spec run's three
+sims were live on the same machine — the known ~35% busy-machine effect, so
+the number is discounted per the convention and P12 must be re-measured quiet
+after the spec run drains before anyone treats it as a G1 regression. A real
+component is plausible (136-allele meiosis, 23-trait loops) and worth the
+quiet measurement.

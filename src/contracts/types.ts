@@ -391,7 +391,9 @@ export interface SerializedGenome {
 }
 
 /** Current snapshot format. Bump on any layout change. */
-export const SNAPSHOT_FORMAT_VERSION = 3;
+// v4 (G-wave, 2026-08-16): 68-locus/23-trait layout — genome and trait array
+// lengths changed, so v3 snapshots do not restore.
+export const SNAPSHOT_FORMAT_VERSION = 4;
 
 // ---------------------------------------------------------------------------
 // SimConfig — the tuning surface
@@ -532,6 +534,53 @@ export interface CarrionConfig {
   qScav: number;
   maxIntake: number;
   halfSaturation: number;
+}
+
+/**
+ * Ontogeny (G-wave v1.7). Read only when `toggles.enableOntogeny`; every value
+ * is an authored starting guess for the G6 campaign. `size` is the *target*
+ * adult length once ontogeny is on; realised length is the `sizeCurrent` pool
+ * state, and there is deliberately no cap at target — growth past it just gets
+ * expensive (`tissueCostPerCm`), a receding ceiling in the project's sense.
+ */
+export interface GrowthConfig {
+  /** `c` in tissueCostPerCm = c·L²·(1 + (L/Ltarget)^overshootExponent): energy per cm at unit length. */
+  tissueCostBase: number;
+  /** How steeply tissue cost rises past the target length. */
+  overshootExponent: number;
+  /** Floor (cm) inside the softplus on Ltarget, so a degenerate target cannot divide by ~zero. */
+  minLengthCm: number;
+  /** Mature when sizeCurrent ≥ fraction · target length (with `time.maturityTicks` kept as an age floor). */
+  maturityLengthFraction: number;
+  /** Energy per cm^provisionExponent per offspring — the provisioning budget's price. */
+  provisionEnergyPerCm: number;
+  provisionExponent: number;
+  /**
+   * Kill-logit penalty when predator and victim share a species tag. The
+   * cannibalism knob (user decision, 2026-08-16): conspecific predation is
+   * allowed as a cost, not banned — juveniles make it possible at all.
+   */
+  conspecificLogit: number;
+}
+
+/**
+ * Aposematism (G-wave v1.7). Read only when `toggles.enableAposematism`. Both
+ * driving traits sit at ≈0 at founding, so every term here is ≈0 at the
+ * operating point A7 tuned — the axis only bites once toxicity evolves.
+ */
+export interface AposematismConfig {
+  /** Predator energy yield is multiplied by exp(−coef · victimToxicity): a post-kill penalty, never a lower kill probability. */
+  toxinYieldCoef: number;
+  /** One-off predator death hazard per unit of victim toxicity. */
+  toxinHazardCoef: number;
+  /** Kill-logit credit −coef · victimConspicuousness · localBinMeanToxicity — population-level avoidance via the search-image machinery. */
+  aposematismCoef: number;
+  /** Kill-logit cost +coef · conspicuousness: loud animals get attacked more. */
+  conspicuousnessDetectionCoef: number;
+  /** Mating acceptance-weight bonus per unit conspicuousness: loud animals get chosen more. */
+  conspicuousnessMatingCoef: number;
+  /** Metabolic burn per tick: coef · toxicity · size^0.75 — sequestration scales with tissue. */
+  toxinCostCoef: number;
 }
 
 export interface MetabolismConfig {
@@ -698,8 +747,19 @@ export interface MechanismToggles {
   enableSeasonality: boolean;
   /** Female preference. Off = males are accepted at random, killing the assortative-mating speciation route. */
   enableAssortativeMating: boolean;
-  /** Coupled disturbance regime, including carrion recycling and scavenging. */
+  /** Coupled disturbance regime (shocks). Carrion has its own toggle since v1.7. */
   enableDisturbances: boolean;
+  /**
+   * Carrion recycling and scavenging (v1.7, the D-wave's owed debt): split
+   * from `enableDisturbances` so recycling and shocks can finally be measured
+   * separately. Both must be on for carrion to flow, matching the pre-split
+   * behaviour at the defaults.
+   */
+  enableCarrion: boolean;
+  /** G-wave ontogeny: sizeCurrent growth, size-based maturity, genetic provisioning. */
+  enableOntogeny: boolean;
+  /** G-wave aposematism: toxin penalties, signal costs, bin-toxicity avoidance. */
+  enableAposematism: boolean;
 }
 
 export interface SimConfig {
@@ -710,6 +770,8 @@ export interface SimConfig {
   readonly resources: ResourceConfig;
   readonly disturbance: DisturbanceConfig;
   readonly carrion: CarrionConfig;
+  readonly growth: GrowthConfig;
+  readonly aposematism: AposematismConfig;
   readonly metabolism: MetabolismConfig;
   readonly predation: PredationConfig;
   readonly senescence: SenescenceConfig;
@@ -817,6 +879,23 @@ export const DEFAULT_SIM_CONFIG: SimConfig = Object.freeze({
     maxIntake: 0.5,
     halfSaturation: 2,
   }),
+  growth: Object.freeze({
+    tissueCostBase: 0.03,
+    overshootExponent: 4,
+    minLengthCm: 1,
+    maturityLengthFraction: 0.75,
+    provisionEnergyPerCm: 1.8,
+    provisionExponent: 1.3,
+    conspecificLogit: -2,
+  }),
+  aposematism: Object.freeze({
+    toxinYieldCoef: 0.5,
+    toxinHazardCoef: 0.02,
+    aposematismCoef: 0.6,
+    conspicuousnessDetectionCoef: 0.35,
+    conspicuousnessMatingCoef: 0.25,
+    toxinCostCoef: 0.002,
+  }),
   metabolism: Object.freeze({
     baseRate: 0.012,
     sizeExponent: 0.75,
@@ -898,6 +977,9 @@ export const DEFAULT_SIM_CONFIG: SimConfig = Object.freeze({
     enableSeasonality: true,
     enableAssortativeMating: true,
     enableDisturbances: true,
+    enableCarrion: true,
+    enableOntogeny: false,
+    enableAposematism: false,
   }),
 });
 

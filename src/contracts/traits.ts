@@ -74,7 +74,18 @@ export type TraitKey =
   /** Body length-to-width ratio, dimensionless. Softplus floor. High = eel-like, ~1 = discoid. */
   | 'bodyAspect'
   /** Dermal plate thickness, mm. Softplus floor. Feeds defense and metabolic cost. */
-  | 'armorPlating';
+  | 'armorPlating'
+  // --- G-wave (v1.7): life history & chemical defence. Appended; never reorder. ---
+  /** Share of energy surplus directed to somatic growth vs storage/reproduction. Logistic link. Read only when `toggles.enableOntogeny`. */
+  | 'growthAllocation'
+  /** Length at birth, cm. Softplus floor. The offspring size/number tradeoff's size half. */
+  | 'offspringSize'
+  /** Poisson clutch mean, per female. Softplus floor. Supersedes `mating.clutchLambda` when ontogeny is on. */
+  | 'fecundity'
+  /** Defensive toxin load. Softplus floor at a ≈0 baseline: near-inert at founding by construction. Read only when `toggles.enableAposematism`. */
+  | 'toxicity'
+  /** Signal amplitude: how loud the display is. Identity link; negative = cryptic. Orthogonal to `displayHue` (which colour vs how loud) — that separation is what makes mimicry expressible. */
+  | 'conspicuousness';
 
 /**
  * Canonical trait order. **This order defines the memory layout** of
@@ -101,6 +112,11 @@ export const TRAIT_KEYS = [
   'finPairs',
   'bodyAspect',
   'armorPlating',
+  'growthAllocation',
+  'offspringSize',
+  'fecundity',
+  'toxicity',
+  'conspicuousness',
 ] as const satisfies readonly TraitKey[];
 
 export const TRAIT_COUNT = TRAIT_KEYS.length;
@@ -190,6 +206,12 @@ const META: readonly TraitMeta[] = [
   { key: 'finPairs', unit: 'count', link: 'softplus', linkScale: 0.3, baseline: 2, fitnessSense: 'matching', focal: false, description: 'Paired appendages; interpreted per clade archetype.' },
   { key: 'bodyAspect', unit: 'ratio', link: 'softplus', linkScale: 0.25, baseline: 3.2, fitnessSense: 'matching', focal: false, description: 'Length over width; eel-like at high values, discoid near 1.' },
   { key: 'armorPlating', unit: 'mm', link: 'softplus', linkScale: 0.15, baseline: 0.6, fitnessSense: 'directional', focal: false, description: 'Dermal plate thickness; buys defense, costs speed and metabolism.' },
+  // G-wave (v1.7): every number below is an authored starting guess for G6 to move.
+  { key: 'growthAllocation', unit: 'share', link: 'logistic', linkScale: 1, baseline: 0, fitnessSense: 'allocation', focal: false, description: 'Energy-surplus share spent on somatic growth; the r/K axis.' },
+  { key: 'offspringSize', unit: 'cm', link: 'softplus', linkScale: 0.2, baseline: 2.5, fitnessSense: 'matching', focal: false, description: 'Length at birth; shares one provisioning budget with fecundity.' },
+  { key: 'fecundity', unit: 'count', link: 'softplus', linkScale: 0.3, baseline: 3, fitnessSense: 'matching', focal: false, description: 'Poisson clutch mean; shares one provisioning budget with offspring size.' },
+  { key: 'toxicity', unit: 'load', link: 'softplus', linkScale: 0.15, baseline: 0, fitnessSense: 'directional', focal: false, description: 'Defensive chemistry; a post-kill penalty to the predator, never a lower kill probability.' },
+  { key: 'conspicuousness', unit: 'amplitude', link: 'identity', linkScale: 0, baseline: 0, fitnessSense: 'matching', focal: false, description: 'Signal loudness; raises detection and mating interest, earns aposematic credit only if the local hue bin is toxic.' },
 ];
 
 export const TRAIT_META: Readonly<Record<TraitKey, TraitMeta>> = Object.freeze(

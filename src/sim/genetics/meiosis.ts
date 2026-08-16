@@ -87,7 +87,7 @@ import type { TraitKey } from '../../contracts/traits';
 import { TRAIT_KEYS, TRAIT_META, invertTraitLink } from '../../contracts/traits';
 import type { RandomSource, SimConfig } from '../../contracts/types';
 import { resolveBaseline } from './phenotype';
-import { NON_MACRO_DISCRETE_BY_CHROMOSOME, QUANT_LOCI_BY_CHROMOSOME } from './loci';
+import { QUANT_LOCI_BY_CHROMOSOME, STEP_MUTABLE_DISCRETE_BY_CHROMOSOME } from './loci';
 
 /** The three trait channels `CladeSchema` gives a per-archetype `typical` for. */
 const MORPHOLOGY_CHANNELS = ['segmentCount', 'finPairs', 'bodyAspect'] as const;
@@ -214,7 +214,7 @@ function mutateChromosome(
   const quantOffset = target * QUANT_LOCUS_COUNT;
   const discreteOffset = target * DISCRETE_LOCUS_COUNT;
   const quantLoci = QUANT_LOCI_BY_CHROMOSOME[chromosome];
-  const discreteLoci = NON_MACRO_DISCRETE_BY_CHROMOSOME[chromosome];
+  const discreteLoci = STEP_MUTABLE_DISCRETE_BY_CHROMOSOME[chromosome];
 
   const quantCount = rng.poisson(quantLoci.length * genetics.quantMutationRate);
   for (let index = 0; index < quantCount; index += 1) {

@@ -131,17 +131,22 @@ describe('disturbance continuity and scenario setup', () => {
   it('preserves the disturbances-off golden trajectory hash', () => {
     const overrides = {
       world: { widthWu: 240, heightWu: 160, initialPopulation: 24, slotCapacity: 48, fieldCellSizeWu: 20 },
-      toggles: { enableDisturbances: false },
+      // enableCarrion off too since the v1.7 split: this arm's meaning (no
+      // shocks AND no recycling) predates the split and the hash pins it.
+      toggles: { enableDisturbances: false, enableCarrion: false },
     };
     const sim = makeSim('disturbance-off-golden', overrides);
     sim.step(50);
-    // Re-baselined 2026-08-16 (was d60c12703108a788) for G0: genome creation
-    // moved to per-chromosome/per-birth forked RNG streams so the genome is
-    // growable without shifting old trajectories — a deliberate, one-time
-    // trajectory change (DESIGN.md "G0"). Prior re-baseline: 2026-08-10
-    // (was 6922907c6421d7bf) for the tick-boundary spatial rebuild. Any OTHER
-    // change to this value means the disturbances-off arm is no longer inert.
-    expect(sim.stateHash()).toBe('2937150f89939ef6');
+    // Re-baselined twice on 2026-08-16, deliberately, in one wave:
+    // - G0 (was d60c12703108a788): genome creation moved to per-chromosome/
+    //   per-birth forked RNG streams — a real, one-time trajectory change.
+    // - G1 (was 2937150f89939ef6): the v1.7 layout append (68 loci, 23 traits)
+    //   grew the hashed arrays. NOT a trajectory change: the pre-G-wave
+    //   content (positions, energies, ids, the first 18 traits) is verified
+    //   byte-equal against G0 source in DESIGN.md "G1 — off-arm equivalence".
+    // Prior re-baseline: 2026-08-10 (was 6922907c6421d7bf), tick-boundary
+    // spatial rebuild. Any OTHER change here means the off arm is not inert.
+    expect(sim.stateHash()).toBe('67c311b3a0e40aa6');
     expect(sim.state.field.carrion.reduce((sum, value) => sum + value, 0)).toBe(0);
     expect(sim.state.disturbance.thermal).toHaveLength(0);
   });

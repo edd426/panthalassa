@@ -10,12 +10,14 @@
  * `src/probes/genetics-units.test.ts` asserts the fix directly — every trait
  * must carry strictly positive genotypic variance at gen 0.
  *
- * Discrete loci are uniform over their allele sets, **except the two clade
- * macro-loci**, which start homozygous for allele 0. That is a contract
- * requirement, not a simplification: `CLADE_MACRO_TABLE` is authored so that
- * 0/0 is the ancestral undulator, and the other two body plans have to be
- * *discovered* by macro-mutation. Seeding them uniformly would hand the player
- * all three archetypes on tick 0 and throw away the clade-founding event.
+ * Discrete loci are uniform over their allele sets, **except the
+ * `FOUNDER_FIXED_DISCRETE_KINDS`**, which start homozygous for allele 0. For
+ * the clade macros that is a contract requirement, not a simplification:
+ * `CLADE_MACRO_TABLE` is authored so that 0/0 is the ancestral undulator, and
+ * the other two body plans have to be *discovered* by macro-mutation — seeding
+ * them uniformly would hand the player all three archetypes on tick 0. The
+ * G-wave strategy macros are fixed for the mean-preserving reason instead:
+ * their jumps must contribute exactly zero at the founding operating point.
  *
  * ## Stream layout (G0)
  *
@@ -41,7 +43,7 @@ import {
   quantAlleleIndex,
 } from '../../contracts/genome';
 import type { RandomSource, Sex, SimConfig } from '../../contracts/types';
-import { NON_MACRO_DISCRETE_BY_CHROMOSOME, QUANT_LOCI_BY_CHROMOSOME } from './loci';
+import { FOUNDER_SEEDED_DISCRETE_BY_CHROMOSOME, QUANT_LOCI_BY_CHROMOSOME } from './loci';
 
 /** A founder genome. See the module note for the G0 stream layout. */
 export function buildFounderGenome(rng: RandomSource, config: SimConfig, sex?: Sex): Genome {
@@ -60,7 +62,7 @@ export function buildFounderGenome(rng: RandomSource, config: SimConfig, sex?: S
       quant[quantAlleleIndex(0, locus.index)] = chrRng.normal(0, sd);
       quant[quantAlleleIndex(1, locus.index)] = chrRng.normal(0, sd);
     }
-    for (const locus of NON_MACRO_DISCRETE_BY_CHROMOSOME[chromosome]) {
+    for (const locus of FOUNDER_SEEDED_DISCRETE_BY_CHROMOSOME[chromosome]) {
       discrete[discreteAlleleIndex(0, locus.index)] = chrRng.int(0, locus.alleleCount - 1);
       discrete[discreteAlleleIndex(1, locus.index)] = chrRng.int(0, locus.alleleCount - 1);
     }

@@ -9,13 +9,21 @@
  * as a hitchhiking event rather than a single-locus curiosity.
  *
  * ```
- *                48 quantitative        12 discrete
+ *                68 quantitative        18 discrete
  *   A1  q01..q12 (body & power)         cladeMacroA, pigmentA, neutralA
  *   A2  q13..q24 (thermal & metabolism) cladeMacroB, pigmentB, neutralB
  *   A3  q25..q36 (trophic & conflict)   prefModA,    pigmentC, neutralC
  *   A4  q37..q48 (behaviour & display)  prefModB,    pigmentD, neutralD
+ *   A5  q49..q60 (life history, v1.7)   lifeHistoryMacro, pigmentE, neutralE
+ *   A6  q61..q68 (chemical defence)     toxinMacro,  pigmentF, neutralF
  *   XY  sexDeterminer
  * ```
+ *
+ * A5/A6 are the G-wave append (v1.7). New loci go on new autosomes — never
+ * interleaved — so indices 0..47 keep their layout meaning and the authored
+ * linkage blocks stay put; existing loci may gain `loads` onto new traits
+ * (free: `founderGeneticVariance` sums per trait). G0's per-chromosome RNG
+ * forks are what make the append trajectory-neutral for A1–A4.
  *
  * Each chromosome is **100 cM = 1 Morgan long**, which is exactly why
  * recombination is Poisson(1.0) per chromosome: the crossover rate and the map
@@ -53,9 +61,9 @@ import { TRAIT_KEYS, TRAIT_META } from './traits';
 // Chromosomes
 // ---------------------------------------------------------------------------
 
-export type AutosomeId = 'A1' | 'A2' | 'A3' | 'A4';
+export type AutosomeId = 'A1' | 'A2' | 'A3' | 'A4' | 'A5' | 'A6';
 
-export const AUTOSOME_IDS = ['A1', 'A2', 'A3', 'A4'] as const satisfies readonly AutosomeId[];
+export const AUTOSOME_IDS = ['A1', 'A2', 'A3', 'A4', 'A5', 'A6'] as const satisfies readonly AutosomeId[];
 
 /** Genetic length of every chromosome, cM. 100 cM = 1 Morgan = Poisson(1.0) crossovers. */
 export const MAP_LENGTH_CM = 100;
@@ -111,13 +119,13 @@ const QUANT_LOCUS_SPECS = [
   { id: 'q02', chromosome: 'A1', positionCm: 9, founderSd: 0.45, label: 'trunk mass', loads: [['size', 0.55], ['speedCap', -0.05]] },
   { id: 'q03', chromosome: 'A1', positionCm: 14, founderSd: 0.45, label: 'myotome density', loads: [['speedCap', 0.10], ['metabolicEff', -0.04]] },
   { id: 'q04', chromosome: 'A1', positionCm: 22, founderSd: 0.40, label: 'caudal leverage', loads: [['speedCap', 0.08], ['bodyAspect', 0.12]] },
-  { id: 'q05', chromosome: 'A1', positionCm: 28, founderSd: 0.50, label: 'gill surface', loads: [['metabolicEff', 0.06], ['size', -0.30]] },
+  { id: 'q05', chromosome: 'A1', positionCm: 28, founderSd: 0.50, label: 'gill surface', loads: [['metabolicEff', 0.06], ['size', -0.30], ['growthAllocation', 0.18]] },
   { id: 'q06', chromosome: 'A1', positionCm: 34, founderSd: 0.45, label: 'dermal plating A', loads: [['armorPlating', 0.14], ['speedCap', -0.04]] },
   // q07/q08 are the tightly linked armour block (1.5 cM apart).
   { id: 'q07', chromosome: 'A1', positionCm: 41, founderSd: 0.40, label: 'dermal plating B', loads: [['armorPlating', 0.10], ['defense', 0.20]] },
   { id: 'q08', chromosome: 'A1', positionCm: 42.5, founderSd: 0.40, label: 'plate mineralisation', loads: [['armorPlating', 0.12], ['metabolicEff', -0.03]] },
   { id: 'q09', chromosome: 'A1', positionCm: 55, founderSd: 0.50, label: 'fusiform index', loads: [['bodyAspect', 0.22], ['defense', -0.18]] },
-  { id: 'q10', chromosome: 'A1', positionCm: 63, founderSd: 0.45, label: 'growth rate', loads: [['size', 0.60], ['givingUpTime', -3.0]] },
+  { id: 'q10', chromosome: 'A1', positionCm: 63, founderSd: 0.45, label: 'growth rate', loads: [['size', 0.60], ['givingUpTime', -3.0], ['growthAllocation', 0.30]] },
   { id: 'q11', chromosome: 'A1', positionCm: 78, founderSd: 0.35, label: 'skeletal density', loads: [['size', 0.35], ['armorPlating', 0.08]] },
   { id: 'q12', chromosome: 'A1', positionCm: 92, founderSd: 0.45, label: 'muscle recruitment', loads: [['speedCap', 0.09], ['attack', 0.18]] },
 
@@ -130,7 +138,7 @@ const QUANT_LOCUS_SPECS = [
   { id: 'q18', chromosome: 'A2', positionCm: 33, founderSd: 0.40, label: 'enzyme kinetics', loads: [['metabolicEff', 0.05], ['tWidth', -0.25]] },
   { id: 'q19', chromosome: 'A2', positionCm: 39, founderSd: 0.45, label: 'cold tolerance', loads: [['tOpt', -0.90], ['tWidth', 0.20]] },
   { id: 'q20', chromosome: 'A2', positionCm: 46, founderSd: 0.35, label: 'osmoregulation', loads: [['metabolicEff', 0.04], ['wariness', 1.5]] },
-  { id: 'q21', chromosome: 'A2', positionCm: 58, founderSd: 0.50, label: 'lipid reserve', loads: [['size', 0.40], ['metabolicEff', 0.04]] },
+  { id: 'q21', chromosome: 'A2', positionCm: 58, founderSd: 0.50, label: 'lipid reserve', loads: [['size', 0.40], ['metabolicEff', 0.04], ['growthAllocation', -0.24]] },
   { id: 'q22', chromosome: 'A2', positionCm: 67, founderSd: 0.45, label: 'basal turnover', loads: [['metabolicEff', -0.06], ['speedCap', 0.11]] },
   { id: 'q23', chromosome: 'A2', positionCm: 74, founderSd: 0.40, label: 'heat-shock response', loads: [['tWidth', 0.30], ['defense', -0.15]] },
   { id: 'q24', chromosome: 'A2', positionCm: 88, founderSd: 0.45, label: 'thermal drift', loads: [['tOpt', 0.70], ['displayHue', 12]] },
@@ -143,8 +151,8 @@ const QUANT_LOCUS_SPECS = [
   // q29/q30 are the tightly linked predation block (1.5 cM apart).
   { id: 'q29', chromosome: 'A3', positionCm: 30, founderSd: 0.40, label: 'strike speed', loads: [['attack', 0.28], ['defense', -0.20]] },
   { id: 'q30', chromosome: 'A3', positionCm: 31.5, founderSd: 0.40, label: 'prey handling', loads: [['attack', 0.22], ['givingUpTime', 4.5]] },
-  { id: 'q31', chromosome: 'A3', positionCm: 44, founderSd: 0.50, label: 'integument thickness', loads: [['defense', 0.42], ['speedCap', -0.05]] },
-  { id: 'q32', chromosome: 'A3', positionCm: 51, founderSd: 0.45, label: 'spination', loads: [['defense', 0.35], ['forageBoldness', -0.30]] },
+  { id: 'q31', chromosome: 'A3', positionCm: 44, founderSd: 0.50, label: 'integument thickness', loads: [['defense', 0.42], ['speedCap', -0.05], ['toxicity', 0.16]] },
+  { id: 'q32', chromosome: 'A3', positionCm: 51, founderSd: 0.45, label: 'spination', loads: [['defense', 0.35], ['forageBoldness', -0.30], ['toxicity', 0.14]] },
   { id: 'q33', chromosome: 'A3', positionCm: 60, founderSd: 0.45, label: 'escape reflex', loads: [['defense', 0.28], ['wariness', 2.5]] },
   { id: 'q34', chromosome: 'A3', positionCm: 69, founderSd: 0.40, label: 'risk appetite', loads: [['forageBoldness', 0.35], ['wariness', -2.2]] },
   { id: 'q35', chromosome: 'A3', positionCm: 80, founderSd: 0.45, label: 'search persistence', loads: [['givingUpTime', 5.0], ['diet', 0.30], ['metabolicEff', -0.03]] },
@@ -152,7 +160,7 @@ const QUANT_LOCUS_SPECS = [
   { id: 'q36', chromosome: 'A3', positionCm: 90, founderSd: 0.50, label: 'trophic specialisation', loads: [['diet', 0.55], ['size', 0.30], ['displayHue', 11]] },
 
   // --- A4: behaviour & display --------------------------------------------
-  { id: 'q37', chromosome: 'A4', positionCm: 4, founderSd: 0.50, label: 'pigment cell density', loads: [['displayHue', 18], ['defense', -0.12]] },
+  { id: 'q37', chromosome: 'A4', positionCm: 4, founderSd: 0.50, label: 'pigment cell density', loads: [['displayHue', 18], ['defense', -0.12], ['conspicuousness', 0.30]] },
   // The other half of the magic trait: signal and preference share a locus.
   { id: 'q38', chromosome: 'A4', positionCm: 10, founderSd: 0.45, label: 'iridophore tuning', loads: [['displayHue', 15], ['prefTarget', 9]] },
   { id: 'q39', chromosome: 'A4', positionCm: 19, founderSd: 0.50, label: 'preference locus A', loads: [['prefTarget', 16]] },
@@ -165,6 +173,36 @@ const QUANT_LOCUS_SPECS = [
   { id: 'q46', chromosome: 'A4', positionCm: 71, founderSd: 0.45, label: 'somite count modifier', loads: [['segmentCount', 0.45], ['speedCap', 0.05]] },
   { id: 'q47', chromosome: 'A4', positionCm: 83, founderSd: 0.45, label: 'fin bud number', loads: [['finPairs', 0.28], ['speedCap', 0.06]] },
   { id: 'q48', chromosome: 'A4', positionCm: 94, founderSd: 0.40, label: 'fin allometry', loads: [['finPairs', 0.22], ['bodyAspect', -0.14]] },
+
+  // --- A5: life history & ontogeny (G-wave v1.7) ---------------------------
+  { id: 'q49', chromosome: 'A5', positionCm: 4, founderSd: 0.50, label: 'growth allocation A', loads: [['growthAllocation', 0.45]] },
+  { id: 'q50', chromosome: 'A5', positionCm: 11, founderSd: 0.45, label: 'anabolic drive', loads: [['growthAllocation', 0.35], ['metabolicEff', -0.04]] },
+  { id: 'q51', chromosome: 'A5', positionCm: 17, founderSd: 0.45, label: 'tissue turnover', loads: [['growthAllocation', 0.30], ['defense', -0.16]] },
+  { id: 'q52', chromosome: 'A5', positionCm: 24, founderSd: 0.40, label: 'skeletal deposition', loads: [['growthAllocation', 0.25], ['size', 0.28]] },
+  // q53/q54 are the tightly linked provisioning block (1.5 cM apart): the
+  // offspring size/number tradeoff written into linkage as well as budget.
+  { id: 'q53', chromosome: 'A5', positionCm: 37, founderSd: 0.45, label: 'yolk provisioning', loads: [['offspringSize', 0.40], ['fecundity', -0.30]] },
+  { id: 'q54', chromosome: 'A5', positionCm: 38.5, founderSd: 0.40, label: 'follicle number', loads: [['fecundity', 0.45], ['offspringSize', -0.25]] },
+  { id: 'q55', chromosome: 'A5', positionCm: 46, founderSd: 0.45, label: 'gonad allocation', loads: [['fecundity', 0.35], ['growthAllocation', -0.30]] },
+  { id: 'q56', chromosome: 'A5', positionCm: 54, founderSd: 0.40, label: 'egg lipid load', loads: [['offspringSize', 0.35], ['metabolicEff', -0.03]] },
+  { id: 'q57', chromosome: 'A5', positionCm: 63, founderSd: 0.45, label: 'maturation timing', loads: [['growthAllocation', -0.28], ['fecundity', 0.25]] },
+  { id: 'q58', chromosome: 'A5', positionCm: 72, founderSd: 0.50, label: 'juvenile robustness', loads: [['offspringSize', 0.30], ['defense', 0.18]] },
+  { id: 'q59', chromosome: 'A5', positionCm: 84, founderSd: 0.45, label: 'somatic maintenance', loads: [['growthAllocation', -0.22], ['metabolicEff', 0.05]] },
+  { id: 'q60', chromosome: 'A5', positionCm: 93, founderSd: 0.45, label: 'compensatory growth', loads: [['growthAllocation', 0.32], ['speedCap', -0.05]] },
+
+  // --- A6: chemical defence & signalling (G-wave v1.7) ---------------------
+  { id: 'q61', chromosome: 'A6', positionCm: 6, founderSd: 0.50, label: 'toxin synthesis', loads: [['toxicity', 0.40], ['metabolicEff', -0.05]] },
+  { id: 'q62', chromosome: 'A6', positionCm: 13, founderSd: 0.45, label: 'sequestration capacity', loads: [['toxicity', 0.32], ['growthAllocation', -0.25]] },
+  // q63/q64 are the aposematism block (1.5 cM apart): q63 couples toxin to
+  // signal (the authored bootstrap, q36/q38 style), q64 couples signal to hue.
+  { id: 'q63', chromosome: 'A6', positionCm: 28, founderSd: 0.45, label: 'toxin-pigment coupling', loads: [['toxicity', 0.28], ['conspicuousness', 0.35]] },
+  { id: 'q64', chromosome: 'A6', positionCm: 29.5, founderSd: 0.40, label: 'chromatophore gain', loads: [['conspicuousness', 0.40], ['displayHue', 9]] },
+  { id: 'q65', chromosome: 'A6', positionCm: 44, founderSd: 0.45, label: 'signal contrast', loads: [['conspicuousness', 0.38], ['defense', -0.14]] },
+  { id: 'q66', chromosome: 'A6', positionCm: 57, founderSd: 0.40, label: 'crypsis', loads: [['conspicuousness', -0.42], ['forageBoldness', -0.20]] },
+  // Mirrors q38 deliberately: the new signal and the old preference share
+  // machinery, so sexual selection and predator avoidance pull on correlated loci.
+  { id: 'q67', chromosome: 'A6', positionCm: 70, founderSd: 0.45, label: 'display musculature', loads: [['conspicuousness', 0.30], ['prefTarget', 8]] },
+  { id: 'q68', chromosome: 'A6', positionCm: 88, founderSd: 0.45, label: 'toxin tolerance', loads: [['toxicity', 0.25], ['tWidth', 0.18]] },
 ] as const satisfies readonly QuantLocusSpec[];
 
 /** `'q01' | 'q02' | … | 'q48'`. */
@@ -215,11 +253,45 @@ export interface PleiotropyEntry {
   readonly trait: TraitKey;
   /** Trait latent units per allele unit, per allele copy. */
   readonly weight: number;
+  /** Which mechanism toggle expresses this entry; null = always on. See {@link chromosomeGate}. */
+  readonly gate: GeneGate | null;
+}
+
+/**
+ * The G-wave's dark-chromosome rule (v1.7). A5/A6 loci recombine, mutate and
+ * accumulate variation from tick 0, but **no effect of theirs is expressed
+ * until the wave's toggle is on** — quant loads and discrete effects alike.
+ * This resolves a real conflict in the wave design: the authored A5/A6 tables
+ * deliberately load old traits (q52→size, q64→displayHue — entanglement is
+ * where surprises come from), yet the off-arm must stay bit-identical to the
+ * pre-wave world or the toggles stop being strict marginal-contribution
+ * controls. Gating expression by chromosome gives both: dark arms are exactly
+ * the G0 world, and flipping a toggle on reveals the variation that has been
+ * accumulating cryptically the whole time.
+ */
+export type GeneGate = 'ontogeny' | 'aposematism';
+
+export function chromosomeGate(chromosome: AutosomeId): GeneGate | null {
+  return chromosome === 'A5' ? 'ontogeny' : chromosome === 'A6' ? 'aposematism' : null;
+}
+
+/** Which gene gates are expressed, from `SimConfig.toggles`. */
+export interface ActiveGates {
+  readonly ontogeny: boolean;
+  readonly aposematism: boolean;
+}
+
+export const ALL_GATES_ON: ActiveGates = Object.freeze({ ontogeny: true, aposematism: true });
+
+function gateActive(gate: GeneGate | null, gates: ActiveGates): boolean {
+  return gate === null || gates[gate];
 }
 
 export const PLEIOTROPY: readonly PleiotropyEntry[] = Object.freeze(
   QUANT_LOCUS_SPECS.flatMap((spec, index) =>
-    spec.loads.map(([trait, weight]) => Object.freeze({ locus: spec.id, locusIndex: index, trait, weight })),
+    spec.loads.map(([trait, weight]) =>
+      Object.freeze({ locus: spec.id, locusIndex: index, trait, weight, gate: chromosomeGate(spec.chromosome) }),
+    ),
   ),
 );
 
@@ -279,16 +351,18 @@ export const ANTAGONISTIC_LOCI: readonly QuantLocusId[] = Object.freeze(
  * environment SDs means the h² target stays honest when A7 retunes
  * `founderSdScale`.
  */
-export function founderGeneticVariance(trait: TraitKey, founderSdScale = 1): number {
+export function founderGeneticVariance(trait: TraitKey, founderSdScale = 1, gates: ActiveGates = ALL_GATES_ON): number {
   let variance = 0;
   for (const entry of PLEIOTROPY) {
     if (entry.trait !== trait) continue;
+    if (!gateActive(entry.gate, gates)) continue;
     const sd = (QUANT_LOCI[entry.locusIndex]?.founderSd ?? 0) * founderSdScale;
     variance += 2 * (entry.weight * sd) ** 2;
   }
 
   for (const locus of DISCRETE_LOCI) {
-    if (locus.kind === 'cladeMacro') continue; // founder-fixed, no sampling variance
+    if (FOUNDER_FIXED_DISCRETE_KINDS.includes(locus.kind)) continue; // founder-fixed, no sampling variance
+    if (!gateActive(chromosomeGate(locus.chromosome), gates)) continue; // dark chromosome
     let hasEffect = false;
     let sum = 0;
     let sumSq = 0;
@@ -324,7 +398,26 @@ export type DiscreteLocusKind =
   /** Shifts mate preference target or precision. */
   | 'preferenceModifier'
   /** k=8 alleles, zero phenotypic effect. Pure drift instrumentation: temporal Ne, Fst, pedigree checks. */
-  | 'neutralMarker';
+  | 'neutralMarker'
+  /** G-wave (v1.7): a life-history strategy jump (few-large vs many-small), founder-fixed at the ancestral allele so a strategy appears as an event, not a founding condition. */
+  | 'lifeHistoryMacro'
+  /** G-wave (v1.7): a toxicity jump, founder-fixed at the ancestral allele — the invention of chemical defence is an event worth logging. */
+  | 'toxinMacro';
+
+/**
+ * Kinds seeded homozygous-ancestral (allele 0) at founding rather than drawn
+ * uniformly. Two reasons, one per class: clade macros gate the body-plan
+ * radiation the project exists to show, and the G-wave strategy macros must
+ * contribute exactly zero at the founding operating point (the mean-preserving
+ * rule) — their alternatives are discovered by mutation. Unlike clade macros,
+ * the strategy macros mutate by ordinary neighbour steps at
+ * `discreteMutationRate`; only `cladeMacro` has its own per-birth roll.
+ */
+export const FOUNDER_FIXED_DISCRETE_KINDS: readonly DiscreteLocusKind[] = Object.freeze([
+  'cladeMacro',
+  'lifeHistoryMacro',
+  'toxinMacro',
+]);
 
 interface DiscreteLocusSpec {
   readonly id: string;
@@ -351,6 +444,14 @@ const DISCRETE_LOCUS_SPECS = [
   { id: 'prefModB', chromosome: 'A4', positionCm: 15, kind: 'preferenceModifier', alleleCount: 3, label: 'preference modifier B' },
   { id: 'pigmentD', chromosome: 'A4', positionCm: 57, kind: 'pigment', alleleCount: 4, label: 'pigment D' },
   { id: 'neutralD', chromosome: 'A4', positionCm: 88, kind: 'neutralMarker', alleleCount: 8, label: 'neutral marker D' },
+
+  { id: 'lifeHistoryMacro', chromosome: 'A5', positionCm: 20, kind: 'lifeHistoryMacro', alleleCount: 3, label: 'life-history macro-locus' },
+  { id: 'pigmentE', chromosome: 'A5', positionCm: 58, kind: 'pigment', alleleCount: 4, label: 'pigment E' },
+  { id: 'neutralE', chromosome: 'A5', positionCm: 90, kind: 'neutralMarker', alleleCount: 8, label: 'neutral marker E' },
+
+  { id: 'toxinMacro', chromosome: 'A6', positionCm: 21, kind: 'toxinMacro', alleleCount: 3, label: 'toxin macro-locus' },
+  { id: 'pigmentF', chromosome: 'A6', positionCm: 52, kind: 'pigment', alleleCount: 4, label: 'pigment F' },
+  { id: 'neutralF', chromosome: 'A6', positionCm: 92, kind: 'neutralMarker', alleleCount: 8, label: 'neutral marker F' },
 ] as const satisfies readonly DiscreteLocusSpec[];
 
 export type DiscreteLocusId = (typeof DISCRETE_LOCUS_SPECS)[number]['id'];
@@ -423,6 +524,28 @@ export const DISCRETE_EFFECTS: readonly DiscreteEffect[] = Object.freeze([
   { locus: 'prefModA', allele: 2, trait: 'choosiness', delta: 0.35 },
   { locus: 'prefModB', allele: 1, trait: 'choosiness', delta: 0.5 },
   { locus: 'prefModB', allele: 2, trait: 'prefTarget', delta: -40 },
+
+  // G-wave (v1.7) pigments: two more hue morph banks, same rationale as A–D.
+  { locus: 'pigmentE', allele: 1, trait: 'displayHue', delta: 40 },
+  { locus: 'pigmentE', allele: 2, trait: 'displayHue', delta: -55 },
+  { locus: 'pigmentE', allele: 3, trait: 'displayHue', delta: 10 },
+  { locus: 'pigmentF', allele: 1, trait: 'displayHue', delta: -35 },
+  { locus: 'pigmentF', allele: 2, trait: 'displayHue', delta: 60 },
+  { locus: 'pigmentF', allele: 3, trait: 'displayHue', delta: -90 },
+
+  // Life-history strategy jumps (allele 0 is ancestral-neutral and founder-fixed):
+  // allele 1 = few-large, allele 2 = many-small. Held apart, if they persist,
+  // by the predation size window rather than an authored valley.
+  { locus: 'lifeHistoryMacro', allele: 1, trait: 'offspringSize', delta: 0.9 },
+  { locus: 'lifeHistoryMacro', allele: 1, trait: 'fecundity', delta: -1.2 },
+  { locus: 'lifeHistoryMacro', allele: 2, trait: 'fecundity', delta: 1.6 },
+  { locus: 'lifeHistoryMacro', allele: 2, trait: 'offspringSize', delta: -0.6 },
+
+  // Toxin invention jumps (allele 0 ancestral): allele 1 a real head start,
+  // allele 2 a stronger one. The ablation that isolates the polygenic route
+  // runs with this locus's effects disabled (G-B's bootstrap question).
+  { locus: 'toxinMacro', allele: 1, trait: 'toxicity', delta: 1.0 },
+  { locus: 'toxinMacro', allele: 2, trait: 'toxicity', delta: 2.0 },
 ] as const satisfies readonly DiscreteEffect[]);
 
 export const DISCRETE_EFFECTS_BY_LOCUS: Readonly<Record<DiscreteLocusId, readonly DiscreteEffect[]>> = Object.freeze(
@@ -430,6 +553,57 @@ export const DISCRETE_EFFECTS_BY_LOCUS: Readonly<Record<DiscreteLocusId, readonl
     DISCRETE_LOCI.map((locus) => [locus.id, Object.freeze(DISCRETE_EFFECTS.filter((effect) => effect.locus === locus.id))]),
   ) as Record<DiscreteLocusId, readonly DiscreteEffect[]>,
 );
+
+// ---------------------------------------------------------------------------
+// Gate-filtered views (the dark-chromosome rule; see GeneGate above)
+// ---------------------------------------------------------------------------
+
+export type WRowsByTrait = Readonly<Record<TraitKey, readonly { readonly locusIndex: number; readonly weight: number }[]>>;
+export type DiscreteEffectsByLocus = Readonly<Record<DiscreteLocusId, readonly DiscreteEffect[]>>;
+
+const gateKey = (gates: ActiveGates): string => `${gates.ontogeny ? 1 : 0}${gates.aposematism ? 1 : 0}`;
+const ACTIVE_W_CACHE = new Map<string, WRowsByTrait>();
+const ACTIVE_EFFECTS_CACHE = new Map<string, DiscreteEffectsByLocus>();
+
+/** `W_ROWS_BY_TRAIT` with dark-chromosome entries removed. Cached; four possible views. */
+export function activeWRowsByTrait(gates: ActiveGates): WRowsByTrait {
+  const key = gateKey(gates);
+  const cached = ACTIVE_W_CACHE.get(key);
+  if (cached !== undefined) return cached;
+  const view = Object.freeze(
+    Object.fromEntries(
+      TRAIT_KEYS.map((trait) => [
+        trait,
+        Object.freeze(
+          PLEIOTROPY.filter((entry) => entry.trait === trait && gateActive(entry.gate, gates)).map((entry) =>
+            Object.freeze({ locusIndex: entry.locusIndex, weight: entry.weight }),
+          ),
+        ),
+      ]),
+    ) as Record<TraitKey, readonly { locusIndex: number; weight: number }[]>,
+  );
+  ACTIVE_W_CACHE.set(key, view);
+  return view;
+}
+
+/** `DISCRETE_EFFECTS_BY_LOCUS` with dark-chromosome loci emptied. Cached; four possible views. */
+export function activeDiscreteEffectsByLocus(gates: ActiveGates): DiscreteEffectsByLocus {
+  const key = gateKey(gates);
+  const cached = ACTIVE_EFFECTS_CACHE.get(key);
+  if (cached !== undefined) return cached;
+  const view = Object.freeze(
+    Object.fromEntries(
+      DISCRETE_LOCI.map((locus) => [
+        locus.id,
+        gateActive(chromosomeGate(locus.chromosome), gates)
+          ? DISCRETE_EFFECTS_BY_LOCUS[locus.id]
+          : Object.freeze([] as DiscreteEffect[]),
+      ]),
+    ) as Record<DiscreteLocusId, readonly DiscreteEffect[]>,
+  );
+  ACTIVE_EFFECTS_CACHE.set(key, view);
+  return view;
+}
 
 // ---------------------------------------------------------------------------
 // Chromosome maps (what meiosis walks)

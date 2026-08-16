@@ -467,6 +467,8 @@ export const TOGGLE_KEYS = [
   'enableSeasonality',
   'enableAssortativeMating',
   'enableDisturbances',
+  // v1.7: carrion separated from shocks, so each finally has its own arm.
+  'enableCarrion',
 ] as const satisfies readonly (keyof MechanismToggles)[];
 
 /** `enableSpatialGxE` → `no-spatialGxE`. */

@@ -244,3 +244,96 @@ export function temperatureHazard(
   const excess = Math.max(0, Math.abs(temperatureC - tOpt) - Math.max(0, tWidth));
   return config.thermal.hazardCoef * excess * excess;
 }
+
+// ---------------------------------------------------------------------------
+// G-wave v1.7 — ontogeny (read only when `toggles.enableOntogeny`)
+// ---------------------------------------------------------------------------
+
+/**
+ * Energy cost of one cm of somatic growth at current length `L` toward target
+ * `Ltarget`: `c · L² · (1 + (L / softplusFloor(Ltarget, minLength))^k)`.
+ *
+ * There is deliberately no cap at `Ltarget` — growth past target is permitted
+ * and simply gets expensive, so the asymptote is a receding ceiling. And
+ * because the surplus feeding {@link somaticGrowthPerTick} is what remains
+ * after metabolism, the realised asymptote is environment-dependent: a fish in
+ * a crashed patch never reaches its target. Stunting falls out; it is not a
+ * feature anyone wrote.
+ */
+export function tissueCostPerCm(lengthCm: number, targetLengthCm: number, config: SimConfig): number {
+  const { tissueCostBase, overshootExponent, minLengthCm } = config.growth;
+  const target = softplusFloor(targetLengthCm, minLengthCm);
+  return tissueCostBase * lengthCm * lengthCm * (1 + (lengthCm / target) ** overshootExponent);
+}
+
+/** Length gained this tick from an energy surplus, `alloc · surplus / tissueCostPerCm`. */
+export function somaticGrowthPerTick(
+  surplus: number,
+  lengthCm: number,
+  targetLengthCm: number,
+  growthAllocation: number,
+  config: SimConfig,
+): number {
+  if (surplus <= 0) return 0;
+  return (growthAllocation * surplus) / tissueCostPerCm(lengthCm, targetLengthCm, config);
+}
+
+/**
+ * A mother's energy price for one clutch: `fecundity · perCm · size^exp`.
+ * Offspring size and number share this single budget — the tradeoff needs no
+ * authored valley. A mother who cannot afford the full clutch realises the
+ * affordable count: an energy constraint, never a clamp on the trait.
+ */
+export function clutchInvestment(offspringSizeCm: number, fecundity: number, config: SimConfig): number {
+  const { provisionEnergyPerCm, provisionExponent } = config.growth;
+  return fecundity * provisionEnergyPerCm * Math.max(0, offspringSizeCm) ** provisionExponent;
+}
+
+// ---------------------------------------------------------------------------
+// G-wave v1.7 — aposematism (read only when `toggles.enableAposematism`)
+// ---------------------------------------------------------------------------
+
+/**
+ * Multiplier on a predator's energy yield from a toxic victim,
+ * `exp(−coef · toxicity)`. The crucial modelling choice: toxin is a post-kill
+ * penalty, never a lower kill probability — otherwise it would just be
+ * `defense` under another name and no signal would ever be needed. Because the
+ * victim still dies, toxin only pays if the *population's* avoidance can be
+ * expressed — see {@link aposematismLogit}.
+ */
+export function toxinYieldMultiplier(victimToxicity: number, config: SimConfig): number {
+  return Math.exp(-config.aposematism.toxinYieldCoef * Math.max(0, victimToxicity));
+}
+
+/** One-off predator death hazard from consuming a toxic victim. */
+export function toxinConsumptionHazard(victimToxicity: number, config: SimConfig): number {
+  return config.aposematism.toxinHazardCoef * Math.max(0, victimToxicity);
+}
+
+/**
+ * Signal terms of the kill logit for one victim:
+ * `+detectionCoef · conspicuousness  −  aposematismCoef · conspicuousness · binMeanToxicity`.
+ *
+ * Detection is unconditional (loud animals get attacked more); the aposematic
+ * credit is conditional on the victim's local hue bin actually being toxic —
+ * the predator has no memory, the population's learned avoidance is a function
+ * of a local statistic, exactly the abstraction the frequency-dependence term
+ * already makes. Both terms are ≈0 at founding because conspicuousness and
+ * toxicity both start at ≈0.
+ */
+export function aposematismLogit(
+  victimConspicuousness: number,
+  localBinMeanToxicity: number,
+  config: SimConfig,
+): number {
+  const { conspicuousnessDetectionCoef, aposematismCoef } = config.aposematism;
+  return (
+    conspicuousnessDetectionCoef * victimConspicuousness -
+    aposematismCoef * victimConspicuousness * Math.max(0, localBinMeanToxicity)
+  );
+}
+
+/** Metabolic burn per tick of carrying toxin: `coef · toxicity · size^0.75`. */
+export function toxinMetabolicCostPerTick(toxicity: number, sizeCm: number, config: SimConfig): number {
+  return config.aposematism.toxinCostCoef * Math.max(0, toxicity) * Math.max(0, sizeCm) ** 0.75;
+}
