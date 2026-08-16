@@ -76,7 +76,13 @@ samey, even when zoomed in") — contracts v1.6 landed (slice stride 15 +
 visual stride 10 carrying expressed diet/defense, commit 78f9139) and render
 package **R5** (briefs/render-r5-divergence.md: caricature amplification,
 diet→jaw form, defense→spination, species patterning, bucketed flipbooks)
-ran as an Opus agent on src/render/creatures/**.
+ran as an Opus agent on src/render/creatures/** — **LANDED AND COMMITTED**
+(caricature amplification, diet→jaw, defense→spination, species patterns,
+12 flipbook variants/archetype, aspect-banded far silhouettes; 88 render
+tests; probe re-run by orchestrator). **Glass review still owed**: the
+machine's display was occluded (visibilityState hidden, no rAF) — review
+the near/mid tiers on screen at the next opportunity, against the user's
+ask that creatures stop looking samey.
 
 **THE SPEC RUN IS ADJUDICATED (2026-08-16 ~03:15): the lever stands.**
 Suite WARN, zero FAILs — P3 green on all seeds, P7 in-band on all seeds,
