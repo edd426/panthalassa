@@ -69,10 +69,10 @@ const ISOTHERMAL: SimConfigOverrides = {
 };
 
 /**
- * The engine's pools, not the bare contract ones: since G2 the ecology reads
- * realised body length out of the `sizeCurrent` column, which lives on
- * `EnginePools` because the frozen `OrganismPools` does not declare it. A
- * fixture missing the column is a fixture that no longer matches the world.
+ * The engine's pools, not the bare contract ones: the ecology reads the
+ * engine's steering columns and (since G2) realised body length out of
+ * `sizeCurrent`. A fixture missing a column is a fixture that no longer
+ * matches the world.
  */
 function makePools(capacity: number): EnginePools {
   return {

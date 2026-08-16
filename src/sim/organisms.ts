@@ -30,18 +30,6 @@ export interface EnginePools extends OrganismPools {
   readonly steerY: Float32Array;
   /** Fraction of `speedCap` the last decision asked for. */
   readonly speedFraction: Float32Array;
-  /**
-   * Realised body length, cm — **state**, like `energy`, not phenotype.
-   *
-   * The `size` trait is the genetic *target* adult length once
-   * `toggles.enableOntogeny` is on; this is how long the animal actually is,
-   * and every consumer whose meaning is "current body length" (metabolic cost,
-   * storage ceiling, the predation size window, carrion biomass, bite scale,
-   * the render slice) reads this instead of the trait. With ontogeny off it is
-   * written once at birth to the expressed `size` trait and never changes, so
-   * those reads are bit-identical to reading the trait.
-   */
-  readonly sizeCurrent: Float32Array;
 }
 
 /** Every column that is one value per slot; the strided trait blocks are listed separately. */
@@ -270,21 +258,16 @@ export function traitByKey(pools: OrganismPools, slot: SlotIndex, key: TraitKey)
 }
 
 /**
- * The realised-length column.
- *
- * `sizeCurrent` lives on {@link EnginePools} because the frozen `OrganismPools`
- * does not declare it (see the G2 report's contract gaps). Every `SimState.pop`
- * in this project is an `OrganismStore`, so the widening is safe; it is done
- * here rather than at each call site so there is one place to fix when the
- * column joins the contract.
+ * The realised-length column (`sizeCurrent` joined `OrganismPools` in v1.7.1,
+ * closing the G2 report's contract gap; the accessors stay for the call sites).
  */
 export function sizeCurrentColumn(pools: OrganismPools): Float32Array {
-  return (pools as EnginePools).sizeCurrent;
+  return pools.sizeCurrent;
 }
 
 /** Realised body length of one organism, cm. */
 export function sizeCurrentAt(pools: OrganismPools, slot: SlotIndex): number {
-  return (pools as EnginePools).sizeCurrent[slot] ?? 0;
+  return pools.sizeCurrent[slot] ?? 0;
 }
 
 /**

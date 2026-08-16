@@ -82,6 +82,7 @@ function makePools(capacity: number): OrganismPools {
     vx: new Float32Array(capacity),
     vy: new Float32Array(capacity),
     energy: new Float32Array(capacity),
+    sizeCurrent: new Float32Array(capacity),
     gutFill: new Float32Array(capacity),
     birthTick: new Float64Array(capacity),
     ageTicks: new Uint32Array(capacity),

@@ -157,6 +157,15 @@ export interface OrganismPools {
 
   /** Stored energy. Zero means starvation death at the next mortality stage. */
   readonly energy: Float32Array;
+  /**
+   * Realised body length, cm — **state**, like `energy`, not phenotype (v1.7.1,
+   * promoted from the engine's private pools per the G2 report so `src/stats`
+   * can see it). The `size` trait is the genetic *target* adult length once
+   * `toggles.enableOntogeny` is on; this is how long the animal actually is.
+   * With ontogeny off it is written once at birth to the expressed `size`
+   * trait and never changes, so reads are bit-identical to reading the trait.
+   */
+  readonly sizeCurrent: Float32Array;
   /** Gut contents, for the type-II satiation term. */
   readonly gutFill: Float32Array;
   readonly birthTick: Float64Array;
