@@ -1412,3 +1412,10 @@ The one watch item this creates: cap-clipping did *some* real regulation on
 s3 (up to ~9% of late births), so G4's restated P3 must keep an explicit
 cap-contact criterion rather than silently blessing cap-and-starve — the
 band exists to force density dependence through resources.
+
+**P12 re-measured quiet (post-drain):** 8.7–8.9e5 organism-ticks/s over two
+runs against the 9.0e5 warn line (pre-G-wave: 9.01e5). The busy-machine
+discount is cashed out: G1's real cost is ~2–3% — 136-allele meiosis and
+23-trait phenotype loops. WARN tier, no ratchet action; the wave design
+already lists P12 among the probes G-A disturbs, and G6 owns the recovery
+if ontogeny's extra work pushes it further.
