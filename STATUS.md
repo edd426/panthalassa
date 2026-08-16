@@ -14,6 +14,25 @@ discriminator phase._
 
 ## Resume HERE
 
+**G0 SPEC RUN ADJUDICATED (2026-08-16 afternoon): G0/G1 verified, G2
+launched.** `runs/full-g0.log`: suite FAIL on one gate — P3 baseline-s3
+0.954, the population's small-body trajectory (late size 14.9 vs 21.5)
+pushing headcount peaks into the 4096 cap while *biomass sits below the
+baseline envelope*. Adjudicated as the headcount-band artifact the wave
+design pre-named (§4 G-A: "the fix is not a bigger cap; P3 should be
+restated in biomass" — a user-approved §9 decision, scheduled in G4). No
+distributional signature (seed sizes/diets moved both directions); all
+seeds alive at 300 gens; P4 improved to PASS on s1/s2. Full record:
+DESIGN.md "G0 spec-length adjudication". Watch item for G4: the restated
+P3 must keep an explicit cap-contact criterion (~9% of late s3 births were
+cap-clipped — that much regulation-by-cap is why the criterion stays).
+**G2 (ontogeny biology, Opus, briefs/g2-ontogeny.md) is running** — the
+orchestrator re-runs its acceptance probe before commit. Still owed: quiet
+P12 measurement (spec run has drained; do it before the next heavy job),
+R5 glass review (user is around today — the trends-scroll bug they
+reported is fixed, 4f54b9d). Then G3 (aposematism) → G4 (probes/stats,
+P3-as-biomass) → G5 (render) → G6 (tuning).
+
 **TASK #18 IS DECIDED AND PHASE B IS GO (2026-08-15).** The user chose the
 recommended lever: `carrion.maxIntake` 0.7 → 0.5 is committed as the default
 (DESIGN.md "The maxIntake lever lands"). Cliff screen green (45 gens ×
