@@ -50,6 +50,23 @@ production-only TLA deadlock — pixi.js now lives in its own Rollup chunk
 tests. The renderer soak is opportunistic only — Chrome throttles occluded
 windows, so tick counts, not wall-clock, measure what it actually exercised.
 
+**WAVE 1 IS GO (2026-08-16 morning).** The user approved the G-wave's
+Wave 1 ("Go ahead with your Wave 1 experiments you need in order to build up
+to the richer genome") — per the design doc's §9 recommendations: G0 first
+with its own probe:full, then G-A ontogeny + G-B aposematism, cannibalism
+allowed with a cost knob, P3 restated in biomass. **G0 IS IMPLEMENTED**
+(per-chromosome/per-birth forked RNG streams; parent consumption pinned by
+`src/sim/genetics/g0-streams.test.ts`; golden hash deliberately re-baselined
+d60c12703108a788 → 2937150f89939ef6; 498 tests) — record in DESIGN.md
+"G0 — the genome made growable". Its probe:full verification run must be
+adjudicated (regime unchanged in kind?) before G1 contracts work starts.
+The same message asked for **more divergent creature morphology** ("too
+samey, even when zoomed in") — contracts v1.6 landed (slice stride 15 +
+visual stride 10 carrying expressed diet/defense, commit 78f9139) and render
+package **R5** (briefs/render-r5-divergence.md: caricature amplification,
+diet→jaw form, defense→spination, species patterning, bucketed flipbooks)
+ran as an Opus agent on src/render/creatures/**.
+
 **THE SPEC RUN IS ADJUDICATED (2026-08-16 ~03:15): the lever stands.**
 Suite WARN, zero FAILs — P3 green on all seeds, P7 in-band on all seeds,
 P16 0/3 (inconclusive vs the ~1/8 base rate; the campaign still needs a

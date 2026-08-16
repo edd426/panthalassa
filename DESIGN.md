@@ -1265,3 +1265,46 @@ kept so they are not silently retried.
 | Zero-effect "null" founder alleles (herdloom) | Collapsed founder variance; generation 0 had almost nothing to select on | Inherited, rejected at design time |
 | Old age as the only mortality channel (herdloom) | Produced no natural selection whatsoever | Inherited, rejected at design time |
 | `Math.max(0, x)` floors on non-negative traits | Recreates the pinning failure at the bottom of the range; softplus instead | WP-A0 |
+
+## G-wave — the richer genome (Wave 1 approved 2026-08-16 morning)
+
+The user approved Wave 1 of `briefs/g-wave-design.md` ("Go ahead with your
+Wave 1 experiments you need in order to build up to the richer genome"),
+which per that document's §9 recommendations means: G0 first with its own
+`probe:full`, then G-A ontogeny + G-B aposematism, cannibalism allowed with a
+`conspecificLogit` cost knob, and P3 restated in biomass as a mandatory
+sub-package. The same morning message asked for more divergent creature
+morphology — that ran as render package R5 (below), disjoint from the sim.
+
+### G0 — the genome made growable (2026-08-16 morning)
+
+The structural fix the whole wave depends on: genome creation used to consume
+the caller's RNG stream in proportion to genome size, so *any* enlargement
+(a new chromosome, a new trait) shifted the stream and therefore the
+trajectory of every run — even runs that never express the new machinery.
+After G0, every genome-creating function consumes its caller's stream
+**exactly once per organism** (a salt draw that keeps successive organisms
+distinct), and all size-dependent draws live on private forks:
+
+- `buildFounderGenome`: per-chromosome forks (`founder:A1`…) carry the allele
+  draws; the karyotype has its own fork, which also strengthens the old
+  guarantee that the sex argument cannot change allele material.
+- `makeOffspringGenome`: each (gamete, chromosome) pair gets a fork carrying
+  its assortment coin, crossover draws and mutation draws; karyotype + clade
+  macro roll live on `meiosis:misc`. Mutation lambda is now per-chromosome
+  (sums to the same Poisson total); `enableMutation` off truncates each
+  chromosome stream at its tail, so the toggle stays shape-preserving.
+- `computePhenotype`: birth environmental deviations come from an
+  `envDeviation` fork — appending a trait appends draws nothing else reads.
+
+`src/sim/genetics/g0-streams.test.ts` pins the exact parent consumption of
+all three functions, so a regression fails a unit test instead of surfacing
+as a golden-hash surprise months later. The conventions that ride along
+(append chromosomes, never reindex; append trait keys; old loci may gain
+loads onto new traits for free) are recorded in CLAUDE.md's determinism
+section.
+
+**Cost, paid once as planned:** the golden trajectory hash re-baselined
+`d60c12703108a788` → `2937150f89939ef6` — a deliberate trajectory change,
+recorded in `disturbance-units.test.ts`. 498 tests green. probe:quick and a
+G0 `probe:full` (regime-unchanged-in-kind check) adjudicate below.

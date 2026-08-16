@@ -35,6 +35,23 @@
  * boundary would deplete the end alleles and bias exactly the Fst and
  * temporal-Ne estimates those markers exist to provide.
  *
+ * ## Stream layout (G0)
+ *
+ * `makeOffspringGenome` consumes the caller's stream **exactly once per
+ * offspring** (a salt draw that keeps successive offspring distinct). Each
+ * (gamete, chromosome) pair then gets its own fork carrying that chromosome's
+ * assortment coin, crossover draws and mutation draws, and the karyotype +
+ * clade macro roll live on a `meiosis:misc` fork. Consequences, pinned by
+ * `g0-streams.test.ts`:
+ *
+ * - appending a chromosome adds a fork and cannot shift the existing
+ *   chromosomes' recombination or mutation, nor the caller's stream — the
+ *   genome is growable without re-running history;
+ * - mutation lambda is per-chromosome (`lociOnChromosome · μ`), which sums to
+ *   the same Poisson(nLoci · μ) total the global draw had;
+ * - `enableMutation` off simply truncates each chromosome stream after the
+ *   recombination draws, so the toggle is shape-preserving.
+ *
  * ## Clade macro-mutation
  *
  * Rolled once per birth at `cladeMacroMutationRate`. When it changes the
@@ -55,7 +72,6 @@ import {
   CLADE_MACRO_LOCI,
   CLADE_SCHEMA,
   DISCRETE_GENOME_LENGTH,
-  DISCRETE_LOCI,
   DISCRETE_LOCUS_COUNT,
   QUANT_GENOME_LENGTH,
   QUANT_LOCI,
@@ -71,9 +87,7 @@ import type { TraitKey } from '../../contracts/traits';
 import { TRAIT_KEYS, TRAIT_META, invertTraitLink } from '../../contracts/traits';
 import type { RandomSource, SimConfig } from '../../contracts/types';
 import { resolveBaseline } from './phenotype';
-
-/** Discrete loci that mutate per gamete. Clade macro-loci have their own per-birth rate. */
-const MUTABLE_DISCRETE_LOCI = DISCRETE_LOCI.filter((locus) => locus.kind !== 'cladeMacro');
+import { NON_MACRO_DISCRETE_BY_CHROMOSOME, QUANT_LOCI_BY_CHROMOSOME } from './loci';
 
 /** The three trait channels `CladeSchema` gives a per-archetype `typical` for. */
 const MORPHOLOGY_CHANNELS = ['segmentCount', 'finPairs', 'bodyAspect'] as const;
@@ -134,8 +148,10 @@ function ascending(a: number, b: number): number {
 /**
  * One gamete, written into `quant`/`discrete` at the target haplotype's offset.
  *
- * Walks each chromosome's loci in ascending map order, flipping the source
- * haplotype at every crossover it passes.
+ * Each chromosome runs on its own fork of `rng` (G0): the assortment coin and
+ * crossover draws come first, then — when mutation is on — that chromosome's
+ * mutation draws on the same stream. Loci are walked in ascending map order,
+ * flipping the source haplotype at every crossover passed.
  */
 function buildGamete(
   rng: RandomSource,
@@ -144,20 +160,23 @@ function buildGamete(
   discrete: Uint8Array,
   target: HaplotypeIndex,
   crossovers: number[],
+  mutations: MutationRecord[],
   config: SimConfig,
 ): void {
   const quantOffset = target * QUANT_LOCUS_COUNT;
   const discreteOffset = target * DISCRETE_LOCUS_COUNT;
+  const mutate = config.toggles.enableMutation;
 
   for (const chromosome of AUTOSOME_IDS as readonly AutosomeId[]) {
+    const chrRng = rng.fork(`gamete:${target}:${chromosome}`);
     const map = CHROMOSOMES[chromosome];
-    const crossoverCount = rng.poisson(config.genetics.crossoverLambda);
+    const crossoverCount = chrRng.poisson(config.genetics.crossoverLambda);
 
     crossovers.length = 0;
-    for (let index = 0; index < crossoverCount; index += 1) crossovers.push(rng.next() * map.lengthCm);
+    for (let index = 0; index < crossoverCount; index += 1) crossovers.push(chrRng.next() * map.lengthCm);
     crossovers.sort(ascending);
 
-    let source: HaplotypeIndex = rng.chance(0.5) ? 1 : 0;
+    let source: HaplotypeIndex = chrRng.chance(0.5) ? 1 : 0;
     let nextCrossover = 0;
 
     for (const ref of map.loci) {
@@ -171,12 +190,20 @@ function buildGamete(
         discrete[discreteOffset + ref.index] = parent.discrete[discreteAlleleIndex(source, ref.index)] ?? 0;
       }
     }
+
+    if (mutate) mutateChromosome(chrRng, chromosome, quant, discrete, target, mutations, config);
   }
 }
 
-/** Quantitative and discrete mutation on one finished gamete. */
-function mutateGamete(
+/**
+ * Mutation on one chromosome of one finished gamete. The per-chromosome
+ * Poisson lambdas sum to the same total the old global draw had, and choosing
+ * the locus uniformly *within* the chromosome preserves the uniform choice
+ * overall by Poisson thinning.
+ */
+function mutateChromosome(
   rng: RandomSource,
+  chromosome: AutosomeId,
   quant: Float32Array,
   discrete: Uint8Array,
   target: HaplotypeIndex,
@@ -186,10 +213,12 @@ function mutateGamete(
   const genetics = config.genetics;
   const quantOffset = target * QUANT_LOCUS_COUNT;
   const discreteOffset = target * DISCRETE_LOCUS_COUNT;
+  const quantLoci = QUANT_LOCI_BY_CHROMOSOME[chromosome];
+  const discreteLoci = NON_MACRO_DISCRETE_BY_CHROMOSOME[chromosome];
 
-  const quantCount = rng.poisson(QUANT_LOCUS_COUNT * genetics.quantMutationRate);
+  const quantCount = rng.poisson(quantLoci.length * genetics.quantMutationRate);
   for (let index = 0; index < quantCount; index += 1) {
-    const locus = QUANT_LOCI[rng.int(0, QUANT_LOCUS_COUNT - 1)];
+    const locus = quantLoci[rng.int(0, quantLoci.length - 1)];
     if (locus === undefined) continue;
     const sigma = locus.mutSigma * genetics.mutationSigmaScale;
     const fatTail = rng.chance(genetics.mutationFatTailFraction);
@@ -199,9 +228,9 @@ function mutateGamete(
     mutations.push({ locus: locus.id, delta, fatTail });
   }
 
-  const discreteCount = rng.poisson(MUTABLE_DISCRETE_LOCI.length * genetics.discreteMutationRate);
+  const discreteCount = rng.poisson(discreteLoci.length * genetics.discreteMutationRate);
   for (let index = 0; index < discreteCount; index += 1) {
-    const locus = MUTABLE_DISCRETE_LOCI[rng.int(0, MUTABLE_DISCRETE_LOCI.length - 1)];
+    const locus = discreteLoci[rng.int(0, discreteLoci.length - 1)];
     if (locus === undefined) continue;
     const slot = discreteOffset + locus.index;
     const step = rng.chance(0.5) ? 1 : locus.alleleCount - 1;
@@ -338,21 +367,26 @@ export function makeOffspringGenome(
   const { crossovers, mutations, morphologyTargets } = scratch;
   mutations.length = 0;
 
+  // One parent draw per offspring (G0): successive offspring get distinct
+  // forks, and the caller's stream consumption is independent of genome size.
+  rng.next();
+
   const quant = new Float32Array(QUANT_GENOME_LENGTH);
   const discrete = new Uint8Array(DISCRETE_GENOME_LENGTH);
   const mutate = config.toggles.enableMutation;
 
-  buildGamete(rng, mother, quant, discrete, 0, crossovers, config);
-  if (mutate) mutateGamete(rng, quant, discrete, 0, mutations, config);
-  buildGamete(rng, father, quant, discrete, 1, crossovers, config);
-  if (mutate) mutateGamete(rng, quant, discrete, 1, mutations, config);
+  buildGamete(rng, mother, quant, discrete, 0, crossovers, mutations, config);
+  buildGamete(rng, father, quant, discrete, 1, crossovers, mutations, config);
 
-  // XY: the father's gamete decides. An XX "father" cannot contribute a Y, and
-  // draws nothing, so a mis-wired caller shifts no stream it should not.
-  const karyotype: Karyotype = father.karyotype === 'XY' && rng.chance(0.5) ? 'XY' : 'XX';
+  const misc = rng.fork('meiosis:misc');
+  // The coin is drawn unconditionally so the misc stream's shape does not
+  // depend on the father's karyotype; an XX "father" still cannot contribute
+  // a Y, whatever the coin says.
+  const coin = misc.chance(0.5);
+  const karyotype: Karyotype = father.karyotype === 'XY' && coin ? 'XY' : 'XX';
   const genome: Genome = { quant, discrete, karyotype };
 
-  const macroMutated = mutate && tryCladeMacroMutation(rng, genome, mutations, config, morphologyTargets);
+  const macroMutated = mutate && tryCladeMacroMutation(misc, genome, mutations, config, morphologyTargets);
 
   return { genome, mutations, macroMutated };
 }

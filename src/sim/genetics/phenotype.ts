@@ -176,6 +176,13 @@ export function computePhenotype(
     ? config.genetics.gxeSensitivity * context.localTemperatureAnomalyZ
     : 0;
 
+  // G0: one parent draw per birth (keeps successive births distinct), then the
+  // environmental deviations come from a private fork drawn in trait-key
+  // order. Appending a trait appends draws to this stream that nothing else
+  // reads, so growing the trait table cannot shift any other consumer.
+  rng.next();
+  const deviationRng = rng.fork('envDeviation');
+
   accumulateGenotypicValues(genome, genotypicScratch);
 
   for (let index = 0; index < TRAIT_COUNT; index += 1) {
@@ -183,7 +190,7 @@ export function computePhenotype(
     const genotypic = genotypicScratch[index] ?? 0;
     // One draw per trait per birth, unconditionally, so that the stream does
     // not shift when a trait's environmental SD happens to be zero.
-    const deviation = rng.normal(0, environmentSds[index] ?? 0);
+    const deviation = deviationRng.normal(0, environmentSds[index] ?? 0);
     const latent =
       (baselines[index] ?? 0) +
       (traitBaselineShift[key] ?? 0) +

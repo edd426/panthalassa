@@ -90,6 +90,15 @@ bit-identical world at every tick, on every machine.
 - `SeededRng.fork(label)` gives a stage its own sub-stream without consuming
   parent entropy, so adding a consumer cannot shift the trajectory. Put the tick
   in the label when you want a fresh stream per tick.
+- **Genome growth conventions (G0).** Genome creation consumes its caller's
+  stream exactly once per organism (a salt draw); allele material, mutation and
+  birth environmental deviations live on per-chromosome / per-birth forks
+  (`g0-streams.test.ts` pins the consumption counts). Because of this, growing
+  the genome is cheap — but only if you follow two rules: **append new loci on
+  new autosomes, never reindex** (`QUANT_LOCI` indices are the layout contract,
+  and the authored linkage blocks must not move), and **append trait keys,
+  never reorder** (existing loci may gain `loads` onto new traits for free —
+  `founderGeneticVariance` sums per trait, so old traits are untouched).
 - **Read `state.config` fresh on every call; never cache it** (not in a module
   field, not in a closure). `setToggle` and the A7 tuning tools swap the config
   object's identity mid-run; a cached reference silently keeps the old knobs.

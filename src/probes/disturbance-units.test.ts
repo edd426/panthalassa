@@ -135,11 +135,13 @@ describe('disturbance continuity and scenario setup', () => {
     };
     const sim = makeSim('disturbance-off-golden', overrides);
     sim.step(50);
-    // Re-baselined 2026-08-10 (was 6922907c6421d7bf, the pre-D-wave value)
-    // when the spatial grid moved to a tick-boundary rebuild for P1 restore
-    // equivalence — a deliberate trajectory change. Any OTHER change to this
-    // value means the disturbances-off arm is no longer inert.
-    expect(sim.stateHash()).toBe('d60c12703108a788');
+    // Re-baselined 2026-08-16 (was d60c12703108a788) for G0: genome creation
+    // moved to per-chromosome/per-birth forked RNG streams so the genome is
+    // growable without shifting old trajectories — a deliberate, one-time
+    // trajectory change (DESIGN.md "G0"). Prior re-baseline: 2026-08-10
+    // (was 6922907c6421d7bf) for the tick-boundary spatial rebuild. Any OTHER
+    // change to this value means the disturbances-off arm is no longer inert.
+    expect(sim.stateHash()).toBe('2937150f89939ef6');
     expect(sim.state.field.carrion.reduce((sum, value) => sum + value, 0)).toBe(0);
     expect(sim.state.disturbance.thermal).toHaveLength(0);
   });
