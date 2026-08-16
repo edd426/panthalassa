@@ -21,6 +21,18 @@ export { createStats } from './factory';
 export { StatsRecorder } from './recorder';
 export type { StatsOptions, StatsRecorderApi } from './recorder';
 
+export {
+  BIOMASS_COLUMN,
+  DEME_TRAIT_KEYS,
+  DetectionAccumulator,
+  LENGTH_MEAN_COLUMN,
+  LENGTH_SD_COLUMN,
+  detectionArms,
+  hueBinOf,
+  toxicBinFloor,
+} from './detection';
+export type { DetectionArms } from './detection';
+
 export { AncestryStore, PhylogenyStore, speciesLabel } from './ancestry';
 export type { AncestryTotals, LineageSummary, SpeciesObservation } from './ancestry';
 

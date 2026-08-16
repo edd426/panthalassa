@@ -19,7 +19,7 @@ import { readFileSync } from 'node:fs';
 
 import type { SimEvent } from '../contracts/events';
 import type { ProbeReport, ProbeSuiteReport, SampleRow } from '../contracts/stats';
-import { resolveSimConfig } from '../contracts/types';
+import { DEFAULT_SIM_CONFIG, resolveSimConfig } from '../contracts/types';
 import { createSim } from '../sim/engine';
 import { parseArguments } from './cli';
 import type { RunResult } from './harness';
@@ -34,10 +34,22 @@ import { temporalCensusMean } from './probes/genetics';
 import { scanForBannedEntropy, scanSourceForBannedEntropy } from './probes/hygiene';
 import { PROBES } from './probes/index';
 import { THROUGHPUT_TARGET } from './probes/performance';
-import { viabilityReport } from './probes/population';
+import { droppedBirthFraction, viabilityReport } from './probes/population';
+import { BIOMASS_COLUMN } from '../stats/detection';
 import { resolvedConfigHash, sourceCommitSha, writeArtifacts } from './report';
-import { BARRIER_ID, SCENARIOS, ScenarioNotes, TOGGLE_KEYS, scenarioByName, toggleScenarioName } from './scenarios';
-import { defaultSuiteOptions, runSuite } from './suite';
+import { ageStructureProbe } from './probes/lifehistory';
+import { couplingProbe, mimicryProbe } from './probes/aposematism';
+import {
+  APOSEMATISM_SCENARIO,
+  BARRIER_ID,
+  ONTOGENY_SCENARIO,
+  SCENARIOS,
+  ScenarioNotes,
+  TOGGLE_KEYS,
+  scenarioByName,
+  toggleScenarioName,
+} from './scenarios';
+import { FULL_SCENARIOS, QUICK_SCENARIOS, defaultSuiteOptions, runSuite } from './suite';
 import { formatDuration, startStopwatch } from './timing';
 
 function minimalRow(generation: number, population: number, neTemporal: number | null = null): SampleRow {
@@ -56,6 +68,7 @@ function minimalRun(overrides: Partial<RunResult> = {}): RunResult {
     seed: 'test-seed',
     config,
     rows: [],
+    births: 0,
     generationsRun: 300,
     extinctGeneration: null,
     diagnostics: { birthsDropped: 0 },
@@ -64,8 +77,23 @@ function minimalRun(overrides: Partial<RunResult> = {}): RunResult {
   } as RunResult;
 }
 
+/**
+ * A run whose recorder reports one biomass reading per row. P3 reads the
+ * series off `stats.column`, so a synthetic run has to carry one; a stub that
+ * returned null would exercise the not-evaluable path instead of the band.
+ */
+function runWithBiomass(rows: readonly SampleRow[], biomassCm: readonly number[], overrides: Partial<RunResult> = {}): RunResult {
+  return minimalRun({
+    rows,
+    stats: {
+      column: (name: string) => (name === BIOMASS_COLUMN ? Float64Array.from(biomassCm) : null),
+    } as RunResult['stats'],
+    ...overrides,
+  });
+}
+
 describe('probe registry', () => {
-  it('covers P1 through P16 exactly once, in the plan’s order', () => {
+  it('covers P1 through P19 exactly once, in the plan’s order', () => {
     expect(PROBES.map((probe) => probe.id)).toEqual([
       'P1',
       'P2',
@@ -83,6 +111,9 @@ describe('probe registry', () => {
       'P14',
       'P15',
       'P16',
+      'P17',
+      'P18',
+      'P19',
     ]);
   });
 
@@ -153,10 +184,24 @@ describe('probe registry', () => {
 });
 
 describe('scenarios', () => {
-  it('offers a toggle-off variant for every mechanism toggle', () => {
+  it('offers exactly one arm per mechanism toggle, always flipped away from the default', () => {
     for (const toggle of TOGGLE_KEYS) {
       const scenario = scenarioByName(toggleScenarioName(toggle));
-      expect(scenario.overrides.toggles?.[toggle]).toBe(false);
+      const shipped = DEFAULT_SIM_CONFIG.toggles[toggle];
+      expect(scenario.overrides.toggles?.[toggle]).toBe(!shipped);
+      // A default-off mechanism whose arm turned it off again would be
+      // `baseline` under another name and would measure nothing.
+      expect(toggleScenarioName(toggle).startsWith('no-')).toBe(shipped);
+    }
+  });
+
+  it('puts the two G-wave arms in both suites, because probes read them', () => {
+    expect(QUICK_SCENARIOS).toContain(ONTOGENY_SCENARIO);
+    expect(QUICK_SCENARIOS).toContain(APOSEMATISM_SCENARIO);
+    expect(FULL_SCENARIOS).toContain(ONTOGENY_SCENARIO);
+    expect(FULL_SCENARIOS).toContain(APOSEMATISM_SCENARIO);
+    for (const probe of [ageStructureProbe, couplingProbe, mimicryProbe]) {
+      expect(QUICK_SCENARIOS).toContain(probe.scenario);
     }
   });
 
@@ -197,15 +242,49 @@ describe('scenarios', () => {
 });
 
 describe('fixed probe criteria', () => {
-  it('fails P3 when the slot container drops even one birth', () => {
-    const run = minimalRun({
-      rows: [minimalRow(31, 500)],
-      diagnostics: { birthsDropped: 1 } as RunResult['diagnostics'],
-    });
-    const report = viabilityReport(run);
+  it('states P3 in biomass, not head count', () => {
+    // 4,096 heads is over the retired [100, 3500] head band and would have been
+    // a breach; at 5 cm each the standing crop is 20,480 cm, mid-band.
+    const report = viabilityReport(runWithBiomass([minimalRow(31, 4_000)], [20_480], { births: 10_000 }));
+    expect(report.status).toBe('pass');
+    expect(report.threshold.label).toContain('biomass ∈ [4000, 62000]');
+    expect(report.detail).toContain('population 4000–4000');
+  });
+
+  it('fails P3 when the standing crop leaves the band in either direction', () => {
+    const rows = [minimalRow(31, 500), minimalRow(32, 500)];
+    expect(viabilityReport(runWithBiomass(rows, [3_000, 3_000], { births: 10_000 })).status).toBe('fail');
+    expect(viabilityReport(runWithBiomass(rows, [80_000, 80_000], { births: 10_000 })).status).toBe('fail');
+    expect(viabilityReport(runWithBiomass(rows, [20_000, 20_000], { births: 10_000 })).status).toBe('pass');
+  });
+
+  it('tolerates bounded cap clipping and fails sustained regulation by the slot array', () => {
+    const rows = [minimalRow(31, 500)];
+    // The G0 artifact seed's shape: a real but bounded share of attempted
+    // births lost to the container.
+    const bounded = viabilityReport(
+      runWithBiomass(rows, [20_000], { births: 99_000, diagnostics: { birthsDropped: 1_000 } as RunResult['diagnostics'] }),
+    );
+    expect(bounded.status).toBe('pass');
+    expect(bounded.detail).toContain('1.00%');
+
+    const sustained = viabilityReport(
+      runWithBiomass(rows, [20_000], { births: 90_000, diagnostics: { birthsDropped: 10_000 } as RunResult['diagnostics'] }),
+    );
+    expect(sustained.status).toBe('fail');
+    expect(sustained.threshold.label).toContain('dropped births ≤2%');
+  });
+
+  it('refuses to grade P3 when the biomass series does not line up with the rows', () => {
+    const report = viabilityReport(runWithBiomass([minimalRow(31, 500), minimalRow(32, 500)], [20_000]));
     expect(report.status).toBe('fail');
-    expect(report.threshold.label).toContain('dropped births = 0');
-    expect(report.detail).toContain('1 births dropped (required 0)');
+    expect(Number.isNaN(report.value)).toBe(true);
+    expect(report.detail).toContain('did not align');
+  });
+
+  it('prices dropped births against attempted births, not against survivors', () => {
+    expect(droppedBirthFraction(90, 10)).toBeCloseTo(0.1);
+    expect(droppedBirthFraction(0, 0)).toBe(0);
   });
 
   it('gives P8a a negative displayed margin when either Fst criterion fails', () => {

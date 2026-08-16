@@ -9,6 +9,7 @@
 
 import type { SampleRow } from '../contracts/stats';
 import type { DeathCause } from '../contracts/types';
+import { BIOMASS_COLUMN } from '../stats/detection';
 import type { RunResult } from './harness';
 
 /**
@@ -29,6 +30,31 @@ export const ENDOGENOUS_DEATH_CAUSES = [
 export function postBurnIn(run: RunResult): readonly SampleRow[] {
   const burnIn = run.config.sampling.burnInGenerations;
   return run.rows.filter((row) => row.generation >= burnIn);
+}
+
+/**
+ * Σ realised length over the living population, post-burn-in, cm — the series
+ * P3's band is stated in.
+ *
+ * It comes off the recorder's scalar columns rather than `SampleRow` because
+ * `SampleRow` is a frozen contract and because a serialised field would break
+ * the off-arm JSONL's byte-identity. That makes the alignment between the
+ * column and `run.rows` load-bearing: the recorder appends exactly one column
+ * entry per appended row, and the harness drains every row, so the two are
+ * parallel. **Null** rather than a guess when they are not, or when the run
+ * carries no recorder at all — a viability gate that quietly evaluated a
+ * misaligned series would be worse than one that says it could not measure.
+ */
+export function postBurnInBiomass(run: RunResult): readonly number[] | null {
+  const column = run.stats?.column(BIOMASS_COLUMN) ?? null;
+  if (column === null || column.length !== run.rows.length) return null;
+  const burnIn = run.config.sampling.burnInGenerations;
+  const series: number[] = [];
+  for (let index = 0; index < run.rows.length; index += 1) {
+    if ((run.rows[index]?.generation ?? -1) < burnIn) continue;
+    series.push(column[index] ?? Number.NaN);
+  }
+  return series;
 }
 
 /** Rows whose generation falls in `[from, to)`. */

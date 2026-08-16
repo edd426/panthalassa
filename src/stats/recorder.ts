@@ -46,6 +46,13 @@ import type {
 } from '../contracts/types';
 import { AncestryStore, PhylogenyStore } from './ancestry';
 import type { LineageSummary, SpeciesObservation } from './ancestry';
+import {
+  BIOMASS_COLUMN,
+  DetectionAccumulator,
+  LENGTH_MEAN_COLUMN,
+  LENGTH_SD_COLUMN,
+  detectionArms,
+} from './detection';
 import { PopgenEngine, meanExpectedHeterozygosity, neutralAlleleFrequencies } from './popgen';
 import { GrowableColumn, Welford } from './shared';
 import { thermalShockOffsetC } from '../sim/ecology/disturbances';
@@ -113,6 +120,9 @@ export class StatsRecorder implements StatsRecorderApi {
   private readonly genotypicMoments: Welford[] = [];
   private readonly discreteCounts: Float64Array[] = [];
 
+  /** The G-wave detection pass. Always allocated; only the gated parts of it run. */
+  private readonly detection: DetectionAccumulator;
+
   private readonly frequencyHistory: FrequencySnapshot[] = [];
   private readonly sweeps = new Map<string, TrackedSweep>();
   /** Events raised by `sample()`, waiting for the engine's `drainRaisedEvents()`. */
@@ -123,6 +133,7 @@ export class StatsRecorder implements StatsRecorderApi {
     this.estimators = new PopgenEngine(options.config);
     this.ancestryStore = new AncestryStore(options.config);
     this.phylogenyStore = new PhylogenyStore();
+    this.detection = new DetectionAccumulator(options.config);
     this.estimators.useBreederSource(this.ancestryStore);
 
     for (let index = 0; index < TRAIT_COUNT; index += 1) {
@@ -223,9 +234,20 @@ export class StatsRecorder implements StatsRecorderApi {
     const bySpecies = new Map<SpeciesTag, SpeciesAccumulator>();
     const byClade = new Map<CladeId, number>();
 
+    // `setToggle` and A7's tuning tools swap the config object's identity
+    // mid-run, so the G-wave arms are read off `state.config` rather than the
+    // constructor's copy: a cached toggle would keep an arm's fields on the row
+    // after the user turned the mechanism off.
+    const arms = detectionArms(state.config);
+    const detection = this.detection;
+    detection.begin(state.config);
+
     const dietIndex = TRAIT_INDEX.diet;
     const attackIndex = TRAIT_INDEX.attack;
     const defenseIndex = TRAIT_INDEX.defense;
+    const hueIndex = TRAIT_INDEX.displayHue;
+    const toxicityIndex = TRAIT_INDEX.toxicity;
+    const conspicuousnessIndex = TRAIT_INDEX.conspicuousness;
     let predators = 0;
     let dietSum = 0;
     let attackSum = 0;
@@ -253,6 +275,25 @@ export class StatsRecorder implements StatsRecorderApi {
 
       const deme = demeAt(pop.x[slot] ?? 0, pop.y[slot] ?? 0, config);
       if (deme >= 0 && deme < demes.length) demes[deme] = (demes[deme] ?? 0) + 1;
+
+      // Realised length is unconditional: `sizeCurrent` equals the expressed
+      // `size` trait bit for bit with ontogeny off, so the biomass series P3
+      // reads means the same thing on both arms — which is the whole point of
+      // restating the band in biomass.
+      detection.observeLength(pop.sizeCurrent[slot] ?? 0);
+      if (arms.ontogeny) {
+        detection.observeLifeStage(state, slot, id, pop.ageTicks[slot] ?? 0);
+      }
+      if (arms.aposematism) {
+        detection.observeHue(
+          pop.traits[base + hueIndex] ?? 0,
+          pop.traits[base + toxicityIndex] ?? 0,
+          pop.traits[base + conspicuousnessIndex] ?? 0,
+        );
+      }
+      if (arms.any && deme >= 0) {
+        detection.observeDeme(deme, pop.traitsLatent, genotypic, base);
+      }
 
       const archetypeCode = pop.archetype[slot] ?? 0;
       if (archetypeCode < archetypes.length) archetypes[archetypeCode] = (archetypes[archetypeCode] ?? 0) + 1;
@@ -344,6 +385,18 @@ export class StatsRecorder implements StatsRecorderApi {
 
     this.phylogenyStore.observe(tick, speciesObservations(bySpecies));
 
+    // `exactOptionalPropertyTypes` makes an explicit `undefined` a different
+    // thing from an absent key, and `JSON.stringify` drops only the absent one.
+    // Spreading the arm's fields in is what keeps off-arm JSONL byte-identical
+    // to the pre-wave recorder's rather than gaining four null columns.
+    const detectionFields = {
+      ...(arms.ontogeny ? { lifeHistory: detection.lifeHistorySample() } : {}),
+      ...(arms.aposematism
+        ? { hueBins: detection.hueBinSamples(), mimicryIndex: detection.mimicryIndex() }
+        : {}),
+      ...(arms.any ? { traitsByDeme: detection.traitsByDeme() } : {}),
+    };
+
     const row: SampleRow = {
       tick,
       generation,
@@ -368,9 +421,18 @@ export class StatsRecorder implements StatsRecorderApi {
         meanAttack: population > 0 ? attackSum / population : 0,
         meanDefense: population > 0 ? defenseSum / population : 0,
       },
+      ...detectionFields,
     };
 
     this.append(row);
+    // Realised length gets its own series on **both** arms (the G2 report's
+    // handover: the trait columns report the genetic target, and after ontogeny
+    // those are two different numbers). These are recorder columns rather than
+    // row fields, so they cost the off-arm JSONL nothing.
+    this.appendScalar(BIOMASS_COLUMN, detection.biomassTotalCm);
+    this.appendScalar(LENGTH_MEAN_COLUMN, detection.length.mean);
+    this.appendScalar(LENGTH_SD_COLUMN, detection.length.sd);
+    detection.end();
     this.appendScalar('resources.carrionTotal', carrionTotal(state));
     this.appendScalar('disturbances.thermalCount', state.disturbance.thermal.length);
     this.appendScalar('disturbances.planktonCrashCount', state.disturbance.planktonCrashes.length);

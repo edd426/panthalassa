@@ -237,18 +237,26 @@ export const SWEEP_TRAIT = 'size' as const;
 export const SWEEP_EFFECT_SD = 1.5;
 
 /**
- * The discrete companion.
+ * The tracked discrete companion — **moved to a crash-neutral locus** (G4).
  *
- * `trackSweep` and `SweepCrossedHalfEvent` are typed to `DiscreteLocusId`, and
- * the clade macro-loci are the only discrete loci where an injected allele
- * genuinely starts at 1/2N: founders are uniform over every other discrete
- * allele set, so "injecting" a pigment allele would drop it into a population
- * that already carries it at ~25%. Allele 3 at `cladeMacroA` also founds the
- * armoured-crawler body plan (see `CLADE_MACRO_TABLE`), so the contract's
- * sweep-visibility path is exercised on an allele that is both rare and
- * consequential.
+ * It used to be `cladeMacroA:3`, chosen because the clade macro-loci are the
+ * only discrete loci where an injected allele genuinely starts at 1/2N, and
+ * because allele 3 there founds the armoured-crawler body plan and so was both
+ * rare and consequential. Consequential is exactly what broke it: the D-wave
+ * disturbance regime selects on body plan and reverses that selection at every
+ * crash, so the reported fixation-rate line conflated a 1/2N start, selection
+ * on the plan, and the regime undoing it. It read `never raised
+ * sweepCrossedHalf; final frequency 0.0000` on all fifteen spec-length seeds on
+ * file — a line from which nothing could be inferred.
+ *
+ * `neutralD` is a k=8 marker with no `DISCRETE_EFFECTS` row and no quantitative
+ * load, so nothing selects on it and disturbances can only move it through Ne.
+ * The cost of that choice, stated rather than hidden: founders draw neutral
+ * markers uniformly, so the tracked allele starts near 1/8 rather than at 1/2N,
+ * and the scenario records the **observed** pre-injection frequency below
+ * instead of the 1/2N figure, which would now be a lie.
  */
-export const SWEEP_DISCRETE_LOCUS = 'cladeMacroA' as const;
+export const SWEEP_DISCRETE_LOCUS = 'neutralD' as const;
 export const SWEEP_DISCRETE_ALLELE = 3;
 
 /** Generation the injection happens at; comfortably past the 30-generation burn-in. */
@@ -273,6 +281,26 @@ function sweepAlleleOffset(config: SimConfig, rows: readonly SampleRow[]): numbe
             Math.max(1e-6, config.genetics.targetFounderHeritability),
         );
   return (SWEEP_EFFECT_SD * populationSd) / Math.max(1e-6, SWEEP_LOCUS_WEIGHT);
+}
+
+/**
+ * The tracked allele's frequency and the census-based Ne as they stood the
+ * sample before the injection.
+ *
+ * P10 needs both to say anything about the neutral arm: `Δf` is measured from
+ * where the marker actually was, and the drift SD it is compared against is
+ * `sqrt(f(1−f)·t / (2·Ne))`, which needs an Ne the probe cannot reconstruct
+ * after the fact. Recorded rather than recomputed for the same reason
+ * `sweepAlleleOffset` is.
+ */
+function recordTrackedAlleleBaseline(rows: readonly SampleRow[], notes: ScenarioNotes): void {
+  const latest = rows[rows.length - 1];
+  if (latest === undefined) return;
+  notes.setNumber(
+    'trackedAlleleStartFrequency',
+    latest.discreteAlleleFreq[SWEEP_DISCRETE_LOCUS][SWEEP_DISCRETE_ALLELE] ?? 0,
+  );
+  notes.setNumber('trackedAlleleStartNe', latest.popgen.neDemographic);
 }
 
 /** How much one allele copy at {@link SWEEP_QUANT_LOCUS} moves {@link SWEEP_TRAIT}. */
@@ -306,6 +334,7 @@ const sweep: Scenario = {
         notes.setNumber('sweepAlleleOffset', offset);
         notes.setNumber('sweepStartFrequency', 1 / Math.max(1, 2 * sim.state.liveCount));
         notes.setText('sweepQuantLocus', SWEEP_QUANT_LOCUS);
+        recordTrackedAlleleBaseline(rows, notes);
       },
     },
   ],
@@ -450,14 +479,17 @@ const determinism: Scenario = {
 // ---------------------------------------------------------------------------
 
 /**
- * One scenario per `MechanismToggles` entry, that entry off and everything else
- * at defaults.
+ * One scenario per `MechanismToggles` entry, that entry flipped away from its
+ * default and everything else left alone.
  *
  * These exist so A7 can measure each variance mechanism's *marginal*
- * contribution by differencing a toggle-off run against `baseline`, rather than
- * arguing about which knob mattered. They are reachable through
- * `--scenario=no-mutation` and friends; no suite runs them by default, because
- * additional long runs would put `probe:full` well past its budget.
+ * contribution by differencing the arm against `baseline`, rather than arguing
+ * about which knob mattered. The flip is against the **default**, not
+ * unconditionally off: the G-wave mechanisms ship off (`enableOntogeny`,
+ * `enableAposematism` are false in `DEFAULT_SIM_CONFIG`), so an off arm for
+ * those would be `baseline` under another name and would measure nothing. Each
+ * mechanism therefore gets exactly one arm, and it is always the arm where the
+ * mechanism differs from the shipped world.
  */
 export const TOGGLE_KEYS = [
   'enableSpatialGxE',
@@ -469,24 +501,40 @@ export const TOGGLE_KEYS = [
   'enableDisturbances',
   // v1.7: carrion separated from shocks, so each finally has its own arm.
   'enableCarrion',
+  // G-wave v1.7, default-off: these two arms turn the mechanism ON. P17 and P18
+  // read them.
+  'enableOntogeny',
+  'enableAposematism',
 ] as const satisfies readonly (keyof MechanismToggles)[];
 
-/** `enableSpatialGxE` → `no-spatialGxE`. */
+/** The value {@link toggleScenarioName}'s arm sets: the opposite of the shipped default. */
+export function toggleArmValue(toggle: keyof MechanismToggles): boolean {
+  return !DEFAULT_SIM_CONFIG.toggles[toggle];
+}
+
+/** `enableSpatialGxE` → `no-spatialGxE`; a default-off toggle → `ontogeny`. */
 export function toggleScenarioName(toggle: keyof MechanismToggles): string {
-  return `no-${toggle.slice('enable'.length, 'enable'.length + 1).toLowerCase()}${toggle.slice('enable'.length + 1)}`;
+  const stem = `${toggle.slice('enable'.length, 'enable'.length + 1).toLowerCase()}${toggle.slice('enable'.length + 1)}`;
+  return toggleArmValue(toggle) ? stem : `no-${stem}`;
 }
 
 function toggleScenario(toggle: keyof MechanismToggles): Scenario {
+  const value = toggleArmValue(toggle);
   return {
     name: toggleScenarioName(toggle),
-    description: `Baseline with ${toggle} off, for A7's marginal-contribution measurement.`,
-    overrides: { toggles: { [toggle]: false } },
+    description: `Baseline with ${toggle} ${value ? 'on' : 'off'}, for the marginal-contribution measurement.`,
+    overrides: { toggles: { [toggle]: value } },
     interventions: [],
     generations: 300,
     quickGenerations: 60,
     stopOnExtinction: true,
   };
 }
+
+/** The ontogeny arm, named for the probes that read it. */
+export const ONTOGENY_SCENARIO = toggleScenarioName('enableOntogeny');
+/** The aposematism arm, named for the probes that read it. */
+export const APOSEMATISM_SCENARIO = toggleScenarioName('enableAposematism');
 
 // ---------------------------------------------------------------------------
 // disturbance smoke / P15

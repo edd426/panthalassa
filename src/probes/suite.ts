@@ -53,7 +53,21 @@ export interface SuiteResult {
   readonly skipped: readonly string[];
 }
 
-export const QUICK_SCENARIOS = ['baseline', 'barrier', 'sweep', 'disturbance-smoke'] as const;
+/**
+ * `ontogeny` and `aposematism` are mechanism-toggle arms like `no-mutation`,
+ * but unlike those they are read by probes (P17, P18, P19) rather than only by
+ * a tuning campaign, so they are in the suites rather than reachable only from
+ * `--scenario=`. That is the exception the note above describes, not a change
+ * to the rule.
+ */
+export const QUICK_SCENARIOS = [
+  'baseline',
+  'barrier',
+  'sweep',
+  'disturbance-smoke',
+  'ontogeny',
+  'aposematism',
+] as const;
 export const FULL_SCENARIOS = [
   'baseline',
   'barrier',
@@ -61,6 +75,8 @@ export const FULL_SCENARIOS = [
   'speciation',
   'disturbance-smoke',
   're-evolvability',
+  'ontogeny',
+  'aposematism',
 ] as const;
 export const QUICK_SEEDS = ['q1'] as const;
 export const FULL_SEEDS = ['s1', 's2', 's3'] as const;

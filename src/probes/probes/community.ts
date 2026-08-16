@@ -132,6 +132,42 @@ export function frequencyFromPairedMeans(treatmentMean: number, controlMean: num
   return Math.min(1, Math.max(0, (treatmentMean - controlMean) / offset));
 }
 
+/**
+ * SD of a neutral allele's frequency change over `generations` at effective
+ * size `ne`: `sqrt(f₀(1−f₀)·(1 − exp(−t/2Ne)))`, the standard diffusion result.
+ *
+ * The exponential form rather than the small-`t` linearisation `f₀(1−f₀)t/2Ne`,
+ * because these runs go 120 generations against an Ne in the hundreds and the
+ * linearisation runs past `f₀(1−f₀)` — a variance larger than the process can
+ * have — well inside that window.
+ */
+export function driftSd(startFrequency: number, generations: number, ne: number): number {
+  if (!(ne > 0) || !(generations > 0)) return Number.NaN;
+  const heterozygosity = startFrequency * (1 - startFrequency);
+  return Math.sqrt(heterozygosity * (1 - Math.exp(-generations / (2 * ne))));
+}
+
+/**
+ * The neutral arm's line: how far the tracked marker moved, in drift SDs.
+ *
+ * Deliberately **reported and not asserted**. It is a crash-neutral fixation
+ * read — nothing selects on `neutralD`, so disturbances reach it only through
+ * Ne, which is in the denominator rather than able to reverse its sign — but a
+ * threshold on it would need a multi-seed base-rate panel to say what |z| is
+ * ordinary, and this package has no such panel. TODO(G6), alongside P19's.
+ */
+function driftReading(run: RunResult, finalFrequency: number): string {
+  const start = run.notes.number('trackedAlleleStartFrequency');
+  const ne = run.notes.number('trackedAlleleStartNe');
+  if (start === undefined || ne === undefined) {
+    return `final frequency ${finalFrequency.toFixed(4)}; no pre-injection baseline recorded`;
+  }
+  const generations = Math.max(0, run.generationsRun - (run.notes.number('sweepInjectionTick') ?? 0) / run.config.time.generationTicks);
+  const sd = driftSd(start, generations, ne);
+  const z = sd > 0 ? (finalFrequency - start) / sd : Number.NaN;
+  return `${start.toFixed(4)} → ${finalFrequency.toFixed(4)} over ${generations.toFixed(0)} generations at Ne ${ne.toFixed(0)} (${Number.isFinite(z) ? `${z.toFixed(2)} drift SD` : 'drift SD not identifiable'})`;
+}
+
 function sweepReport(run: RunResult, control: RunResult | undefined): ProbeReport {
   const threshold = {
     min: SWEEP_TARGET_FREQUENCY,
@@ -201,21 +237,22 @@ function sweepReport(run: RunResult, control: RunResult | undefined): ProbeRepor
   const peak = trajectory.reduce((best, point) => Math.max(best, point.frequency), 0);
   const crossing = trajectory.find((point) => point.frequency >= SWEEP_TARGET_FREQUENCY);
 
-  // The discrete companion: the only path the frozen contract can raise
+  // The tracked discrete companion: the only path the frozen contract can raise
   // `sweepCrossedHalf` on, since `trackSweep` is typed to `DiscreteLocusId`.
   const crossedEvent = run.events.find((event) => event.kind === 'sweepCrossedHalf');
   const finalRow: SampleRow | undefined = run.rows[run.rows.length - 1];
   const discreteFrequency = finalRow?.discreteAlleleFreq[SWEEP_DISCRETE_LOCUS][SWEEP_DISCRETE_ALLELE] ?? 0;
+  const drift = driftReading(run, discreteFrequency);
 
   const detail = [
     `${SWEEP_QUANT_LOCUS} peaked at ${peak.toFixed(3)}${
       crossing === undefined ? ' (never crossed 0.5)' : `, crossing 0.5 after ${crossing.generation.toFixed(1)} generations`
     }`,
     `injected at generation ${(injectionTick / generationTicks).toFixed(0)}, offset ${offset.toFixed(3)} allele units, start frequency ${(run.notes.number('sweepStartFrequency') ?? 0).toExponential(1)}`,
-    `${SWEEP_DISCRETE_LOCUS}:${SWEEP_DISCRETE_ALLELE} ${
+    `${SWEEP_DISCRETE_LOCUS}:${SWEEP_DISCRETE_ALLELE} (neutral) ${
       crossedEvent === undefined
-        ? `never raised sweepCrossedHalf; final frequency ${discreteFrequency.toFixed(4)}`
-        : `raised sweepCrossedHalf at tick ${crossedEvent.tick}`
+        ? `never raised sweepCrossedHalf; ${drift}`
+        : `raised sweepCrossedHalf at tick ${crossedEvent.tick}; ${drift}`
     }`,
     `${trajectory.length} samples over ${trajectory[trajectory.length - 1]?.generation.toFixed(0) ?? 0} of the ${SWEEP_DEADLINE_GENERATIONS}-generation window`,
     `paired control added ${control.generationsRun.toFixed(1)} simulated generations (one extra run for this seed)`,

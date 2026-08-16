@@ -16,6 +16,8 @@ import { barrierProbe } from './barrier';
 import { coevolutionProbe, speciationProbe, sweepProbe } from './community';
 import { performanceProbe } from './performance';
 import { disturbanceProbe, reEvolvabilityProbe } from './disturbance';
+import { ageStructureProbe } from './lifehistory';
+import { couplingProbe, mimicryProbe } from './aposematism';
 
 export const PROBES: readonly ProbeDefinition[] = [
   determinismProbe, // P1
@@ -34,6 +36,9 @@ export const PROBES: readonly ProbeDefinition[] = [
   driftProbe, // P14
   disturbanceProbe, // P15
   reEvolvabilityProbe, // P16
+  ageStructureProbe, // P17
+  couplingProbe, // P18
+  mimicryProbe, // P19
 ];
 
 /** Scenarios that at least one probe reads, excluding the standalone probes' own harnesses. */

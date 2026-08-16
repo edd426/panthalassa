@@ -14,22 +14,80 @@ import type { ProbeReport, SampleRow } from '../../contracts/stats';
 import type { RunResult } from '../harness';
 import type { ProbeDefinition } from '../probe';
 import { breach, makeReport, notEvaluable, statusFor, worstStatus } from '../probe';
+import { BIOMASS_COLUMN } from '../../stats/detection';
 import {
   ENDOGENOUS_DEATH_CAUSES,
   endogenousDeathShares,
   lastGeneration,
   lastGenerations,
   postBurnIn,
+  postBurnInBiomass,
 } from '../metrics';
 
 // ---------------------------------------------------------------------------
 // P3 — viability
 // ---------------------------------------------------------------------------
 
-const POPULATION_FLOOR = 100;
-const POPULATION_CEILING = 3500;
+/**
+ * The band, in **biomass** — Σ realised length over the living population, cm.
+ *
+ * P3 used to bound head count, `pop ∈ [100, 3500]`. The G0 spec run broke that
+ * statement rather than the world it describes: baseline-s3 evolved small
+ * bodies (late mean 14.9 cm against 21.5 in the maxIntake-0.5 baseline), so the
+ * same energy carried ~24% more heads, the census grazed the 4096-slot cap, and
+ * P3 went red at 0.954 — while the standing crop sat *below* the reference
+ * envelope. Biomass is the conserved quantity the band was always trying to
+ * bound, and it stops meaning what it meant the moment an age structure exists
+ * (DESIGN.md "G0 spec-length adjudication"; g-wave-design §4 G-A).
+ *
+ * Derivation of the two numbers, from the post-burn-in windows of the six
+ * baseline seeds on file at the shipped config (`runs/full-4f54b9db-*` = the G0
+ * spec run, `runs/full-c2fb508e-*` = the maxIntake-0.5 baseline; 1216 samples
+ * each, config hash `5f6c53df8e063099`). Their biomass envelope is
+ * [3493, 69301] cm. The floor sits at 4000 — **above** the lowest reading any
+ * reference seed produced, so it genuinely bites; the single seed that dips
+ * under it (c2fb508e-s1, minimum 3493) spends 0.41% of its window there, which
+ * the ≥99% allowance absorbs. The ceiling sits at 62000 — **below** the highest
+ * reading, for the same reason; it costs 4f54b9db-s1 0.25% of its window and
+ * c2fb508e-s3 0.08%. Achieved in-band fraction over the six seeds: 0.9959 worst
+ * (c2fb508e-s1), 1.0000 on three of them. Historical biomass is reconstructed
+ * as census × softplus(latent mean size), which is Σ realised length exactly
+ * with ontogeny off and differs from it by under 1e-6 cm at these operating
+ * points, because `size` runs far above its 0.8 cm link scale.
+ */
+const BIOMASS_FLOOR_CM = 4_000;
+const BIOMASS_CEILING_CM = 62_000;
 /** Fraction of samples allowed to sit against the slot cap before the cap counts as an ecological limit. */
 const CAP_BOUND_ALLOWANCE = 0.05;
+/**
+ * Attempted births the slot container is allowed to swallow.
+ *
+ * The G0 adjudication's explicit watch item: restating P3 in biomass must not
+ * silently bless cap-and-starve, because the band exists to force density
+ * dependence through resources. A hard `= 0` cannot survive the restatement —
+ * it is a criterion about the container's size rather than about the world —
+ * but the cap did *real regulation* on the artifact seed, so the replacement is
+ * a bounded tolerance rather than nothing.
+ *
+ * Derived from the five spec-length seeds on file with nonzero drops. The
+ * archive records drops only as a whole-run counter (`SimDiagnostics.
+ * birthsDropped`) and carries no birth series, so matings are its only
+ * denominator; converting needs a births-per-mating ratio, measured here as
+ * 2.90/2.88/2.83 (baseline s1/s2/s3, 100 generations, zero drops, so every
+ * attempted birth landed). At 2.87 the archive reads:
+ *
+ * - 4f54b9db-s3, the G0 artifact seed the adjudication says must pass: 10,843
+ *   drops on 318,504 matings → **1.19%** of attempted births.
+ * - ceefcd9e-s3, a seed where the cap did sustained regulation (10.6% of its
+ *   late samples pressed against 4096): 32,405 on 355,961 → **3.17%**.
+ * - 2199312f-s2 2.10%, 2199312f-s3 1.51%, ceefcd9e-s2 0.36%.
+ *
+ * 2% separates the artifact from sustained regulation with the artifact at
+ * roughly half the bar, and the separation survives the conversion being wrong:
+ * anywhere in a 2.5–3.5 births-per-mating range the artifact stays under 1.4%
+ * and the regulated seed stays over 2.6%.
+ */
+const DROPPED_BIRTH_ALLOWANCE = 0.02;
 /**
  * Ratcheted to a gate by A7 once the tuned ecology held 1.00 on three seeds at
  * 300 generations. Viability is the one reading with no interpretation in it:
@@ -37,14 +95,24 @@ const CAP_BOUND_ALLOWANCE = 0.05;
  * measuring an empty ocean.
  */
 const P3_SEVERITY = 'gate' as const;
-/** Ratcheted from 0.98: three seeds achieved 1.00, so 0.99 sits just below. */
+/**
+ * Ratcheted from 0.98 by A7 when three seeds achieved 1.00. Carried through the
+ * biomass restatement unchanged: the worst of the six reference seeds achieves
+ * 0.9959 under the new band, so 0.99 still sits just below achieved.
+ */
 const P3_IN_RANGE_MIN = 0.99;
 
 function p3Threshold(): { min: number; label: string } {
   return {
     min: P3_IN_RANGE_MIN,
-    label: `pop ∈ [${POPULATION_FLOOR}, ${POPULATION_CEILING}] ≥${(P3_IN_RANGE_MIN * 100).toFixed(0)}%; never empty; cap <${CAP_BOUND_ALLOWANCE * 100}%; dropped births = 0`,
+    label: `biomass ∈ [${BIOMASS_FLOOR_CM}, ${BIOMASS_CEILING_CM}] cm ≥${(P3_IN_RANGE_MIN * 100).toFixed(0)}%; never empty; cap <${CAP_BOUND_ALLOWANCE * 100}%; dropped births ≤${(DROPPED_BIRTH_ALLOWANCE * 100).toFixed(0)}%`,
   };
+}
+
+/** Drops as a fraction of **attempted** births; 0 when nothing was ever born. */
+export function droppedBirthFraction(births: number, dropped: number): number {
+  const attempted = births + dropped;
+  return attempted > 0 ? dropped / attempted : 0;
 }
 
 export function viabilityReport(run: RunResult): ProbeReport {
@@ -68,40 +136,58 @@ export function viabilityReport(run: RunResult): ProbeReport {
     });
   }
 
+  const biomass = postBurnInBiomass(run);
+  if (biomass === null || biomass.length !== rows.length) {
+    return notEvaluable({
+      ...shared,
+      threshold: p3Threshold(),
+      detail: `the recorder's '${BIOMASS_COLUMN}' series was unavailable or did not align with the ${rows.length} post-burn-in samples`,
+    });
+  }
+
   const capacity = run.config.world.slotCapacity;
   let inRange = 0;
   let atCap = 0;
   let minimum = Infinity;
   let maximum = 0;
-  for (const row of rows) {
-    if (row.population >= POPULATION_FLOOR && row.population <= POPULATION_CEILING) inRange += 1;
+  let biomassMinimum = Infinity;
+  let biomassMaximum = 0;
+  for (let index = 0; index < rows.length; index += 1) {
+    const row = rows[index];
+    const standing = biomass[index] ?? Number.NaN;
+    if (row === undefined) continue;
+    if (standing >= BIOMASS_FLOOR_CM && standing <= BIOMASS_CEILING_CM) inRange += 1;
+    if (standing < biomassMinimum) biomassMinimum = standing;
+    if (standing > biomassMaximum) biomassMaximum = standing;
     if (row.population >= capacity) atCap += 1;
     if (row.population < minimum) minimum = row.population;
     if (row.population > maximum) maximum = row.population;
   }
   const inRangeFraction = inRange / rows.length;
   const capFraction = atCap / rows.length;
+  const droppedFraction = droppedBirthFraction(run.births, run.diagnostics.birthsDropped);
   const threshold = p3Threshold();
 
   const status = worstStatus([
     statusFor(inRangeFraction, threshold, P3_SEVERITY),
     run.extinctGeneration === null ? 'pass' : breach(P3_SEVERITY),
     capFraction < CAP_BOUND_ALLOWANCE ? 'pass' : breach(P3_SEVERITY),
-    // Any dropped birth means the container, rather than the modeled density
-    // processes, interfered with the trajectory this certificate describes.
-    run.diagnostics.birthsDropped === 0 ? 'pass' : breach(P3_SEVERITY),
+    // Not "the container never interfered" any more, but "the container was not
+    // doing the regulating": sustained clipping means density dependence came
+    // from the slot array rather than from the modelled resources.
+    droppedFraction <= DROPPED_BIRTH_ALLOWANCE ? 'pass' : breach(P3_SEVERITY),
   ]);
 
   const detail = [
-    `population ${minimum}–${maximum} over ${rows.length} samples`,
+    `biomass ${biomassMinimum.toFixed(0)}–${biomassMaximum.toFixed(0)} cm over ${rows.length} samples (population ${minimum}–${maximum})`,
     run.extinctGeneration === null
       ? 'never empty'
       : `EMPTY at generation ${run.extinctGeneration.toFixed(1)}`,
     `${(capFraction * 100).toFixed(1)}% of samples at the ${capacity}-slot cap`,
-    `${run.diagnostics.birthsDropped} births dropped (required 0)`,
+    `${run.diagnostics.birthsDropped} of ${run.births + run.diagnostics.birthsDropped} attempted births dropped (${(droppedFraction * 100).toFixed(2)}%, allowed ${(DROPPED_BIRTH_ALLOWANCE * 100).toFixed(0)}%)`,
   ].join('; ');
 
-  return makeReport({ ...shared, value: inRangeFraction, threshold, status, detail });
+  return makeReport({ ...shared, value: inRangeFraction, threshold, status, detail, series: { biomassCm: biomass } });
 }
 
 export const viabilityProbe: ProbeDefinition = {

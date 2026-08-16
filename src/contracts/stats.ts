@@ -115,7 +115,13 @@ export interface LifeHistorySample {
   readonly juvenileFraction: number;
   /** Mean age at which currently-mature organisms crossed maturity; null with none. */
   readonly meanAgeAtMaturityTicks: number | null;
-  /** Births in the window that survived to maturity. */
+  /**
+   * Organisms observed crossing maturity during the window — the fisheries
+   * sense. (Doc amended with G4: the original "births in the window that
+   * survived to maturity" is right-censored — a birth cannot mature for
+   * several sample intervals — so it could only ever be attributed to a
+   * window long past.)
+   */
   readonly recruitment: number;
 }
 
