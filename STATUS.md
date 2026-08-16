@@ -32,13 +32,20 @@ DESIGN.md "G2 — ontogeny lands" (incl. the two G6 watch items: birthEnergy
 vs hatchling ceiling, conspecific damper pre-species-split; and G4's
 realised-length series debt). Contract follow-ups v1.7.1 (sizeCurrent on
 OrganismPools, d158b51) and v1.7.2 ('toxin' death cause, ac1c6e7). Quiet
-P12 done: 8.7–8.9e5, G1 costs ~2–3% real (DESIGN.md). **G3 (aposematism,
-Opus, briefs/g3-aposematism.md) is running** — orchestrator re-runs its
-probe before commit. Still owed: R5 glass review (user is around today —
-the trends-scroll bug they reported is fixed, 4f54b9d). Then G4
-(probes/stats: P3-as-biomass + P17/P18/P19 + realised-length series) → G5
-(render: slice widening 15→17 for lifeStage+conspicuousness is an
-ORCHESTRATOR pre-step) → G6 (tuning).
+P12 done: 8.7–8.9e5, G1 costs ~2–3% real (DESIGN.md). **G3 LANDED (68b47b1)**: toxin as post-kill penalty, hue-bin avoidance
+statistic, signal costs/benefits, invention events; probe re-run exit 0;
+record in DESIGN.md "G3 — aposematism lands" (headline: the bootstrap
+fires inside 45 generations on 2/3 seeds — toxicity to 1.33, conspicuous-
+ness to +1.69). Contracts v1.8 landed (slice 15→17: lifeStage +
+conspicuousness). **G4 (probes/stats) and G5 (render) are running in
+parallel** (briefs/g4-probes-stats.md, briefs/g5-render-ontogeny.md;
+disjoint file sets, both told of the other) — orchestrator re-runs both
+probes before commit. G4's centerpiece is P3-as-biomass, answering the
+standing G0-run s3 gate red. Still owed: R5 glass review + now G5 glass
+review (user around today; trends-scroll fix 4f54b9d). Then G6 (tuning
+campaign: cliff-screen every knob, dose batches, sizeRatioOptimum/
+baseLogit pair, P19 9-seed base-rate panel, G-B last; wave ends with a
+fresh-seed P1 panel per the D5 lesson).
 
 **TASK #18 IS DECIDED AND PHASE B IS GO (2026-08-15).** The user chose the
 recommended lever: `carrion.maxIntake` 0.7 → 0.5 is committed as the default
