@@ -49,7 +49,11 @@ export interface DeathEvent extends EventBase {
   readonly y: number;
   readonly ageTicks: number;
   readonly speciesTag: SpeciesTag;
-  /** Set when `cause` is `'predation'`. */
+  /**
+   * Who killed this animal. Set when `cause` is `'predation'` (the predator)
+   * or, since v1.7.2, `'toxin'` (the victim whose flesh poisoned the predator
+   * — the same relation, pointing the other way along the same meal).
+   */
   readonly killerId?: OrganismId;
 }
 

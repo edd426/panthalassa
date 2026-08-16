@@ -89,6 +89,13 @@ export interface EcologyRuntime {
   hueBins: number;
   hueCounts: Float32Array;
   hueTotals: Float32Array;
+  /**
+   * Summed expressed toxicity per (cell, hue bin), the numerator of
+   * `hueBinToxicityAt`. Filled by the same pass that fills `hueCounts` and only
+   * when `toggles.enableAposematism` — off the toggle it stays zero and nothing
+   * reads it, so the off arm pays neither the accumulation nor a second sweep.
+   */
+  hueToxicitySums: Float32Array;
   /** Tick the hue-morph grid was last binned for; `-1` means invalid. */
   hueGridTick: number;
   /**
@@ -219,6 +226,7 @@ function buildRuntime(state: SimState): EcologyRuntime {
     hueBins,
     hueCounts: new Float32Array(hueCols * hueRows * hueBins),
     hueTotals: new Float32Array(hueCols * hueRows),
+    hueToxicitySums: new Float32Array(hueCols * hueRows * hueBins),
     hueGridTick: -1,
     hueSlotCell: new Int32Array(capacity),
     hueSlotBin: new Int32Array(capacity),

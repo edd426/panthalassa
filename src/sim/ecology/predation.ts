@@ -18,17 +18,19 @@
  */
 
 import type { KillSink, SpatialIndex } from '../../contracts/apis';
-import { predationKillProbability } from '../../contracts/formulas';
+import { aposematismLogit, predationKillProbability, toxinYieldMultiplier } from '../../contracts/formulas';
 import { HUE_PERIOD_DEG } from '../../contracts/traits';
 import type { RandomSource, SimState, SlotIndex } from '../../contracts/types';
 import { NO_SLOT } from '../../contracts/types';
 import { sizeCurrentColumn } from '../organisms';
 import {
   T_ATTACK,
+  T_CONSPICUOUSNESS,
   T_DEFENSE,
   T_DISPLAY_HUE,
   T_FORAGE_BOLDNESS,
   T_SPEED_CAP,
+  T_TOXICITY,
   trait,
 } from './columns';
 import { ensureOrganismCache } from './derived';
@@ -87,6 +89,54 @@ export function hueMorphFrequencyOfSlot(
 }
 
 /**
+ * Local mean expressed toxicity of one hue bin — the population statistic the
+ * aposematic credit is read off (G3).
+ *
+ * Sibling of {@link hueMorphFrequencyAt} on purpose, and it inherits that term's
+ * honesty: no predator remembers anything, and no organism is told who is toxic.
+ * The avoidance a loud victim earns is a function of what the *neighbourhood's*
+ * bin has been like to eat, which is the same abstraction the search image
+ * already makes.
+ *
+ * Zero when the mechanism is off or the bin is empty, so the aposematic term of
+ * {@link aposematismLogit} vanishes rather than defaulting to a neutral value —
+ * an unoccupied bin has taught the population nothing.
+ */
+export function hueBinToxicityAt(
+  runtime: EcologyRuntime,
+  state: SimState,
+  x: number,
+  y: number,
+  hueDeg: number,
+): number {
+  if (!state.config.toggles.enableAposematism) return 0;
+
+  ensureHueGrid(runtime, state);
+  const index = hueCellAt(runtime, x, y) * runtime.hueBins + hueBinOf(hueDeg, runtime.hueBins);
+  const count = runtime.hueCounts[index] ?? 0;
+  if (count <= 0) return 0;
+  return (runtime.hueToxicitySums[index] ?? 0) / count;
+}
+
+/**
+ * {@link hueBinToxicityAt} for an organism the grid has already binned; the same
+ * exactness argument as {@link hueMorphFrequencyOfSlot}.
+ */
+export function hueBinToxicityOfSlot(
+  runtime: EcologyRuntime,
+  state: SimState,
+  slot: SlotIndex,
+): number {
+  if (!state.config.toggles.enableAposematism) return 0;
+
+  ensureHueGrid(runtime, state);
+  const index = (runtime.hueSlotCell[slot] ?? 0) * runtime.hueBins + (runtime.hueSlotBin[slot] ?? 0);
+  const count = runtime.hueCounts[index] ?? 0;
+  if (count <= 0) return 0;
+  return (runtime.hueToxicitySums[index] ?? 0) / count;
+}
+
+/**
  * Bin the live population's display hues onto the coarse morph grid.
  *
  * Rebuilt whenever the tick has moved rather than on a cadence of its own: the
@@ -98,9 +148,14 @@ export function hueMorphFrequencyOfSlot(
 function ensureHueGrid(runtime: EcologyRuntime, state: SimState): void {
   if (runtime.hueGridTick === state.tick) return;
 
-  const { hueCounts, hueTotals, hueBins, hueSlotCell, hueSlotBin } = runtime;
+  const { hueCounts, hueTotals, hueBins, hueSlotCell, hueSlotBin, hueToxicitySums } = runtime;
   hueCounts.fill(0);
   hueTotals.fill(0);
+  // One pass fills both statistics (CLAUDE.md: no second sweep). The toxicity
+  // accumulator is gated rather than written unconditionally, so the off arm
+  // does not pay for a number nothing there can read.
+  const aposematism = state.config.toggles.enableAposematism;
+  if (aposematism) hueToxicitySums.fill(0);
 
   const pop = state.pop;
   for (let slot = 0; slot < pop.capacity; slot += 1) {
@@ -111,6 +166,10 @@ function ensureHueGrid(runtime: EcologyRuntime, state: SimState): void {
     hueTotals[cell] = (hueTotals[cell] ?? 0) + 1;
     hueSlotCell[slot] = cell;
     hueSlotBin[slot] = bin;
+    if (aposematism) {
+      hueToxicitySums[cell * hueBins + bin] =
+        (hueToxicitySums[cell * hueBins + bin] ?? 0) + trait(pop.traits, slot, T_TOXICITY);
+    }
   }
   runtime.hueGridTick = state.tick;
 }
@@ -180,6 +239,7 @@ export function tryPredation(
   // eating your own recruitment stays possible and stays expensive.
   const conspecificOdds = config.toggles.enableOntogeny ? Math.exp(config.growth.conspecificLogit) : 1;
   const predatorTag = pop.speciesTag[slot] ?? 0;
+  const aposematism = config.toggles.enableAposematism;
 
   for (let index = 0; index < found; index += 1) {
     const victim = neighbors[index] ?? NO_SLOT;
@@ -216,9 +276,34 @@ export function tryPredation(
       probability = scaled / (1 - probability + scaled);
     }
 
+    // The signal terms ride on the same odds multiplier for the same reason:
+    // `formulas.ts` stays the one place the probability is defined. Detection
+    // (loud is easier to find) and aposematic credit (loud is a warning only
+    // where the local bin has actually been toxic) are both inside
+    // `aposematismLogit`, so nothing here may add a conspicuousness term of its
+    // own.
+    if (aposematism) {
+      const signalOdds = Math.exp(
+        aposematismLogit(
+          trait(traits, victim, T_CONSPICUOUSNESS),
+          hueBinToxicityOfSlot(runtime, state, victim),
+          config,
+        ),
+      );
+      if (signalOdds !== 1) {
+        const scaled = probability * signalOdds;
+        probability = scaled / (1 - probability + scaled);
+      }
+    }
+
     if (!rng.chance(probability)) continue;
 
-    const yielded = config.predation.energyPerPreySize * Math.max(0, victimSize) * preyYield;
+    let yielded = config.predation.energyPerPreySize * Math.max(0, victimSize) * preyYield;
+    // Toxin is a post-kill penalty: the victim is already dead, and what it
+    // bought is a smaller meal (here) plus a hazard on the predator (rolled by
+    // the engine at the kill site, since this stage is handed a `KillSink` and
+    // not a `DeathSink`).
+    if (aposematism) yielded *= toxinYieldMultiplier(trait(traits, victim, T_TOXICITY), config);
     kills.push(slot, victim, yielded);
     // Counted as intake for this tick's growth surplus even though the engine
     // credits the energy when it drains the sink (after the metabolism stage):

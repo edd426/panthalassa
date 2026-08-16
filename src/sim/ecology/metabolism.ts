@@ -13,12 +13,17 @@
  * what makes a tuning campaign unable to attribute an effect.
  */
 
-import { senescenceHazard, somaticGrowthPerTick, temperatureHazard } from '../../contracts/formulas';
+import {
+  senescenceHazard,
+  somaticGrowthPerTick,
+  temperatureHazard,
+  toxinMetabolicCostPerTick,
+} from '../../contracts/formulas';
 import type { DeathSink } from '../../contracts/apis';
 import type { RandomSource, SimState, SlotIndex } from '../../contracts/types';
 import { NO_SLOT } from '../../contracts/types';
-import { sizeCurrentColumn } from '../organisms';
-import { T_GROWTH_ALLOCATION, T_OPT, T_SIZE, T_WIDTH, trait } from './columns';
+import { sizeCurrentAt, sizeCurrentColumn } from '../organisms';
+import { T_GROWTH_ALLOCATION, T_OPT, T_SIZE, T_TOXICITY, T_WIDTH, trait } from './columns';
 import { ensureOrganismCache, metabolicCostFor } from './derived';
 import { localTemperatureC } from './fields';
 import type { EcologyRuntime } from './runtime';
@@ -52,6 +57,14 @@ export function metabolismAndHazards(
   let burn = metabolicCostFor(runtime, state, slot, speedWuPerTick);
   const excess = Math.max(0, Math.abs(temperature - tOpt) - Math.max(0, tWidth));
   burn += config.metabolism.thermalStressCostCoef * excess * excess;
+
+  // Sequestration scales with the tissue that holds it, so the bill is charged
+  // against realised length rather than the genetic target — the same rewiring
+  // G2 made everywhere else body size is priced. Outside the speed memo because
+  // it is not a function of the speed key.
+  if (config.toggles.enableAposematism) {
+    burn += toxinMetabolicCostPerTick(trait(traits, slot, T_TOXICITY), sizeCurrentAt(pop, slot), config);
+  }
 
   const energy = (pop.energy[slot] ?? 0) - burn;
   pop.energy[slot] = energy > 0 ? energy : 0;

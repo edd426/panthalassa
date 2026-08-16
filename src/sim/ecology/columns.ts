@@ -29,6 +29,9 @@ export const T_DISPLAY_HUE = TRAIT_INDEX.displayHue;
 export const T_ARMOR_PLATING = TRAIT_INDEX.armorPlating;
 /** G-wave: the target adult length is the `size` trait; realised length is the `sizeCurrent` pool column. */
 export const T_GROWTH_ALLOCATION = TRAIT_INDEX.growthAllocation;
+/** G3: read only under `toggles.enableAposematism`. */
+export const T_TOXICITY = TRAIT_INDEX.toxicity;
+export const T_CONSPICUOUSNESS = TRAIT_INDEX.conspicuousness;
 
 /** Read one trait by its pre-resolved offset. */
 export function trait(packed: Float32Array, slot: number, offset: number): number {

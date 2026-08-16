@@ -20,10 +20,14 @@
  * With `toggles.enableAssortativeMating` off the display term becomes 1 and
  * males are accepted at random up to condition, killing the assortative route
  * without changing anything else.
+ *
+ * With `toggles.enableAposematism` on the weight gains
+ * `+ conspicuousnessMatingCoef · conspicuousness` (G3), the mating side of the
+ * signal tradeoff whose other side is the detection term in the kill logit.
  */
 
 import type { MatingApi, SpatialIndex } from '../contracts/apis';
-import { hueDelta } from '../contracts/traits';
+import { TRAIT_INDEX, hueDelta } from '../contracts/traits';
 import type { RandomSource, SimConfig, SimState, SlotIndex } from '../contracts/types';
 import { NO_SLOT, SEX_MALE } from '../contracts/types';
 import { T, energyCapacityOf, isMature, traitAt } from './organisms';
@@ -97,8 +101,21 @@ export function createMating(): MatingApi {
     const capacity = energyCapacityOf(pop, maleSlot, config);
     const condition = Math.max(0, Math.min(1, (pop.energy[maleSlot] ?? 0) / capacity));
     const conditionTerm = 1 - mating.conditionWeight + mating.conditionWeight * condition;
+    const weight = display * conditionTerm;
 
-    return display * conditionTerm;
+    // G3, the other half of the conspicuousness tug: a loud male is chosen more
+    // often and eaten more often, and the sex-biased mortality that falls out of
+    // the conflict needs no sex-limited expression machinery. Additive on the
+    // weight, so it is a bonus in suitor-lottery tickets rather than a
+    // multiplier on his hue match — a loud male the female's preference misses
+    // still gets a hearing. `findMate` floors the weight at zero, which is where
+    // a strongly cryptic male ends up; that is an outcome of the lottery, not a
+    // clamp on the trait.
+    if (!config.toggles.enableAposematism) return weight;
+    return (
+      weight +
+      config.aposematism.conspicuousnessMatingCoef * traitAt(pop, maleSlot, TRAIT_INDEX.conspicuousness)
+    );
   };
 
   const findMate = (

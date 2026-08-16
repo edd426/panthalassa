@@ -28,7 +28,7 @@
  * 3. movement integration, with barrier slide
  * 4. spatial index rebuild
  * 5. feeding
- * 6. predation attempts → kill queue
+ * 6. predation attempts → kill queue, plus the toxin hazard → death queue
  * 7. metabolism and hazards → death queue; **queues applied here**
  * 8. reproduction → birth queue; **queue applied here**
  * 9. recording (species detector, event forwarding, time-series sample)
@@ -58,15 +58,18 @@ import type {
   MutantIntroducedEvent,
   MutationRecord,
   SimEvent,
+  ToxinInventionEvent,
 } from '../contracts/events';
-import { clutchInvestment, thermalPerformance } from '../contracts/formulas';
+import { clutchInvestment, thermalPerformance, toxinConsumptionHazard } from '../contracts/formulas';
 import type { CladeArchetype, DiscreteLocusId, Genome, QuantLocusId } from '../contracts/genome';
 import {
   ANCESTRAL_ARCHETYPE,
   DISCRETE_LOCI,
+  DISCRETE_LOCUS_BY_ID,
   QUANT_LOCI,
   W_BY_LOCUS,
   discreteAlleleIndex,
+  discreteGenotype,
   quantAlleleIndex,
 } from '../contracts/genome';
 import type {
@@ -215,6 +218,39 @@ interface PendingBirth {
   readonly speciesTag: number;
   readonly x: number;
   readonly y: number;
+  /** G3: this offspring's `toxinMacro` allele is new to its family. Always false off the toggle. */
+  readonly toxinInvention: boolean;
+}
+
+/** `toxinMacro` allele 0; the state chemical defence has to be invented out of. */
+const ANCESTRAL_TOXIN_ALLELE = 0;
+
+/**
+ * True when the offspring carries a non-ancestral `toxinMacro` allele that
+ * neither parent carries — chemical defence *arriving*, rather than being
+ * inherited from a lineage that already had it.
+ *
+ * Genome reads are legal here and nowhere else in the tick: the birth site is
+ * the one place genomes are already in hand (CLAUDE.md's rule is that the tick
+ * loop never reads a genome, and this is not the tick loop reading one — it is
+ * meiosis's own inputs and output being compared). No RNG, no allocation.
+ *
+ * The polygenic route to toxicity deliberately raises nothing: an event is a
+ * discrete arrival, and "expressed toxicity crossed a threshold" is a recorder's
+ * question, not an engine's.
+ */
+export function inventsToxinMacro(child: Genome, mother: Genome, father: Genome): boolean {
+  const locus = DISCRETE_LOCUS_BY_ID.toxinMacro.index;
+  const [c0, c1] = discreteGenotype(child, locus);
+  const [m0, m1] = discreteGenotype(mother, locus);
+  const [f0, f1] = discreteGenotype(father, locus);
+  const novel = (allele: number): boolean =>
+    allele !== ANCESTRAL_TOXIN_ALLELE &&
+    allele !== m0 &&
+    allele !== m1 &&
+    allele !== f0 &&
+    allele !== f1;
+  return novel(c0) || novel(c1);
 }
 
 const CAUSE_CODE: Readonly<Record<DeathCause, number>> = Object.freeze({
@@ -1007,15 +1043,41 @@ class PanthalassaSim implements SimHandleInternal {
     }
   }
 
+  /**
+   * Predation attempts, plus (G3) the toxin hazard a landed kill costs the
+   * predator.
+   *
+   * The hazard is rolled here rather than inside `tryPredation` because the
+   * ecology stage is handed a `KillSink` and no `DeathSink`, and `apis.ts` is
+   * frozen. Rolling immediately after the call for a slot puts the draw at the
+   * same point in the predation stream as rolling at the kill site would:
+   * `tryPredation` returns the moment a kill lands, so no other draw of that
+   * predator's can come between. The death is queued like every other and
+   * applied at the stage boundary — the predator's own kill still stands, which
+   * is the whole point of the trade.
+   */
   private stagePredation(): void {
     const state = this.state;
     const pools = this.store;
     const rng = this.rng.fork(`predation:${state.tick}`);
     this.kills.reset();
+    // Reset here rather than in `stageMetabolism`, which used to own it: this
+    // stage now pushes into the queue and the metabolism stage runs after it.
+    this.deaths.reset();
 
     for (let slot = 0; slot < pools.capacity; slot += 1) {
       if ((pools.alive[slot] ?? 0) === 0) continue;
+      const before = this.kills.count;
       this.ecology.tryPredation(state, slot, this.spatial, rng, this.kills);
+      if (!state.config.toggles.enableAposematism) continue;
+      if (this.kills.count === before) continue;
+
+      const victim = this.kills.victims[this.kills.count - 1] ?? NO_SLOT;
+      if (victim < 0 || victim >= pools.capacity) continue;
+      // One draw per landed kill on this arm, whatever the victim's toxicity, so
+      // the stream position of the roll does not depend on a trait value.
+      const hazard = toxinConsumptionHazard(traitAt(pools, victim, TRAIT_INDEX.toxicity), state.config);
+      if (rng.chance(hazard)) this.deaths.push(slot, 'toxin', victim);
     }
   }
 
@@ -1023,7 +1085,6 @@ class PanthalassaSim implements SimHandleInternal {
     const state = this.state;
     const pools = this.store;
     const rng = this.rng.fork(`hazards:${state.tick}`);
-    this.deaths.reset();
 
     for (let slot = 0; slot < pools.capacity; slot += 1) {
       if ((pools.alive[slot] ?? 0) === 0) continue;
@@ -1115,9 +1176,11 @@ class PanthalassaSim implements SimHandleInternal {
       const age = pools.ageTicks[slot] ?? 0;
       const speciesTag = pools.speciesTag[slot] ?? 0;
       this.depositCarrion(dx, dy, pools.sizeCurrent[slot] ?? 0);
-      // `killerId` is genuinely absent for the three non-predation channels;
+      // `killerId` is genuinely absent for the abiotic channels;
       // `exactOptionalPropertyTypes` means absent and `undefined` are not the
-      // same thing, so the two shapes are built separately.
+      // same thing, so the two shapes are built separately. A `'toxin'` death
+      // names the victim that poisoned the predator, which is the same relation
+      // the field always held: who killed this animal.
       const event: DeathEvent =
         killerSlot >= 0 && killerSlot < pools.capacity
           ? {
@@ -1174,6 +1237,7 @@ class PanthalassaSim implements SimHandleInternal {
     const config = state.config;
     const rng = this.rng.fork(`repro:${state.tick}`);
     const ontogeny = config.toggles.enableOntogeny;
+    const aposematism = config.toggles.enableAposematism;
     const costPerOffspring = config.metabolism.reproductionEnergyCost;
     this.births.length = 0;
 
@@ -1244,6 +1308,7 @@ class PanthalassaSim implements SimHandleInternal {
           speciesTag,
           x: blocked ? mx : bx,
           y: blocked ? my : by,
+          toxinInvention: aposematism && inventsToxinMacro(meiosis.genome, motherGenome, fatherGenome),
         });
       }
     }
@@ -1299,6 +1364,20 @@ class PanthalassaSim implements SimHandleInternal {
         mutations: pending.mutations,
       };
       state.events.push(event);
+      // After the birth, so the feed never announces an invention by an organism
+      // it has not been told about yet.
+      if (pending.toxinInvention) {
+        const invention: ToxinInventionEvent = {
+          kind: 'toxinInvention',
+          tick: state.tick,
+          id,
+          x: pending.x,
+          y: pending.y,
+          toxicity: traitAt(this.store, slot, TRAIT_INDEX.toxicity),
+          viaMacroLocus: true,
+        };
+        state.events.push(invention);
+      }
       this.diagnostics.birthsApplied += 1;
     }
 
