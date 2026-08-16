@@ -1370,3 +1370,45 @@ the number is discounted per the convention and P12 must be re-measured quiet
 after the spec run drains before anyone treats it as a G1 regression. A real
 component is plausible (136-allele meiosis, 23-trait loops) and worth the
 quiet measurement.
+
+### G0 spec-length adjudication (2026-08-16 afternoon)
+
+`runs/full-g0.log` (report `runs/full-4f54b9db-2fb94d0af2-report.json`,
+~7.2 h): **suite FAIL — one gate red, P3 baseline-s3 0.954 against ≥ 0.990**,
+and the adjudication is that the failure is the *headcount-band artifact the
+wave design already scheduled a fix for*, not a G0 defect. The evidence, in
+provenance order:
+
+- **The red is numerical, not energetic.** s3's late window (gens 200–300)
+  oscillates 535–4096 with 0.7% of samples at the slot cap and 10,843 births
+  dropped — ≤3.4% of all matings, ≤9.1% of late-window matings (upper bounds;
+  clutches are multi-birth). The cause is a small-body trajectory: late size
+  mean 14.9 vs 21.5 in the maxIntake-0.5 baseline run, so the same energy
+  carries ~24% more heads. In biomass terms (census × mean size) s3 sits
+  ~32k, *below* the baseline s3's ~38k. The band was always trying to bound
+  biomass; the headcount statement of it is what broke.
+- **No distributional signature.** Late size means moved in both directions
+  across seeds (s1 16.1→19.6, s2 14.2→15.6, s3 21.5→14.9); late diet means
+  likewise (s1/s2 to grazer-heavy −1.65, s3 predatory 1.08). That is a
+  trajectory redraw — exactly what G0's stream re-layout promised — not a
+  shifted distribution. A systematic G0 bug would push one way.
+- **Everything else is the same regime in kind.** All three seeds alive at
+  300 generations, single-species boom-bust, P4 variance *improved* to PASS
+  on s1/s2 (baseline had two WARNs), P13 heritability all-PASS, P14/P15/P16
+  the known open fronts at the same grades. P12 8.69e5 WARN — measured on the
+  machine that was also running the dev server; still owed a quiet
+  measurement.
+- **The verdict follows the design's own text** (g-wave-design §4 G-A): "The
+  fix is not a bigger cap. P3 should be restated in biomass rather than head
+  count… a mandatory sub-package of this wave." The user approved that §9
+  decision explicitly. The restatement lands in G4; the next spec-length
+  adjudication (post-ontogeny) runs against the restated gate.
+
+**Decision: G0/G1 are verified — the genome machinery is sound and the world
+it produces is the same world — and Wave 1 biology (G2) launches now.** The
+P3-s3 red is recorded as a known exception attributed to the headcount
+statement of the band, with the fix already scheduled inside the same wave.
+The one watch item this creates: cap-clipping did *some* real regulation on
+s3 (up to ~9% of late births), so G4's restated P3 must keep an explicit
+cap-contact criterion rather than silently blessing cap-and-starve — the
+band exists to force density dependence through resources.
