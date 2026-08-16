@@ -14,10 +14,12 @@
  * that geometry was correct.
  */
 
-import { Container, Texture, type Particle, type ParticleContainer } from 'pixi.js';
+import { Container, Texture, type Graphics, type Particle, type ParticleContainer, type Sprite } from 'pixi.js';
 import { describe, expect, it, vi } from 'vitest';
 import type { CreatureFrame, FrameContext, LodState, LodTier, MountContext } from '../contracts';
 import { LOD_TIERS, POSE, POSE_STRIDE, VISUAL, VISUAL_STRIDE } from '../contracts';
+import { CLADE_ARCHETYPES } from '../../contracts/genome';
+import { ASPECT_BUCKETS } from './divergence';
 import { ABYSS_MAX_PX, createCreatureLayer } from './creatureLayer';
 
 const COUNT = 24;
@@ -38,9 +40,15 @@ function makeCreatures(): CreatureFrame {
     visuals[v + VISUAL.sizeCm] = 4 + i;
     visuals[v + VISUAL.segments] = 8;
     visuals[v + VISUAL.finPairs] = 2;
-    visuals[v + VISUAL.bodyAspect] = 2;
+    // Spread across the aspect bands and both diet signs, so the fixture
+    // actually reaches more than one flipbook variant and more than one far
+    // silhouette — a population of identical morphologies would let the whole
+    // variant path pass while routing every animal to bucket 0.
+    visuals[v + VISUAL.bodyAspect] = 1.4 + (i % 4) * 1.9;
     visuals[v + VISUAL.armor] = 0.6;
     visuals[v + VISUAL.speciesTag] = i % 5;
+    visuals[v + VISUAL.diet] = ((i % 5) - 2) * 0.8;
+    visuals[v + VISUAL.defense] = 0.3 + (i % 3) * 1.2;
   }
   return {
     count: COUNT,
@@ -357,17 +365,20 @@ describe('particle publication', () => {
     layer.destroy();
   });
 
-  it('routes far-tier particles into the container for their own archetype', () => {
+  it('routes far-tier particles into the container for their own archetype and aspect band', () => {
     const mount = makeMount();
     const layer = createCreatureLayer();
     mountQuietly(layer, mount);
     layer.update(makeFrame(makeCreatures(), { tier: 'far', previousTier: null, blend: 1 }));
     const containers = particleContainers(roots(mount).far);
-    expect(containers.length).toBe(3);
+    // Three archetypes x three aspect bands, one batched draw call each.
+    expect(containers.length).toBe(CLADE_ARCHETYPES.length * ASPECT_BUCKETS);
     const total = containers.reduce((sum, c) => sum + c.particleChildren.length, 0);
     expect(total).toBe(COUNT);
-    // The fixture cycles the three archetypes, so each gets a share.
-    for (const c of containers) expect(c.particleChildren.length).toBeGreaterThan(0);
+    // Every animal must land somewhere, and the fixture spans enough of the
+    // morphology space that the population is genuinely spread over the bands.
+    const used = containers.filter((c) => c.particleChildren.length > 0);
+    expect(used.length).toBeGreaterThan(CLADE_ARCHETYPES.length);
     layer.destroy();
   });
 
@@ -404,6 +415,54 @@ describe('particle publication', () => {
       expect(particle.alpha).toBeGreaterThan(0);
       expect(particle.texture).toBeDefined();
     }
+    layer.destroy();
+  });
+});
+
+describe('morphological divergence', () => {
+  /**
+   * The regression this whole package exists to prevent: the channels are
+   * plumbed, the buckets are computed, and every animal still comes out as the
+   * same drawing. Both assertions read the scene graph rather than the maths, so
+   * a wiring mistake between `divergence.ts` and the draw path is caught even
+   * though every unit test on either side passes.
+   */
+  it('squashes every mid sprite by no more than its aspect band allows', () => {
+    // Texture identity cannot be read here — the glow bake always falls back
+    // headless, so every sprite ends up on the same white stand-in. The squash
+    // can be, and it is the quantity that says *which* bake an animal was routed
+    // to: against the one-bake-per-archetype code this fixture reaches 2.64,
+    // because amplification pushes a stubby undulator to aspect 1.21 while the
+    // only available texture was baked at the typical 3.2.
+    const mount = makeMount();
+    const layer = createCreatureLayer();
+    mountQuietly(layer, mount);
+    layer.update(makeFrame(makeCreatures(), { tier: 'mid', previousTier: null, blend: 1 }));
+    const sprites = (roots(mount).mid.children as Sprite[]).filter((s) => s.visible);
+    expect(sprites.length).toBe(COUNT);
+    let worst = 1;
+    for (const sprite of sprites) {
+      const squash = sprite.scale.y / sprite.scale.x;
+      worst = Math.max(worst, squash, 1 / squash);
+    }
+    expect(worst).toBeLessThan(1.45);
+    // And it is not constant either: a layer that ignored bodyAspect entirely
+    // would also pass the bound above.
+    expect(new Set(sprites.map((s) => (s.scale.y / s.scale.x).toFixed(6))).size).toBeGreaterThan(1);
+    layer.destroy();
+  });
+
+  it('gives near-tier bodies different point counts for different animals', () => {
+    const mount = makeMount();
+    const layer = createCreatureLayer();
+    mountQuietly(layer, mount);
+    layer.update(makeFrame(makeCreatures(), { tier: 'near', previousTier: null, blend: 1 }));
+    const bodies = (roots(mount).near.children[2] as Container).children.filter((c) => c.visible);
+    expect(bodies.length).toBe(COUNT);
+    const shapes = new Set(bodies.map((b) => (b as Graphics).context.instructions.length));
+    // Three archetypes at minimum; the head form and the pattern families add
+    // strokes on top of that, so a collapse to one shape would be a wiring bug.
+    expect(shapes.size).toBeGreaterThanOrEqual(3);
     layer.destroy();
   });
 });

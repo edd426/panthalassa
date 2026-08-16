@@ -21,6 +21,14 @@ import type { CladeArchetype } from '../../contracts/genome';
 import { CLADE_ARCHETYPES, CLADE_SCHEMA } from '../../contracts/genome';
 import type { BodyGeometry, BodyParams, Polyline } from './bodies';
 import { buildBody, createBodyGeometry } from './bodies';
+import {
+  ASPECT_BUCKETS,
+  FLIPBOOK_VARIANTS,
+  aspectForBucket,
+  decodeFlipbookVariant,
+  headFormForBucket,
+  patternFamilyForBucket,
+} from './divergence';
 
 // ---------------------------------------------------------------------------
 // The baked local-frame window
@@ -50,6 +58,25 @@ export const GLOW_RESOLUTION = 128;
 
 /** Phases in the mid-tier flipbook. Four is enough to read as motion at that size. */
 export const FLIPBOOK_PHASES = 4;
+
+/**
+ * Textures baked at mount, and the number to watch.
+ *
+ * `3 archetypes × 12 variants × 4 phases = 144` flipbook frames, plus one far
+ * silhouette per archetype and aspect band (9) and the shared glow: **154**. At
+ * {@link FLIPBOOK_RESOLUTION} a frame is ≈158 × 163 px, so the flipbook set is
+ * ≈15 MB of VRAM — bounded, paid once at mount, and asserted in
+ * `shapeTextures.test.ts` so a variant added without thinking cannot quietly
+ * multiply it.
+ *
+ * The bake is one `generateTexture` per frame and it is the mount's only GPU
+ * work; if startup ever needs to come back down, the cheap knob is
+ * {@link FLIPBOOK_RESOLUTION} rather than the variant count, because the variants
+ * are the whole point and the resolution is a mid-tier sprite 10–40 px long.
+ */
+export const FLIPBOOK_TEXTURE_COUNT = CLADE_ARCHETYPES.length * FLIPBOOK_VARIANTS * FLIPBOOK_PHASES;
+export const SILHOUETTE_TEXTURE_COUNT = CLADE_ARCHETYPES.length * ASPECT_BUCKETS;
+export const BAKED_TEXTURE_COUNT = FLIPBOOK_TEXTURE_COUNT + SILHOUETTE_TEXTURE_COUNT + 1;
 
 // ---------------------------------------------------------------------------
 // Colour helpers
@@ -164,14 +191,55 @@ function drawRim(g: Graphics, geometry: BodyGeometry, style: BodyStyle): void {
   g.stroke({ color: style.rimTint, alpha: style.alpha * 0.55, width: RIM_STROKE });
 }
 
+/**
+ * Species marks, over the fill and under the rim. One stroke call for all three:
+ * a round cap is what makes the same two-point run serve as a spot, a stripe or
+ * a band of countershading, and `patternWidth === 0` is the `none` family.
+ */
+function drawPatterns(g: Graphics, geometry: BodyGeometry, style: BodyStyle): void {
+  if (geometry.patternWidth <= 0) return;
+  if (!traceRange(g, geometry.patterns, 0, geometry.patternCount)) return;
+  g.stroke({
+    color: mixRgb(style.tint, 0x000000, 0.55),
+    alpha: style.alpha * 0.5,
+    width: geometry.patternWidth,
+    cap: 'round',
+  });
+}
+
+/** The jaw line. Weight rides the head form so a hunter's gape is the darker mark. */
+function drawMouth(g: Graphics, geometry: BodyGeometry, style: BodyStyle): void {
+  if (!geometry.hasMouth) return;
+  if (!trace(g, geometry.mouth)) return;
+  g.stroke({
+    color: mixRgb(style.tint, 0x000000, 0.6),
+    alpha: style.alpha * 0.85,
+    width: MOUTH_STROKE,
+    cap: 'round',
+  });
+}
+
+/** Base outline weight, thickened by spination so a serrated back also reads as a hard edge. */
+function outlineStroke(geometry: BodyGeometry): number {
+  return OUTLINE_STROKE * (1 + 0.9 * geometry.spination);
+}
+
+const MOUTH_STROKE = 0.014;
+
 function drawUndulator(g: Graphics, geometry: BodyGeometry, style: BodyStyle): void {
   if (traceRange(g, geometry.fins, 0, geometry.finCount)) {
     g.fill({ color: style.tint, alpha: style.alpha * 0.55 });
   }
   if (trace(g, geometry.outline)) {
     g.fill({ color: style.tint, alpha: style.alpha });
-    g.stroke({ color: mixRgb(style.tint, 0xffffff, 0.45), alpha: style.alpha * 0.8, width: OUTLINE_STROKE });
+    g.stroke({
+      color: mixRgb(style.tint, 0xffffff, 0.45),
+      alpha: style.alpha * 0.8,
+      width: outlineStroke(geometry),
+    });
   }
+  drawPatterns(g, geometry, style);
+  drawMouth(g, geometry, style);
   drawRim(g, geometry, style);
   drawEye(g, geometry, style.alpha);
 }
@@ -183,8 +251,15 @@ function drawDrifter(g: Graphics, geometry: BodyGeometry, style: BodyStyle): voi
   }
   if (trace(g, geometry.outline)) {
     g.fill({ color: style.tint, alpha: style.alpha * 0.45 });
-    g.stroke({ color: mixRgb(style.tint, 0xffffff, 0.55), alpha: style.alpha, width: 0.018 });
+    // A drifter has no dorsal line to serrate, so its defense read is the rim:
+    // a well-defended bell has a visibly thicker, harder margin.
+    g.stroke({
+      color: mixRgb(style.tint, 0xffffff, 0.55),
+      alpha: style.alpha,
+      width: 0.018 + 0.022 * geometry.spination,
+    });
   }
+  drawPatterns(g, geometry, style);
   drawRim(g, geometry, style);
   drawEye(g, geometry, style.alpha * 0.85);
 }
@@ -207,6 +282,8 @@ function drawCrawler(g: Graphics, geometry: BodyGeometry, style: BodyStyle): voi
   if (midline !== undefined && trace(g, midline)) {
     g.stroke({ color: mixRgb(plateFill, 0xffffff, 0.5), alpha: style.alpha * 0.6, width: 0.01 });
   }
+  drawPatterns(g, geometry, style);
+  drawMouth(g, geometry, style);
   drawRim(g, geometry, style);
   drawEye(g, geometry, style.alpha);
 }
@@ -216,10 +293,23 @@ function drawCrawler(g: Graphics, geometry: BodyGeometry, style: BodyStyle): voi
 // ---------------------------------------------------------------------------
 
 export interface ShapeTextures {
-  /** Four undulation phases per archetype; the mid tier flips through them. */
-  readonly flipbooks: Readonly<Record<CladeArchetype, readonly Texture[]>>;
-  /** One soft silhouette per archetype for the far tier. */
-  readonly silhouettes: Readonly<Record<CladeArchetype, Texture>>;
+  /**
+   * `flipbooks[archetype][variant][phase]` — {@link FLIPBOOK_VARIANTS} morphology
+   * variants per archetype, four undulation phases each. The mid tier picks a
+   * variant from the animal's amplified channels and flips through its phases.
+   */
+  readonly flipbooks: Readonly<Record<CladeArchetype, readonly (readonly Texture[])[]>>;
+  /**
+   * `silhouettes[archetype][aspectBucket]` — the far tier's blobs.
+   *
+   * Bucketed for the same reason the flipbooks are, and it is not cosmetic: a
+   * far particle is stretched across its body by `baked / drawn` aspect, and
+   * once amplification lets `bodyAspect` reach the ends of the renderRange a
+   * single bake per archetype means stretching a slim fish's silhouette by 2.4×
+   * to stand in for a stubby one. That also drove the far tier's fill *above*
+   * the mid tier's, which inverts the LOD cost ordering.
+   */
+  readonly silhouettes: Readonly<Record<CladeArchetype, readonly Texture[]>>;
   /** Radial falloff: the near-tier glow underlay and the abyss dot. */
   readonly glow: Texture;
   destroy(): void;
@@ -234,9 +324,37 @@ function bakeParams(archetype: CladeArchetype, phase: number, pulsePhase: number
     finPairs: Math.max(1, schema.finPairs.typical),
     bodyAspect: schema.bodyAspect.typical,
     armorPlating: archetype === 'armoredCrawler' ? 1.15 : 0.35,
+    headForm: 0,
+    spination: 0,
+    patternFamily: 'none',
+    patternPhase: 0.5,
     phase,
     pulsePhase,
     amplitudeScale: 1,
+  };
+}
+
+/**
+ * One flipbook variant's morphology.
+ *
+ * The aspect comes from the bucket centre rather than the archetype typical,
+ * which is what lets the mid tier's cross-body squash stay near 1 — see
+ * `divergence.ASPECT_BUCKETS`. Spination is left at zero for every variant: a
+ * serrated back is sub-pixel at mid range, and spending a bucket on it would
+ * cost more textures than it buys reads.
+ */
+function variantBakeParams(
+  archetype: CladeArchetype,
+  variant: number,
+  phase: number,
+  pulsePhase: number,
+): BodyParams {
+  const { aspectBucket, headBucket, patternBucket } = decodeFlipbookVariant(variant);
+  return {
+    ...bakeParams(archetype, phase, pulsePhase),
+    bodyAspect: aspectForBucket(archetype, aspectBucket),
+    headForm: headFormForBucket(headBucket),
+    patternFamily: patternFamilyForBucket(patternBucket),
   };
 }
 
@@ -260,10 +378,12 @@ function pinFrame(g: Graphics): void {
  */
 export function fallbackShapeTextures(): ShapeTextures {
   const flat = Texture.WHITE;
-  const phases = Object.freeze([flat, flat, flat, flat]);
+  const phases = Object.freeze(new Array<Texture>(FLIPBOOK_PHASES).fill(flat));
+  const variants = Object.freeze(new Array<readonly Texture[]>(FLIPBOOK_VARIANTS).fill(phases));
+  const buckets = Object.freeze(new Array<Texture>(ASPECT_BUCKETS).fill(flat));
   return {
-    flipbooks: Object.freeze({ undulator: phases, radialDrifter: phases, armoredCrawler: phases }),
-    silhouettes: Object.freeze({ undulator: flat, radialDrifter: flat, armoredCrawler: flat }),
+    flipbooks: Object.freeze({ undulator: variants, radialDrifter: variants, armoredCrawler: variants }),
+    silhouettes: Object.freeze({ undulator: buckets, radialDrifter: buckets, armoredCrawler: buckets }),
     glow: flat,
     destroy(): void {
       // Texture.WHITE is a shared Pixi singleton; destroying it would take the
@@ -286,29 +406,40 @@ export function bakeShapeTextures(ctx: MountContext): ShapeTextures {
     return texture;
   };
 
-  const flipbooks = {} as Record<CladeArchetype, Texture[]>;
-  const silhouettes = {} as Record<CladeArchetype, Texture>;
+  const flipbooks = {} as Record<CladeArchetype, Texture[][]>;
+  const silhouettes = {} as Record<CladeArchetype, Texture[]>;
 
   for (const archetype of CLADE_ARCHETYPES) {
-    const phases: Texture[] = [];
-    for (let step = 0; step < FLIPBOOK_PHASES; step += 1) {
-      const fraction = step / FLIPBOOK_PHASES;
-      buildBody(bakeParams(archetype, fraction * 2 * Math.PI, fraction), geometry);
-      // White so the per-creature tint carries the whole colour.
-      phases.push(bake(FLIPBOOK_RESOLUTION, (g) => drawBody(g, geometry, { tint: 0xffffff, alpha: 1, rimTint: -1 })));
+    const variants: Texture[][] = [];
+    for (let variant = 0; variant < FLIPBOOK_VARIANTS; variant += 1) {
+      const phases: Texture[] = [];
+      for (let step = 0; step < FLIPBOOK_PHASES; step += 1) {
+        const fraction = step / FLIPBOOK_PHASES;
+        buildBody(variantBakeParams(archetype, variant, fraction * 2 * Math.PI, fraction), geometry);
+        // White so the per-creature tint carries the whole colour.
+        phases.push(bake(FLIPBOOK_RESOLUTION, (g) => drawBody(g, geometry, { tint: 0xffffff, alpha: 1, rimTint: -1 })));
+      }
+      variants.push(phases);
     }
-    flipbooks[archetype] = phases;
+    flipbooks[archetype] = variants;
 
     // The far silhouette is a frozen, flat blob: at that size the undulation is
-    // sub-pixel and only the outline survives.
-    buildBody(bakeParams(archetype, 0, 0.15), geometry);
-    silhouettes[archetype] = bake(SILHOUETTE_RESOLUTION, (g) => {
-      if (trace(g, geometry.outline)) g.fill({ color: 0xffffff, alpha: 0.92 });
-      for (let i = 0; i < geometry.finCount; i += 1) {
-        const fin = geometry.fins[i];
-        if (fin !== undefined && trace(g, fin)) g.fill({ color: 0xffffff, alpha: 0.7 });
-      }
-    });
+    // sub-pixel and only the outline survives. One per aspect bucket, so the
+    // outline that survives is the right shape.
+    const blobs: Texture[] = [];
+    for (let bucket = 0; bucket < ASPECT_BUCKETS; bucket += 1) {
+      buildBody({ ...bakeParams(archetype, 0, 0.15), bodyAspect: aspectForBucket(archetype, bucket) }, geometry);
+      blobs.push(
+        bake(SILHOUETTE_RESOLUTION, (g) => {
+          if (trace(g, geometry.outline)) g.fill({ color: 0xffffff, alpha: 0.92 });
+          for (let i = 0; i < geometry.finCount; i += 1) {
+            const fin = geometry.fins[i];
+            if (fin !== undefined && trace(g, fin)) g.fill({ color: 0xffffff, alpha: 0.7 });
+          }
+        }),
+      );
+    }
+    silhouettes[archetype] = blobs;
   }
 
   const glowSource = new Graphics();

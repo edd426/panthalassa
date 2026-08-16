@@ -10,8 +10,8 @@
  * | tier  | mechanism |
  * |-------|-----------|
  * | near  | pooled `Graphics`, rebuilt every frame, over an additive glow sprite |
- * | mid   | pooled `Sprite`s flipping a 4-phase baked flipbook per archetype |
- * | far   | one `ParticleContainer` per archetype over a baked silhouette |
+ * | mid   | pooled `Sprite`s flipping a 4-phase baked flipbook, one per morphology variant |
+ * | far   | one `ParticleContainer` per archetype and aspect band, over a baked silhouette |
  * | abyss | one `ParticleContainer` over the radial glow |
  *
  * Two rules run through all of it. **Animation phase is wall-clock**, never sim
@@ -44,7 +44,7 @@ import {
   readCreatureVisual,
 } from '../contracts';
 import type { CladeArchetype } from '../../contracts/genome';
-import { CLADE_ARCHETYPES, CLADE_SCHEMA } from '../../contracts/genome';
+import { CLADE_ARCHETYPES } from '../../contracts/genome';
 import type { BodyGeometry, BodyParams } from './bodies';
 import {
   ARCHETYPE_FREQUENCY_SCALE,
@@ -53,6 +53,22 @@ import {
   createBodyGeometry,
   nearVertexCount,
 } from './bodies';
+import type { PatternFamily } from './divergence';
+import {
+  ASPECT_BUCKETS,
+  amplifiedBodyAspect,
+  amplifiedFinPairs,
+  amplifiedSegments,
+  aspectBucketFor,
+  aspectForBucket,
+  flipbookVariantIndex,
+  headBucketFor,
+  headFormFromDiet,
+  patternBucketFor,
+  patternFamilyFor,
+  patternPhaseFor,
+  spinationFrom,
+} from './divergence';
 import { GraphicsPool, ParticlePool, SpritePool } from './pool';
 import type { BodyStyle, ShapeTextures } from './shapeTextures';
 import {
@@ -70,9 +86,9 @@ import { bellPulsePhase, swimFrequencyHz, wavePhase } from './spine';
  * Near-tier drawing budget for one frame, in emitted points.
  *
  * **This is the knob to turn if the governor is demoting.** It is a cost budget
- * rather than a body count because body cost spans 18× across the morphology
- * space (see `nearVertexCount`): a minimal undulator emits 6 points, a maximal
- * crawler 369. A flat body cap sized for crawlers starves a fish-heavy world,
+ * rather than a body count because body cost spans 25× across the morphology
+ * space (see `nearVertexCount`): a minimal undulator emits 15 points, a maximal
+ * crawler 378. A flat body cap sized for crawlers starves a fish-heavy world,
  * and one sized for fish blows the frame the moment crawlers take over — and
  * which of those a world becomes is decided by evolution, not by the camera. A
  * budget keeps the frame cost roughly flat and lets the *number* of full bodies
@@ -185,7 +201,13 @@ class CreatureLayer implements RenderLayer {
   /** Graceful degradation for anything the near budget could not afford. */
   private nearOverflow: SpritePool | null = null;
   private midSprites: SpritePool | null = null;
-  private readonly farPools = {} as Record<CladeArchetype, ParticlePool>;
+  /**
+   * One pool per (archetype, aspect bucket): Pixi batches a `ParticleContainer`
+   * off a single texture source, so a bucketed silhouette set needs a container
+   * each. Nine batched draw calls for the whole population is still the cheapest
+   * thing this layer does.
+   */
+  private readonly farPools = {} as Record<CladeArchetype, ParticlePool[]>;
   private abyssPool: ParticlePool | null = null;
 
   private selectionRoot: Container | null = null;
@@ -216,11 +238,30 @@ class CreatureLayer implements RenderLayer {
     finPairs: 2,
     bodyAspect: 3.2,
     armorPlating: 0.35,
+    headForm: 0,
+    spination: 0,
+    patternFamily: 'none',
+    patternPhase: 0.5,
     phase: 0,
     pulsePhase: 0,
     amplitudeScale: 1,
   };
   private readonly style: Mutable<BodyStyle> = { tint: 0xffffff, alpha: 1, rimTint: -1 };
+
+  /**
+   * The divergence channels for the row `load()` last decoded.
+   *
+   * Scratch fields rather than a struct on {@link CreatureVisual}, which is the
+   * orchestrator-owned seam: everything here is a presentation caricature of the
+   * seam's raw values, and nothing outside this package should be able to read a
+   * drawn morphology and mistake it for an expressed trait.
+   */
+  private speciesTag = 0;
+  private amplifiedAspect = 1;
+  private aspectBucket = 0;
+  private headForm = 0;
+  private spination = 0;
+  private patternFamily: PatternFamily = 'none';
 
   /** Heading per slot, resolved once per frame so a cross-fade cannot double-integrate. */
   private readonly headingCache = new Float32Array(MAX_SLOTS);
@@ -271,9 +312,16 @@ class CreatureLayer implements RenderLayer {
     this.midSprites = new SpritePool(this.tierRoots.mid);
 
     for (const archetype of CLADE_ARCHETYPES) {
-      const pool = new ParticlePool(this.textures.silhouettes[archetype], BAKED_ANCHOR_X, BAKED_ANCHOR_Y);
-      this.farPools[archetype] = pool;
-      this.tierRoots.far.addChild(pool.container);
+      const pools: ParticlePool[] = [];
+      const blobs = this.textures.silhouettes[archetype];
+      for (let bucket = 0; bucket < ASPECT_BUCKETS; bucket += 1) {
+        const texture = blobs[bucket] ?? blobs[0];
+        if (texture === undefined) continue;
+        const pool = new ParticlePool(texture, BAKED_ANCHOR_X, BAKED_ANCHOR_Y);
+        pools.push(pool);
+        this.tierRoots.far.addChild(pool.container);
+      }
+      this.farPools[archetype] = pools;
     }
 
     this.abyssPool = new ParticlePool(this.textures.glow, 0.5, 0.5, false);
@@ -369,7 +417,9 @@ class CreatureLayer implements RenderLayer {
     this.midSprites?.destroy();
     this.selectionGlow?.destroy();
     this.selectionBody?.destroy();
-    for (const archetype of CLADE_ARCHETYPES) this.farPools[archetype]?.destroy();
+    for (const archetype of CLADE_ARCHETYPES) {
+      for (const pool of this.farPools[archetype] ?? []) pool.destroy();
+    }
     this.abyssPool?.destroy();
     this.textures?.destroy();
     for (const tier of LOD_TIERS) this.tierRoots[tier]?.destroy();
@@ -425,8 +475,21 @@ class CreatureLayer implements RenderLayer {
     return best;
   }
 
+  /**
+   * Decode a row and caricature it.
+   *
+   * `bodyAspect` is amplified here rather than in the two callers that need it
+   * because every tier sizes its mark from it — a far-tier particle is squashed
+   * across its length by exactly the same ratio a near-tier body is drawn at, so
+   * an animal does not change proportions as it crosses a tier boundary.
+   * `CreatureVisual` carries no `speciesTag`, so that one is read through the
+   * seam's own `VISUAL` offsets rather than through a parallel decoder.
+   */
   private load(creatures: CreatureFrame, row: number): void {
     readCreatureVisual(creatures, row, this.visual);
+    this.speciesTag = creatures.visuals[row * VISUAL_STRIDE + VISUAL.speciesTag] ?? 0;
+    this.amplifiedAspect = amplifiedBodyAspect(this.visual.archetype, this.visual.bodyAspect);
+    this.aspectBucket = aspectBucketFor(this.visual.archetype, this.amplifiedAspect);
     this.style.tint = this.visual.tint;
     this.style.alpha = clamp01(this.visual.alpha * this.visual.fade);
     // Only the tiers that actually stroke a rim pay for resolving one.
@@ -434,14 +497,20 @@ class CreatureLayer implements RenderLayer {
   }
 
   /**
-   * The species rim accent, for the tiers fine enough to show it.
-   * `CreatureVisual` carries no `speciesTag`, so this reads the stride through
-   * the seam's own `VISUAL` offsets rather than through a parallel decoder.
+   * The channels only the two tiers that draw a shape need: head form, spination
+   * and the species pattern. Kept out of {@link load} so the far and abyss tiers,
+   * which draw a dot, do not pay four transcendentals per animal per frame.
    */
-  private loadRim(creatures: CreatureFrame, row: number, colourIsIdentity: boolean): void {
-    this.style.rimTint = colourIsIdentity
-      ? speciesAccentColour(creatures.visuals[row * VISUAL_STRIDE + VISUAL.speciesTag] ?? 0)
-      : -1;
+  private loadForm(): void {
+    const visual = this.visual;
+    this.headForm = headFormFromDiet(visual.diet);
+    this.spination = spinationFrom(visual.defense, visual.armorPlating);
+    this.patternFamily = patternFamilyFor(this.speciesTag, visual.jitter);
+  }
+
+  /** The species rim accent, for the tiers fine enough to show it. */
+  private loadRim(colourIsIdentity: boolean): void {
+    this.style.rimTint = colourIsIdentity ? speciesAccentColour(this.speciesTag) : -1;
   }
 
   private bodyLengthWu(): number {
@@ -452,13 +521,18 @@ class CreatureLayer implements RenderLayer {
     return swimFrequencyHz(this.visual.speed) * ARCHETYPE_FREQUENCY_SCALE[this.visual.archetype];
   }
 
+  /** Requires a preceding {@link load} and {@link loadForm}. */
   private buildCurrentBody(): void {
     const visual = this.visual;
     this.bodyParams.archetype = visual.archetype;
-    this.bodyParams.segmentCount = visual.segmentCount;
-    this.bodyParams.finPairs = visual.finPairs;
-    this.bodyParams.bodyAspect = visual.bodyAspect;
+    this.bodyParams.segmentCount = amplifiedSegments(visual.archetype, visual.segmentCount);
+    this.bodyParams.finPairs = amplifiedFinPairs(visual.archetype, visual.finPairs);
+    this.bodyParams.bodyAspect = this.amplifiedAspect;
     this.bodyParams.armorPlating = visual.armorPlating;
+    this.bodyParams.headForm = this.headForm;
+    this.bodyParams.spination = this.spination;
+    this.bodyParams.patternFamily = this.patternFamily;
+    this.bodyParams.patternPhase = patternPhaseFor(visual.jitter);
     this.bodyParams.phase = wavePhase(this.animationMs, this.beatHz(), visual.jitter);
     this.bodyParams.pulsePhase = bellPulsePhase(this.animationMs, visual.jitter);
     this.bodyParams.amplitudeScale = 1;
@@ -466,15 +540,18 @@ class CreatureLayer implements RenderLayer {
   }
 
   /**
-   * How much to squash a baked sprite across its length. The flipbooks are baked
-   * at each archetype's typical `bodyAspect`, so an eel and a stubby fish share
-   * a texture; scaling the cross-body axis puts the difference back without a
-   * texture per morphology.
+   * How much to squash a baked sprite across its length, given the `bodyAspect`
+   * the texture was baked at: a baked animal and a live one share a texture, and
+   * scaling the cross-body axis puts their difference back without a texture per
+   * morphology.
+   *
+   * The mid tier passes its variant's bucket centre and the far tier passes the
+   * archetype typical, because that is what each of them actually baked. Getting
+   * that wrong is invisible in a still and obvious in motion — the animal would
+   * change proportions at the tier boundary.
    */
-  private aspectSquash(): number {
-    const archetype = this.visual.archetype;
-    const typical = CLADE_SCHEMA[archetype].bodyAspect.typical;
-    return typical / clampBodyAspect(archetype, this.visual.bodyAspect);
+  private aspectSquash(bakedAspect: number): number {
+    return bakedAspect / clampBodyAspect(this.visual.archetype, this.amplifiedAspect);
   }
 
   // -------------------------------------------------------------------------
@@ -514,7 +591,9 @@ class CreatureLayer implements RenderLayer {
         this.midSprites?.reset();
         return;
       case 'far':
-        for (const archetype of CLADE_ARCHETYPES) this.farPools[archetype]?.reset();
+        for (const archetype of CLADE_ARCHETYPES) {
+          for (const pool of this.farPools[archetype] ?? []) pool.reset();
+        }
         return;
       case 'abyss':
         this.abyssPool?.reset();
@@ -565,12 +644,16 @@ class CreatureLayer implements RenderLayer {
     let i = creatures.visibleCount - 1;
     for (; i >= 0 && taken < NEAR_BODY_CAP; i -= 1) {
       const v = (creatures.visible[i] ?? 0) * VISUAL_STRIDE;
+      // Amplified, not raw: the caricature is what gets drawn, and it pushes
+      // segment and fin counts toward the ends of the renderRange, so budgeting
+      // on the raw values would under-bill exactly the animals it exists for.
+      const archetype = archetypeFromIndex(creatures.visuals[v + VISUAL.archetype] ?? 0);
       const cost =
         BODY_FIXED_COST +
         nearVertexCount(
-          archetypeFromIndex(creatures.visuals[v + VISUAL.archetype] ?? 0),
-          creatures.visuals[v + VISUAL.segments] ?? 0,
-          creatures.visuals[v + VISUAL.finPairs] ?? 0,
+          archetype,
+          amplifiedSegments(archetype, creatures.visuals[v + VISUAL.segments] ?? 0),
+          amplifiedFinPairs(archetype, creatures.visuals[v + VISUAL.finPairs] ?? 0),
         );
       // Always draw at least one body, even if a single animal is dearer than
       // the whole budget — an empty near tier is never the right answer.
@@ -590,7 +673,8 @@ class CreatureLayer implements RenderLayer {
     bodyPool: GraphicsPool,
   ): void {
     this.load(creatures, row);
-    this.loadRim(creatures, row, identity);
+    this.loadForm();
+    this.loadRim(identity);
     const p = row * POSE_STRIDE;
     const x = creatures.poses[p + POSE.x] ?? 0;
     const y = creatures.poses[p + POSE.y] ?? 0;
@@ -631,7 +715,16 @@ class CreatureLayer implements RenderLayer {
     pool: SpritePool,
   ): void {
     this.load(creatures, row);
-    const phases = textures.flipbooks[this.visual.archetype];
+    this.loadForm();
+    // Aspect band, head form and "does the outline break up" — the three reads
+    // that survive a 10–40 px sprite. Everything finer is left to the near tier.
+    const variant = flipbookVariantIndex(
+      this.aspectBucket,
+      headBucketFor(this.headForm),
+      patternBucketFor(this.patternFamily),
+    );
+    const phases = textures.flipbooks[this.visual.archetype][variant];
+    if (phases === undefined) return;
     // Flip through the bake at the animal's own beat, offset by its jitter, so
     // a school reads as many animals rather than one animal drawn many times.
     const step = Math.floor(
@@ -645,18 +738,23 @@ class CreatureLayer implements RenderLayer {
     sprite.anchor.set(BAKED_ANCHOR_X, BAKED_ANCHOR_Y);
     sprite.position.set(creatures.poses[p + POSE.x] ?? 0, creatures.poses[p + POSE.y] ?? 0);
     sprite.rotation = this.headingCache[row] ?? this.visual.heading;
-    sprite.scale.set(lengthWu, lengthWu * this.aspectSquash());
+    sprite.scale.set(
+      lengthWu,
+      lengthWu * this.aspectSquash(aspectForBucket(this.visual.archetype, this.aspectBucket)),
+    );
     sprite.tint = this.visual.tint;
     sprite.alpha = this.style.alpha;
   }
 
   private renderFar(creatures: CreatureFrame): void {
-    for (const archetype of CLADE_ARCHETYPES) this.farPools[archetype]?.begin();
+    for (const archetype of CLADE_ARCHETYPES) {
+      for (const pool of this.farPools[archetype] ?? []) pool.begin();
+    }
     const floorWu = FAR_MIN_PX / this.pxPerWu;
     for (let i = 0; i < creatures.visibleCount; i += 1) {
       const row = creatures.visible[i] ?? 0;
       this.load(creatures, row);
-      const pool = this.farPools[this.visual.archetype];
+      const pool = this.farPools[this.visual.archetype]?.[this.aspectBucket];
       if (pool === undefined) continue;
       const particle = pool.next();
       const p = row * POSE_STRIDE;
@@ -665,11 +763,13 @@ class CreatureLayer implements RenderLayer {
       particle.y = creatures.poses[p + POSE.y] ?? 0;
       particle.rotation = this.headingCache[row] ?? this.visual.heading;
       particle.scaleX = lengthWu;
-      particle.scaleY = lengthWu * this.aspectSquash();
+      particle.scaleY = lengthWu * this.aspectSquash(aspectForBucket(this.visual.archetype, this.aspectBucket));
       particle.tint = this.visual.tint;
       particle.alpha = this.style.alpha * 0.9;
     }
-    for (const archetype of CLADE_ARCHETYPES) this.farPools[archetype]?.end();
+    for (const archetype of CLADE_ARCHETYPES) {
+      for (const pool of this.farPools[archetype] ?? []) pool.end();
+    }
   }
 
   private renderAbyss(creatures: CreatureFrame): void {

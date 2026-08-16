@@ -17,7 +17,9 @@ import {
   outlinePointCount,
   platePolygonCount,
   strokePolylineCount,
+  PATTERN_MARKS,
 } from './bodies';
+import { PATTERN_FAMILIES } from './divergence';
 
 function params(archetype: CladeArchetype, overrides: Partial<BodyParams> = {}): BodyParams {
   const schema = CLADE_SCHEMA[archetype];
@@ -27,6 +29,10 @@ function params(archetype: CladeArchetype, overrides: Partial<BodyParams> = {}):
     finPairs: schema.finPairs.typical,
     bodyAspect: schema.bodyAspect.typical,
     armorPlating: 0.35,
+    headForm: 0,
+    spination: 0,
+    patternFamily: 'none',
+    patternPhase: 0.5,
     phase: 0,
     pulsePhase: 0,
     amplitudeScale: 1,
@@ -186,10 +192,11 @@ describe('the near-tier cost model', () => {
       for (let segments = segLow; segments <= segHigh; segments += 1) {
         for (let finPairs = finLow; finPairs <= finHigh; finPairs += 1) {
           buildBody(params(archetype, { segmentCount: segments, finPairs }), geometry);
-          let emitted = geometry.outline.count;
+          let emitted = geometry.outline.count + geometry.mouth.count;
           for (let i = 0; i < geometry.finCount; i += 1) emitted += geometry.fins[i]?.count ?? 0;
           for (let i = 0; i < geometry.plateCount; i += 1) emitted += geometry.plates[i]?.count ?? 0;
           for (let i = 0; i < geometry.strokeCount; i += 1) emitted += geometry.strokes[i]?.count ?? 0;
+          for (let i = 0; i < geometry.patternCount; i += 1) emitted += geometry.patterns[i]?.count ?? 0;
           expect(
             nearVertexCount(archetype, segments, finPairs),
             `${archetype} segments=${segments} finPairs=${finPairs}`,
@@ -213,12 +220,15 @@ describe('the near-tier cost model', () => {
     // magnitude, and which one a world is full of is decided by evolution.
     const cheapest = nearVertexCount('undulator', 4, 0);
     const dearest = nearVertexCount('armoredCrawler', 28, 10);
-    expect(cheapest).toBe(6);
-    expect(dearest).toBe(369);
+    expect(cheapest).toBe(15);
+    expect(dearest).toBe(378);
     expect(dearest / cheapest).toBeGreaterThan(15);
     // A crawler is the expensive archetype at its own typical morphology too.
+    // The multiple is 4.7 rather than the ~6 of the pre-divergence shapes: the
+    // jaw line and the species marks are a flat 9 points on every body, so they
+    // weigh proportionally more on the cheap archetype.
     expect(nearVertexCount('armoredCrawler', 12, 4)).toBeGreaterThan(
-      5 * nearVertexCount('undulator', 8, 2),
+      4 * nearVertexCount('undulator', 8, 2),
     );
   });
 });
@@ -348,7 +358,14 @@ describe('local frame', () => {
 });
 
 describe('outline integrity', () => {
-  it('closes without self-crossing across every archetype and morphology corner', () => {
+  /**
+   * The sweep now runs the two divergence axes as well, and it has to: the head
+   * form and the spination both displace outline stations, and the serration is
+   * the only one of the two that pushes *outward* on a curving chain, which is
+   * the condition an offset curve folds under. Sweeping morphology alone would
+   * have passed the whole time.
+   */
+  it('closes without self-crossing across every archetype, morphology and divergence corner', () => {
     const geometry = createBodyGeometry();
     for (const archetype of CLADE_ARCHETYPES) {
       const schema = CLADE_SCHEMA[archetype];
@@ -357,17 +374,28 @@ describe('outline integrity', () => {
       for (const segments of [segLow, Math.round((segLow + segHigh) / 2), segHigh]) {
         for (let aspectStep = 0; aspectStep <= 4; aspectStep += 1) {
           const bodyAspect = aspectLow + ((aspectHigh - aspectLow) * aspectStep) / 4;
-          for (let phaseStep = 0; phaseStep < 8; phaseStep += 1) {
-            const phase = (phaseStep / 8) * 2 * Math.PI;
-            buildBody(
-              params(archetype, { segmentCount: segments, bodyAspect, phase, pulsePhase: phaseStep / 8 }),
-              geometry,
-            );
-            const hit = selfCrossing(geometry.outline);
-            expect(
-              hit,
-              `${archetype} segments=${segments} aspect=${bodyAspect.toFixed(2)} phase=${phase.toFixed(2)}`,
-            ).toBeNull();
+          for (const headForm of [-1, 0, 1]) {
+            for (const spination of [0, 0.5, 1]) {
+              for (let phaseStep = 0; phaseStep < 8; phaseStep += 1) {
+                const phase = (phaseStep / 8) * 2 * Math.PI;
+                buildBody(
+                  params(archetype, {
+                    segmentCount: segments,
+                    bodyAspect,
+                    headForm,
+                    spination,
+                    phase,
+                    pulsePhase: phaseStep / 8,
+                  }),
+                  geometry,
+                );
+                const hit = selfCrossing(geometry.outline);
+                expect(
+                  hit,
+                  `${archetype} segments=${segments} aspect=${bodyAspect.toFixed(2)} head=${headForm} spines=${spination} phase=${phase.toFixed(2)}`,
+                ).toBeNull();
+              }
+            }
           }
         }
       }
@@ -460,6 +488,247 @@ describe('archetype reads', () => {
 
 /** Tentacle polylines carry five points; the last is the free tip. */
 const TENTACLE_TIP = 5;
+
+/** Half-width of the outline at a fraction `s` back from the nose. */
+function halfWidthAt(geometry: BodyGeometry, s: number): number {
+  const chain = geometry.chain;
+  const n = chain.count;
+  const i = Math.max(1, Math.min(n - 2, Math.round(s * (n - 1))));
+  const dorsalX = geometry.outline.points[i * 2] ?? 0;
+  const dorsalY = geometry.outline.points[i * 2 + 1] ?? 0;
+  const cx = chain.xs[i] ?? 0;
+  const cy = chain.ys[i] ?? 0;
+  return Math.hypot(dorsalX - cx, dorsalY - cy);
+}
+
+function outlineDelta(a: Polyline, b: Polyline): number {
+  if (a.count !== b.count) return Infinity;
+  let worst = 0;
+  for (let i = 0; i < a.count; i += 1) {
+    worst = Math.max(
+      worst,
+      Math.hypot((a.points[i * 2] ?? 0) - (b.points[i * 2] ?? 0), (a.points[i * 2 + 1] ?? 0) - (b.points[i * 2 + 1] ?? 0)),
+    );
+  }
+  return worst;
+}
+
+function insidePolygon(line: Polyline, x: number, y: number): boolean {
+  let inside = false;
+  for (let i = 0, j = line.count - 1; i < line.count; j = i, i += 1) {
+    const xi = line.points[i * 2] ?? 0;
+    const yi = line.points[i * 2 + 1] ?? 0;
+    const xj = line.points[j * 2] ?? 0;
+    const yj = line.points[j * 2 + 1] ?? 0;
+    if (yi > y !== yj > y && x < ((xj - xi) * (y - yi)) / (yj - yi) + xi) inside = !inside;
+  }
+  return inside;
+}
+
+const TRUNK_ARCHETYPES: readonly CladeArchetype[] = ['undulator', 'armoredCrawler'];
+
+describe('diet → head form', () => {
+  it('draws a blunt snout at negative diet and a wedge at positive, monotonically', () => {
+    const geometry = createBodyGeometry();
+    for (const archetype of TRUNK_ARCHETYPES) {
+      let previous = Infinity;
+      for (let step = 0; step <= 12; step += 1) {
+        const headForm = -1 + step / 6;
+        buildBody(params(archetype, { segmentCount: 14, headForm, amplitudeScale: 0 }), geometry);
+        const width = halfWidthAt(geometry, 0.08);
+        expect(width, `${archetype} headForm=${headForm.toFixed(2)}`).toBeLessThan(previous);
+        previous = width;
+      }
+    }
+  });
+
+  it('separates the two extremes by enough to actually read as a different animal', () => {
+    // Measured over the snout, not the whole head window: the shaping is
+    // strongest at the nose (2.9x there) and rolls off to nothing by
+    // HEAD_WINDOW, which is what makes it read as a head rather than as a
+    // thinner animal. Averaging over the full window would dilute it to 1.17
+    // and pass a threshold that no longer means anything.
+    const geometry = createBodyGeometry();
+    const snout = (headForm: number): number => {
+      buildBody(params('undulator', { segmentCount: 20, headForm, amplitudeScale: 0 }), geometry);
+      return halfWidthAt(geometry, 0.05) + halfWidthAt(geometry, 0.1) + halfWidthAt(geometry, 0.15);
+    };
+    expect(snout(-1) / snout(1)).toBeGreaterThan(1.5);
+    // And the blunt end really is blunt: a nose at most of the shoulder width.
+    buildBody(params('undulator', { segmentCount: 20, headForm: -1, amplitudeScale: 0 }), geometry);
+    expect(halfWidthAt(geometry, 0.05)).toBeGreaterThan(geometry.maxHalfWidth * 0.85);
+    buildBody(params('undulator', { segmentCount: 20, headForm: 1, amplitudeScale: 0 }), geometry);
+    expect(halfWidthAt(geometry, 0.05)).toBeLessThan(geometry.maxHalfWidth * 0.4);
+  });
+
+  it('is continuous through diet 0, where the exponent is exactly 1', () => {
+    // The channel a lineage crosses when it stops grazing and starts hunting.
+    // A pop here would read as the animal being replaced rather than changing.
+    const previous = createBodyGeometry();
+    const current = createBodyGeometry();
+    for (const archetype of TRUNK_ARCHETYPES) {
+      let worst = 0;
+      for (let step = -20; step <= 20; step += 1) {
+        buildBody(params(archetype, { segmentCount: 14, headForm: (step - 1) / 200 }), previous);
+        buildBody(params(archetype, { segmentCount: 14, headForm: step / 200 }), current);
+        worst = Math.max(worst, outlineDelta(previous.outline, current.outline));
+      }
+      // A 0.005 step in head form moves no outline point by more than a
+      // thousandth of a body length anywhere across the neutral zone.
+      expect(worst, archetype).toBeLessThan(0.001);
+    }
+    buildBody(params('undulator', { headForm: 0, amplitudeScale: 0 }), current);
+    buildBody(params('undulator', { headForm: 0, amplitudeScale: 0 }), previous);
+    expect(outlineDelta(previous.outline, current.outline)).toBe(0);
+  });
+
+  it('gives the trunk archetypes a jaw line that lengthens with the head form, and the drifter none', () => {
+    const geometry = createBodyGeometry();
+    for (const archetype of TRUNK_ARCHETYPES) {
+      let previous = 0;
+      for (const headForm of [-1, -0.5, 0, 0.5, 1]) {
+        buildBody(params(archetype, { headForm, amplitudeScale: 0 }), geometry);
+        expect(geometry.hasMouth).toBe(true);
+        expect(geometry.mouth.count).toBe(3);
+        // The jaw starts at the nose, so its reach is the distance to its tip.
+        const reach = Math.hypot(geometry.mouth.points[4] ?? 0, geometry.mouth.points[5] ?? 0);
+        expect(reach, `${archetype} headForm=${headForm}`).toBeGreaterThan(previous);
+        previous = reach;
+      }
+    }
+    buildBody(params('radialDrifter', { headForm: 1 }), geometry);
+    expect(geometry.hasMouth).toBe(false);
+  });
+
+  it('grows and advances the eye for a hunter, and keeps it inside the head', () => {
+    const geometry = createBodyGeometry();
+    buildBody(params('undulator', { segmentCount: 14, headForm: -1, amplitudeScale: 0 }), geometry);
+    const grazerR = geometry.eyeR;
+    const grazerX = geometry.eyeX;
+    buildBody(params('undulator', { segmentCount: 14, headForm: 1, amplitudeScale: 0 }), geometry);
+    expect(geometry.eyeR).toBeGreaterThan(grazerR * 1.4);
+    expect(geometry.eyeX).toBeGreaterThan(grazerX);
+    // Bigger on a narrower head is only a read if it still fits on the head.
+    for (const headForm of [-1, -0.5, 0, 0.5, 1]) {
+      buildBody(params('undulator', { segmentCount: 14, headForm, amplitudeScale: 0 }), geometry);
+      expect(Math.abs(geometry.eyeY) + geometry.eyeR, `headForm=${headForm}`).toBeLessThanOrEqual(
+        geometry.maxHalfWidth,
+      );
+    }
+  });
+});
+
+describe('defense → spination', () => {
+  it('serrates the dorsal line and leaves the ventral one alone', () => {
+    const smooth = createBodyGeometry();
+    const spiny = createBodyGeometry();
+    for (const archetype of TRUNK_ARCHETYPES) {
+      const p = params(archetype, { segmentCount: 14, amplitudeScale: 0 });
+      buildBody({ ...p, spination: 0 }, smooth);
+      buildBody({ ...p, spination: 1 }, spiny);
+      expect(spiny.outline.count).toBe(smooth.outline.count);
+      const n = spiny.chain.count;
+      // Dorsal stations 1..n−1 come first in the outline; odd ones are spikes.
+      let spikes = 0;
+      for (let i = 1; i < n - 1; i += 1) {
+        const moved = Math.hypot(
+          (spiny.outline.points[i * 2] ?? 0) - (smooth.outline.points[i * 2] ?? 0),
+          (spiny.outline.points[i * 2 + 1] ?? 0) - (smooth.outline.points[i * 2 + 1] ?? 0),
+        );
+        if (i % 2 === 1) {
+          expect(moved, `${archetype} dorsal station ${i}`).toBeGreaterThan(0);
+          spikes += 1;
+        } else {
+          expect(moved, `${archetype} dorsal station ${i}`).toBeCloseTo(0, 12);
+        }
+      }
+      expect(spikes).toBeGreaterThanOrEqual(3);
+      // The ventral return pass is the tail of the outline and must be untouched.
+      for (let k = n; k < spiny.outline.count; k += 1) {
+        expect(spiny.outline.points[k * 2]).toBeCloseTo(smooth.outline.points[k * 2] ?? 0, 12);
+        expect(spiny.outline.points[k * 2 + 1]).toBeCloseTo(smooth.outline.points[k * 2 + 1] ?? 0, 12);
+      }
+    }
+  });
+
+  it('costs no extra points, whatever the spination', () => {
+    const geometry = createBodyGeometry();
+    for (const archetype of CLADE_ARCHETYPES) {
+      const baseline = nearVertexCount(archetype, 12, 2);
+      for (const spination of [0, 0.3, 1, 5, -2]) {
+        buildBody(params(archetype, { segmentCount: 12, finPairs: 2, spination }), geometry);
+        expect(geometry.spination).toBeGreaterThanOrEqual(0);
+        expect(geometry.spination).toBeLessThanOrEqual(1);
+        expect(nearVertexCount(archetype, 12, 2)).toBe(baseline);
+      }
+    }
+  });
+});
+
+describe('species patterning', () => {
+  it('emits the same marks whatever the family, and only draws the ones that are marks', () => {
+    const geometry = createBodyGeometry();
+    for (const archetype of CLADE_ARCHETYPES) {
+      for (const patternFamily of PATTERN_FAMILIES) {
+        buildBody(params(archetype, { patternFamily, segmentCount: 12 }), geometry);
+        expect(geometry.patternCount, `${archetype}/${patternFamily}`).toBe(PATTERN_MARKS);
+        for (let i = 0; i < geometry.patternCount; i += 1) expect(geometry.patterns[i]?.count).toBe(2);
+        if (patternFamily === 'none') expect(geometry.patternWidth).toBe(0);
+        else expect(geometry.patternWidth).toBeGreaterThan(0);
+      }
+    }
+  });
+
+  it('keeps every mark inside the silhouette it is painted on', () => {
+    // A mark whose centreline left the body would stroke out over open water.
+    const geometry = createBodyGeometry();
+    for (const archetype of CLADE_ARCHETYPES) {
+      const [aspectLow, aspectHigh] = CLADE_SCHEMA[archetype].bodyAspect.renderRange;
+      for (const patternFamily of PATTERN_FAMILIES) {
+        for (const bodyAspect of [aspectLow, aspectHigh]) {
+          for (const headForm of [-1, 0, 1]) {
+            for (const patternPhase of [0, 0.5, 1]) {
+              for (let phaseStep = 0; phaseStep < 4; phaseStep += 1) {
+                buildBody(
+                  params(archetype, {
+                    segmentCount: 12,
+                    bodyAspect,
+                    headForm,
+                    patternFamily,
+                    patternPhase,
+                    phase: (phaseStep / 4) * 2 * Math.PI,
+                    pulsePhase: phaseStep / 4,
+                  }),
+                  geometry,
+                );
+                for (let m = 0; m < geometry.patternCount; m += 1) {
+                  const mark = geometry.patterns[m];
+                  if (mark === undefined) continue;
+                  for (let k = 0; k < mark.count; k += 1) {
+                    const x = mark.points[k * 2] ?? 0;
+                    const y = mark.points[k * 2 + 1] ?? 0;
+                    expect(
+                      insidePolygon(geometry.outline, x, y),
+                      `${archetype}/${patternFamily} aspect=${bodyAspect} head=${headForm} mark=${m} point=${k}`,
+                    ).toBe(true);
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  });
+
+  it('moves the marks with the per-slot phase, so schoolmates are not stencils', () => {
+    const a = createBodyGeometry();
+    const b = createBodyGeometry();
+    buildBody(params('undulator', { segmentCount: 20, patternFamily: 'stripes', patternPhase: 0 }), a);
+    buildBody(params('undulator', { segmentCount: 20, patternFamily: 'stripes', patternPhase: 1 }), b);
+    expect(samePoints(a.patterns[0] as Polyline, b.patterns[0] as Polyline)).toBe(false);
+  });
+});
 
 describe('geometry reuse', () => {
   it('leaves no stale points behind when a slot is rebuilt as another archetype', () => {

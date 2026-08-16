@@ -20,6 +20,7 @@
 import { ARMOR_RENDER_RANGE } from '../contracts';
 import type { CladeArchetype } from '../../contracts/genome';
 import { CLADE_SCHEMA } from '../../contracts/genome';
+import type { PatternFamily } from './divergence';
 import type { SpineChain, SpineParams } from './spine';
 import { bellPulse, buildSpine, createSpineChain } from './spine';
 
@@ -41,6 +42,20 @@ const TENTACLE_POINTS = 5;
 const MAX_STROKES = 24;
 /** The crawler midline runs the whole chain: `segmentCount + 1` points. */
 const STROKE_CAPACITY = 32;
+/** Nose, jaw corner, gape corner. The diet read at the near tier. */
+export const MOUTH_POINTS = 3;
+/**
+ * Species pattern marks, always this many whatever the family.
+ *
+ * Fixed because {@link nearVertexCount} is the layer's budgeting currency and
+ * only sees `(archetype, segmentCount, finPairs)` — a mark count that varied
+ * with the species tag would make the budget wrong for exactly the animals it
+ * was protecting. The `none` family emits its marks and reports
+ * `patternWidth === 0`, so the points are billed and nothing is drawn.
+ */
+export const PATTERN_MARKS = 3;
+/** Every mark is one straight two-point run, stroked with a round cap. */
+const PATTERN_POINTS = 2;
 
 /** A run of points; `closed` shapes are filled, open ones are stroked. */
 export interface Polyline {
@@ -74,6 +89,16 @@ export interface BodyGeometry {
   /** Open polylines: drifter rim arms and tentacles, crawler limbs and midline. */
   readonly strokes: Polyline[];
   strokeCount: number;
+  /** The jaw line, on the trunk archetypes only; `hasMouth` says whether it was built. */
+  readonly mouth: Polyline;
+  hasMouth: boolean;
+  /** Species marks: always {@link PATTERN_MARKS} two-point runs, drawn only when `patternWidth > 0`. */
+  readonly patterns: Polyline[];
+  patternCount: number;
+  /** Stroke weight for the pattern marks, local units. Zero for the `none` family. */
+  patternWidth: number;
+  /** 0..1 dorsal spination, already folded into the outline; the tiers use it for stroke weight. */
+  spination: number;
   /** Bright accent: the undulator/crawler eye, the drifter's bell nucleus. */
   eyeX: number;
   eyeY: number;
@@ -97,6 +122,8 @@ export function createBodyGeometry(): BodyGeometry {
   for (let i = 0; i < MAX_PLATES; i += 1) plates.push(createPolyline(PLATE_POINTS, true));
   const strokes: Polyline[] = [];
   for (let i = 0; i < MAX_STROKES; i += 1) strokes.push(createPolyline(STROKE_CAPACITY, false));
+  const patterns: Polyline[] = [];
+  for (let i = 0; i < PATTERN_MARKS; i += 1) patterns.push(createPolyline(PATTERN_POINTS, false));
   return {
     archetype: 'undulator',
     outline: createPolyline(OUTLINE_CAPACITY, true),
@@ -106,6 +133,12 @@ export function createBodyGeometry(): BodyGeometry {
     plateCount: 0,
     strokes,
     strokeCount: 0,
+    mouth: createPolyline(MOUTH_POINTS, false),
+    hasMouth: false,
+    patterns,
+    patternCount: 0,
+    patternWidth: 0,
+    spination: 0,
     eyeX: 0,
     eyeY: 0,
     eyeR: 0,
@@ -204,8 +237,8 @@ export function strokePolylineCount(
  * as the shapes change.
  *
  * It has to exist because body cost is **not** uniform. Measured CPU cost is
- * near-linear in this number, and it spans 18× across the morphology space — a
- * minimal undulator emits 6 points, a maximal crawler 369, because somite count
+ * near-linear in this number, and it spans 25× across the morphology space — a
+ * minimal undulator emits 15 points, a maximal crawler 378, because somite count
  * is literally the crawler's morphology signal. Budgeting a fixed *number of
  * bodies* therefore either starves a fish-heavy world or blows the frame in a
  * crawler-heavy one, and which of those happens is decided by evolution at run
@@ -218,13 +251,17 @@ export function nearVertexCount(
 ): number {
   const s = clampSegments(archetype, segmentCount);
   const f = clampFinPairs(archetype, finPairs);
+  // Species marks are archetype-independent, and the jaw line is a trunk
+  // feature; both are emitted unconditionally so that this stays a function of
+  // the three arguments it advertises.
+  const marks = PATTERN_MARKS * PATTERN_POINTS;
   switch (archetype) {
     case 'undulator':
-      return outlinePointCount(archetype, s) + 2 * f * 3;
+      return outlinePointCount(archetype, s) + 2 * f * 3 + MOUTH_POINTS + marks;
     case 'radialDrifter':
-      return outlinePointCount(archetype, s) + s * 2 + 2 * f * TENTACLE_POINTS;
+      return outlinePointCount(archetype, s) + s * 2 + 2 * f * TENTACLE_POINTS + marks;
     case 'armoredCrawler':
-      return outlinePointCount(archetype, s) + s * PLATE_POINTS + 2 * f * 3 + (s + 1);
+      return outlinePointCount(archetype, s) + s * PLATE_POINTS + 2 * f * 3 + (s + 1) + MOUTH_POINTS + marks;
   }
 }
 
@@ -253,6 +290,55 @@ export function carapaceProfile(s: number): number {
   if (s <= 0 || s >= 1) return 0;
   return Math.pow(Math.sin(Math.PI * Math.pow(s, CARAPACE_EXP)), CARAPACE_BLUNT);
 }
+
+// ---------------------------------------------------------------------------
+// Diet → head form, defense → dorsal spination
+// ---------------------------------------------------------------------------
+
+/** Fraction of the body over which the head form reshapes the width profile. */
+const HEAD_WINDOW = 0.4;
+/**
+ * 1 is the ceiling, not a taste call: at the nose the window is 1, so the
+ * exponent reaches `1 − HEAD_EXP_GAIN` there, and anything above 1 turns it
+ * negative — which would push the snout *wider* than the widest station and
+ * break the invariant that the head form cannot inflate a body past its
+ * `bodyAspect`. At exactly 1 the bluntest possible head is a nose as wide as the
+ * shoulders, which is the right maximum for a filter feeder.
+ */
+const HEAD_EXP_GAIN = 1;
+
+/**
+ * The width profile with the diet-driven head form folded in.
+ *
+ * Reshaping is an *exponent* on the base profile rather than a multiplier,
+ * because the base is in (0, 1]: raising it to a power below 1 fills the snout
+ * out toward the widest station (the blunt filter-feeder head) and a power above
+ * 1 starves it into a wedge (the predatory taper). Two consequences that a
+ * multiplier would not give for free — it is strictly monotone in `headForm`
+ * (so the drawn head order is the diet order, with no discontinuity at diet 0,
+ * where the exponent is exactly 1), and it cannot push a station past the base
+ * profile's peak, so the head form can never widen a fish past its `bodyAspect`.
+ *
+ * The window ramps the exponent to 1 by `HEAD_WINDOW`, which is what keeps the
+ * effect a *head* form: the tail is also thin, and shaping it would just make
+ * hunters read as thin animals rather than as sharp-headed ones.
+ */
+export function headShapedProfile(s: number, base: number, headForm: number): number {
+  if (base <= 0 || base >= 1 || s >= HEAD_WINDOW || headForm === 0) return base;
+  return Math.pow(base, 1 + HEAD_EXP_GAIN * headForm * (1 - s / HEAD_WINDOW));
+}
+
+/**
+ * Extra dorsal half-width on alternating stations at full spination.
+ *
+ * The serration is folded into the outline rather than drawn as separate spikes
+ * so that a heavily defended animal costs the same points as a smooth one and
+ * the budget stays a function of the morphology channels alone. Displacing one
+ * side outward cannot fold an outline that was already simple, but it does
+ * enlarge the offset the travelling wave has to clear, so `bodies.test.ts`
+ * sweeps this against the self-crossing check rather than reasoning about it.
+ */
+const SERRATION_GAIN = 0.45;
 
 // ---------------------------------------------------------------------------
 // Undulation
@@ -307,6 +393,13 @@ export interface BodyParams {
   readonly finPairs: number;
   readonly bodyAspect: number;
   readonly armorPlating: number;
+  /** −1 blunt filter feeder … 0 neutral fusiform … +1 predatory wedge. */
+  readonly headForm: number;
+  /** 0..1 dorsal spination; see `divergence.spinationFrom`. */
+  readonly spination: number;
+  readonly patternFamily: PatternFamily;
+  /** 0..1, stable per slot: shifts the species marks so schoolmates are not stencils. */
+  readonly patternPhase: number;
   /** Travelling-wave phase, radians (undulator, crawler). */
   readonly phase: number;
   /** Bell pulse phase in [0, 1) (drifter). */
@@ -334,7 +427,12 @@ export function buildBody(params: BodyParams, out: BodyGeometry): void {
   out.finCount = 0;
   out.plateCount = 0;
   out.strokeCount = 0;
+  out.mouth.count = 0;
+  out.hasMouth = false;
+  out.patternCount = 0;
   out.pulseScale = 1;
+  out.spination = clamp(params.spination, 0, 1);
+  out.patternWidth = PATTERN_WIDTH[params.patternFamily];
   out.armorLightening = clamp(params.armorPlating / ARMOR_RENDER_RANGE[1], 0, 1);
   out.plateStrokeWidth = 0.006 + 0.018 * out.armorLightening;
 
@@ -367,40 +465,198 @@ function buildTrunkChain(
   buildSpine(spineParams, chain);
 }
 
+/** Half-width at chain station `i`, head form included but spination excluded. */
+function trunkHalfWidth(
+  chain: SpineChain,
+  i: number,
+  maxHalfWidth: number,
+  profile: (s: number) => number,
+  headForm: number,
+): number {
+  const s = i / (chain.count - 1);
+  return maxHalfWidth * headShapedProfile(s, profile(s), headForm);
+}
+
 /**
- * Offset the chain into a closed outline: the zero-width nose once, one side
- * head→tail, then the far side tail→head. `2N − 2` points for an `N` point chain.
+ * Offset the chain into a closed outline: the zero-width nose once, the dorsal
+ * side head→tail, then the ventral side tail→head. `2N − 2` points for an `N`
+ * point chain, whatever the head form or the spination — both reshape existing
+ * stations rather than adding any.
+ *
+ * The `+normal` side is dorsal: the chain runs head→tail toward −x, so the
+ * left-hand normal of the tail-ward tangent points at −y, which is up on screen.
+ * That is the side the spines go on and the side the jaw is measured against.
  */
 function offsetOutline(
   chain: SpineChain,
   maxHalfWidth: number,
   profile: (s: number) => number,
+  headForm: number,
+  spination: number,
   out: Polyline,
 ): void {
   const n = chain.count;
   push(out, chain.xs[0] ?? 0, chain.ys[0] ?? 0);
   for (let i = 1; i < n; i += 1) {
-    const h = maxHalfWidth * profile(i / (n - 1));
+    const spike = i % 2 === 1 ? 1 + SERRATION_GAIN * spination : 1;
+    const h = trunkHalfWidth(chain, i, maxHalfWidth, profile, headForm) * spike;
     push(out, (chain.xs[i] ?? 0) + (chain.nxs[i] ?? 0) * h, (chain.ys[i] ?? 0) + (chain.nys[i] ?? 0) * h);
   }
   for (let i = n - 2; i >= 1; i -= 1) {
-    const h = maxHalfWidth * profile(i / (n - 1));
+    const h = trunkHalfWidth(chain, i, maxHalfWidth, profile, headForm);
     push(out, (chain.xs[i] ?? 0) - (chain.nxs[i] ?? 0) * h, (chain.ys[i] ?? 0) - (chain.nys[i] ?? 0) * h);
   }
 }
 
+/**
+ * Place the eye at a *continuous* station along the chain.
+ *
+ * Snapping to the nearest chain point was the first attempt and it inverted the
+ * read it exists for: a hunter's eye slides forward onto the narrow part of the
+ * snout, so rounding it a whole station forward on a 14-point chain shrank it
+ * faster than the size multiplier grew it, and predators ended up beadier-eyed
+ * than filter feeders. Interpolating between stations makes the size a smooth
+ * function of the head form and lets the multiplier win, which is also what the
+ * continuity through diet 0 needs.
+ */
 function placeEye(
   chain: SpineChain,
   maxHalfWidth: number,
   profile: (s: number) => number,
+  headForm: number,
   out: BodyGeometry,
 ): void {
   const n = chain.count;
-  const i = Math.max(1, Math.min(n - 1, Math.round(0.12 * (n - 1))));
-  const h = maxHalfWidth * profile(i / (n - 1));
-  out.eyeX = (chain.xs[i] ?? 0) + (chain.nxs[i] ?? 0) * h * 0.45;
-  out.eyeY = (chain.ys[i] ?? 0) + (chain.nys[i] ?? 0) * h * 0.45;
-  out.eyeR = clamp(0.34 * h, 0.011, 0.05);
+  // A hunter's eye sits further forward as well as bigger — the two together are
+  // what read as a face pointed at something rather than as a larger fish.
+  const at = clamp(0.12 - 0.03 * headForm, 0.02, 0.9);
+  const f = at * (n - 1);
+  const i = Math.max(0, Math.min(n - 2, Math.floor(f)));
+  const t = f - i;
+  const cx = (chain.xs[i] ?? 0) + ((chain.xs[i + 1] ?? 0) - (chain.xs[i] ?? 0)) * t;
+  const cy = (chain.ys[i] ?? 0) + ((chain.ys[i + 1] ?? 0) - (chain.ys[i] ?? 0)) * t;
+  const nx = (chain.nxs[i] ?? 0) + ((chain.nxs[i + 1] ?? 0) - (chain.nxs[i] ?? 0)) * t;
+  const ny = (chain.nys[i] ?? 0) + ((chain.nys[i + 1] ?? 0) - (chain.nys[i] ?? 0)) * t;
+  const h = maxHalfWidth * headShapedProfile(at, profile(at), headForm);
+  out.eyeX = cx + nx * h * 0.45;
+  out.eyeY = cy + ny * h * 0.45;
+  out.eyeR = clamp(0.34 * h * (1 + 0.45 * headForm), 0.011, 0.062);
+}
+
+// ---------------------------------------------------------------------------
+// The jaw line
+// ---------------------------------------------------------------------------
+
+/** Jaw length in body lengths at neutral diet. */
+const MOUTH_SPAN = 0.17;
+
+/**
+ * The mouth, as a three-point ventral polyline anchored at the nose.
+ *
+ * Always built for the trunk archetypes, with every dimension linear in
+ * `headForm`, so nothing appears or vanishes as a lineage crosses diet 0 — the
+ * filter feeder's short shallow slit grows continuously into the hunter's long
+ * gape, and the kink at the middle point is the tooth notch.
+ */
+function buildMouth(chain: SpineChain, maxHalfWidth: number, headForm: number, out: BodyGeometry): void {
+  const x0 = chain.xs[0] ?? 0;
+  const y0 = chain.ys[0] ?? 0;
+  const angle = chain.angles[0] ?? 0;
+  // Tail-ward tangent and the ventral normal (the `−normal` side of the outline).
+  const tx = Math.cos(angle);
+  const ty = Math.sin(angle);
+  const nx = -(chain.nxs[0] ?? 0);
+  const ny = -(chain.nys[0] ?? 0);
+  const length = MOUTH_SPAN * (0.85 + 0.45 * headForm);
+  const drop = maxHalfWidth * (0.5 + 0.42 * headForm);
+  const mouth = out.mouth;
+  mouth.count = 0;
+  push(mouth, x0, y0);
+  push(mouth, x0 + tx * length * 0.52 + nx * drop, y0 + ty * length * 0.52 + ny * drop);
+  push(mouth, x0 + tx * length + nx * drop * 0.3, y0 + ty * length + ny * drop * 0.3);
+  out.hasMouth = true;
+}
+
+// ---------------------------------------------------------------------------
+// Species patterning
+// ---------------------------------------------------------------------------
+
+/** Stroke weight per family, local units. `none` is the switch that skips the draw. */
+const PATTERN_WIDTH: Readonly<Record<PatternFamily, number>> = {
+  none: 0,
+  stripes: 0.05,
+  spots: 0.085,
+  // Wide enough that the three marks overlap into one dorsal wash rather than
+  // reading as three fat stripes.
+  countershading: 0.24,
+};
+
+/** Where along the body each mark sits, before the per-slot phase shift. */
+const PATTERN_STATIONS: Readonly<Record<PatternFamily, readonly [number, number, number]>> = {
+  none: [0.26, 0.45, 0.64],
+  stripes: [0.26, 0.45, 0.64],
+  spots: [0.28, 0.46, 0.64],
+  countershading: [0.22, 0.44, 0.66],
+};
+
+/** Marks are placed inside the fat part of the body, so a stroke cannot spill past the silhouette. */
+const PATTERN_S_MIN = 0.16;
+const PATTERN_S_MAX = 0.8;
+const PATTERN_PHASE_SWING = 0.05;
+
+function patternStation(family: PatternFamily, mark: number, phase: number): number {
+  const base = PATTERN_STATIONS[family][mark] ?? 0.45;
+  return clamp(base + (phase - 0.5) * PATTERN_PHASE_SWING, PATTERN_S_MIN, PATTERN_S_MAX);
+}
+
+/**
+ * Species marks on a trunk body, as {@link PATTERN_MARKS} two-point runs.
+ *
+ * One representation for every family — a straight run with a per-family stroke
+ * weight — because a round-capped thick stroke is a spot, a thin one across the
+ * body is a stripe, and three overlapping wide ones down the dorsal half are
+ * countershading. Sharing the representation is what lets the point cost be
+ * constant across families, which the near-tier budget depends on.
+ */
+function buildTrunkPatterns(
+  chain: SpineChain,
+  maxHalfWidth: number,
+  profile: (s: number) => number,
+  headForm: number,
+  family: PatternFamily,
+  phase: number,
+  out: BodyGeometry,
+): void {
+  const n = chain.count;
+  for (let mark = 0; mark < PATTERN_MARKS; mark += 1) {
+    const line = out.patterns[mark];
+    if (line === undefined) break;
+    line.count = 0;
+    const s = patternStation(family, mark, phase);
+    const i = Math.max(1, Math.min(n - 2, Math.round(s * (n - 1))));
+    const h = trunkHalfWidth(chain, i, maxHalfWidth, profile, headForm);
+    const cx = chain.xs[i] ?? 0;
+    const cy = chain.ys[i] ?? 0;
+    const nx = chain.nxs[i] ?? 0;
+    const ny = chain.nys[i] ?? 0;
+    if (family === 'spots') {
+      // Alternating flanks, and a stub along the body so a round cap reads as a dot.
+      const side = mark % 2 === 0 ? 1 : -1;
+      const ox = cx + nx * h * 0.42 * side;
+      const oy = cy + ny * h * 0.42 * side;
+      const tx = Math.cos(chain.angles[i] ?? 0) * 0.02;
+      const ty = Math.sin(chain.angles[i] ?? 0) * 0.02;
+      push(line, ox - tx, oy - ty);
+      push(line, ox + tx, oy + ty);
+    } else if (family === 'countershading') {
+      push(line, cx + nx * h * 0.14, cy + ny * h * 0.14);
+      push(line, cx + nx * h * 0.94, cy + ny * h * 0.94);
+    } else {
+      push(line, cx - nx * h * 0.78, cy - ny * h * 0.78);
+      push(line, cx + nx * h * 0.78, cy + ny * h * 0.78);
+    }
+    out.patternCount += 1;
+  }
 }
 
 // --- undulator --------------------------------------------------------------
@@ -419,14 +675,27 @@ function buildUndulator(params: BodyParams, out: BodyGeometry): void {
 
   const chain = out.chain;
   buildTrunkChain(params, segments, maxHalfWidth, chain);
-  offsetOutline(chain, maxHalfWidth, fusiformProfile, out.outline);
-  placeEye(chain, maxHalfWidth, fusiformProfile, out);
+  offsetOutline(chain, maxHalfWidth, fusiformProfile, params.headForm, out.spination, out.outline);
+  placeEye(chain, maxHalfWidth, fusiformProfile, params.headForm, out);
+  buildMouth(chain, maxHalfWidth, params.headForm, out);
+  buildTrunkPatterns(
+    chain,
+    maxHalfWidth,
+    fusiformProfile,
+    params.headForm,
+    params.patternFamily,
+    params.patternPhase,
+    out,
+  );
 
   const n = chain.count;
   for (let pair = 0; pair < finPairs; pair += 1) {
     const at = Math.max(1, Math.min(n - 2, Math.round(((pair + 1) / (finPairs + 1)) * (n - 1))));
     const flutter = FIN_FLUTTER * Math.sin(params.phase - pair * FIN_PHASE_LAG);
-    const half = Math.max(maxHalfWidth * fusiformProfile(at / (n - 1)), maxHalfWidth * 0.15);
+    const half = Math.max(
+      trunkHalfWidth(chain, at, maxHalfWidth, fusiformProfile, params.headForm),
+      maxHalfWidth * 0.15,
+    );
     for (let side = 0; side < 2; side += 1) {
       const sign = side === 0 ? 1 : -1;
       const fin = out.fins[out.finCount];
@@ -472,6 +741,41 @@ function bellRimX(theta: number, height: number): number {
 function bellRimY(theta: number, width: number): number {
   const s = Math.sin(theta);
   return (width / 2) * Math.sign(s) * Math.pow(Math.abs(s), 2 / BELL_EXPONENT);
+}
+
+/**
+ * The same three marks on a bell instead of a chain. The superellipse is even in
+ * `theta`, so the chord at ±θ is horizontal and a mark is a straight run in y —
+ * the same two-point representation the trunk bodies use.
+ */
+function buildDrifterPatterns(
+  height: number,
+  width: number,
+  family: PatternFamily,
+  phase: number,
+  out: BodyGeometry,
+): void {
+  for (let mark = 0; mark < PATTERN_MARKS; mark += 1) {
+    const line = out.patterns[mark];
+    if (line === undefined) break;
+    line.count = 0;
+    const u = clamp(0.28 + 0.22 * mark + (phase - 0.5) * 0.08, 0.16, 0.84);
+    const theta = Math.PI * u;
+    const x = bellRimX(theta, height);
+    const y = Math.abs(bellRimY(theta, width));
+    if (family === 'spots') {
+      const side = mark % 2 === 0 ? 1 : -1;
+      push(line, x - 0.02, y * 0.45 * side);
+      push(line, x + 0.02, y * 0.45 * side);
+    } else if (family === 'countershading') {
+      push(line, x, y * 0.14);
+      push(line, x, y * 0.94);
+    } else {
+      push(line, x, -y * 0.78);
+      push(line, x, y * 0.78);
+    }
+    out.patternCount += 1;
+  }
 }
 
 function buildDrifter(params: BodyParams, out: BodyGeometry): void {
@@ -527,6 +831,8 @@ function buildDrifter(params: BodyParams, out: BodyGeometry): void {
     }
   }
 
+  buildDrifterPatterns(height, width, params.patternFamily, params.patternPhase, out);
+
   // The bell nucleus stands in for an eye: the one bright interior mark.
   out.eyeX = -height * 0.4;
   out.eyeY = 0;
@@ -552,8 +858,18 @@ function buildCrawler(params: BodyParams, out: BodyGeometry): void {
   // One extra chain point so there are exactly `segments` somite gaps.
   const chain = out.chain;
   buildTrunkChain(params, segments + 1, maxHalfWidth, chain);
-  offsetOutline(chain, maxHalfWidth, carapaceProfile, out.outline);
-  placeEye(chain, maxHalfWidth, carapaceProfile, out);
+  offsetOutline(chain, maxHalfWidth, carapaceProfile, params.headForm, out.spination, out.outline);
+  placeEye(chain, maxHalfWidth, carapaceProfile, params.headForm, out);
+  buildMouth(chain, maxHalfWidth, params.headForm, out);
+  buildTrunkPatterns(
+    chain,
+    maxHalfWidth,
+    carapaceProfile,
+    params.headForm,
+    params.patternFamily,
+    params.patternPhase,
+    out,
+  );
 
   const n = chain.count;
   for (let p = 0; p < segments; p += 1) {
@@ -565,7 +881,8 @@ function buildCrawler(params: BodyParams, out: BodyGeometry): void {
     const tx = Math.cos(chain.angles[p] ?? 0);
     const ty = Math.sin(chain.angles[p] ?? 0);
     const along = chain.segmentLength * PLATE_OVERLAP;
-    const across = maxHalfWidth * carapaceProfile((p + 0.5) / segments) * PLATE_INSET;
+    const sp = (p + 0.5) / segments;
+    const across = maxHalfWidth * headShapedProfile(sp, carapaceProfile(sp), params.headForm) * PLATE_INSET;
     for (let k = 0; k < PLATE_POINTS; k += 1) {
       const theta = (2 * Math.PI * k) / PLATE_POINTS;
       const a = along * Math.cos(theta);
@@ -579,7 +896,10 @@ function buildCrawler(params: BodyParams, out: BodyGeometry): void {
   for (let pair = 0; pair < finPairs; pair += 1) {
     const at = Math.max(1, Math.min(n - 2, Math.round(((pair + 0.5) / finPairs) * (n - 1))));
     const sweep = LIMB_SWEEP * Math.sin(params.phase - pair * METACHRONAL_LAG);
-    const half = Math.max(maxHalfWidth * carapaceProfile(at / (n - 1)), maxHalfWidth * 0.2);
+    const half = Math.max(
+      trunkHalfWidth(chain, at, maxHalfWidth, carapaceProfile, params.headForm),
+      maxHalfWidth * 0.2,
+    );
     const tx = Math.cos(chain.angles[at] ?? 0);
     const ty = Math.sin(chain.angles[at] ?? 0);
     for (let side = 0; side < 2; side += 1) {
