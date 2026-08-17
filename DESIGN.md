@@ -1714,3 +1714,29 @@ across-seed floor moves 1/3 → 1/9: the probe asserts the machinery is
 All three restatements ratchet against measured 9-seed base rates with
 provenance in the probe sources; the registry pin was updated in the same
 change (it exists to force exactly this deliberate step).
+
+### G6 — the size-window pair at spec length: 0.45/−4.45 selected for the flip package (2026-08-17)
+
+Nine 300-generation runs (three doses × s1–s3, fresh control — the spec
+run's ontogeny series is pre-yolk and no longer control). All 9 alive at
+300; the discriminators, measured after generation 50:
+
+| opt/−4.45 | guild ≥5 preds (frac of samples) | guild min | late attack |
+|---|---|---|---|
+| 0.88 (control) | .94/.97/.95 | 0/1/1 | −0.86/−0.20/−0.82 |
+| 0.55 | .87/.84/.93 | 0/0/0 | −0.70/+0.08/+0.07 |
+| 0.45 | .98/.99/.98 | 2/1/1 | +0.09/+0.29/−5.27 |
+
+0.45 wins on persistence and keeps attack from decaying on 2/3 seeds
+(s3's collapse to −5.3 with 54 late "predators" — expressed diet without
+attack investment — is noted as the seed's trajectory, not the dose's
+signature). The non-monotone middle (0.55 worst) says the effect is
+modest against seed variance; and the control's guild-death-and-re-
+evolution on s1 (a zero-predator sample mid-run) shows the yolk-rule
+world already re-evolves its guild. **The pair does not move now**:
+`sizeRatioOptimum` is shared config, and moving the default would
+invalidate every off-arm reference for a modest on-arm gain. It is
+selected as the **flip-package candidate** — 0.45/−4.45 lands together
+with the ontogeny-default flip and the biomass-band re-derivation as one
+coordinated re-baseline, per the design's own sequencing. P17's
+kill-window overlap gets measured there.
