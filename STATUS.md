@@ -14,6 +14,38 @@ discriminator phase._
 
 ## Resume HERE
 
+**THE INTERACTION EVENING LANDED (2026-08-17 overnight, all green,
+pushed through `5f32051` + docs).** The user played with the bench and
+every finding was fixed same-session: **clade-founding spam** (segregation
+births announced foundings; now only an archetype neither parent
+expresses founds — `4feada1`), **the permeability veto** (migration
+stopped dead under slider 0.5; steering + drag now compose as √p·√p,
+measured flux 0/2/25/48/73 crossings per 10 gens at p=0.1/0.25/0.4/0.6/1 —
+`4b9bb54`), plus the `h` **field manual** (`bd131b3`), wall W-labels /
+row-flash / live slider retune (`d8ace78`), and a kelp manual correction
+(`9e66b9e`). Two features: **X3 breeding programme** (`282c224` — bench
+artificial selection, three trait×weight rows multiplying the suitor
+lottery by exp(Σ w·latent-deviation); snapshotted, hashed,
+restore-proven) and **V1 story readouts** (`5f32051` — carrion overlay,
+toxicity/boldness colour modes with inert-mode honesty, macro-loci +
+body-plan + free-rider deep-history panels). DESIGN.md "The interaction
+evening" has the full record. GitHub is now public
+(edd426/panthalassa); evolved neural behavior is issue #1.
+
+**USER-SET SEQUENCE (2026-08-17, explicit):** (1) bench artificial
+selection — done; (2) **heritable preference + ornament is the next
+feature package** (a distinct ornament trait first, wired to hue later
+by choice; needs a runaway-detection probe before the feature; note the
+mating stage already runs hue-preference machinery); (3) evolved brains
+stay backlog until "a fresh week of usage". Still parked from G6: the
+predation re-baseline decision, the ontogeny-only flip, and the R5/G5
+glass reviews (`?ontogeny=1&aposematism=1`). A toxicity colour mode
+now exists, so the aposematism arm is watchable when reviewed.
+
+---
+
+Previous state (still true where not superseded above):
+
 **WAVE 1 IS VERIFIED END-TO-END (2026-08-17): the spec-length probe:full
 adjudicated GREEN-AT-GATES.** `runs/full-gwave-impl.log` (8.6 h): suite
 WARN, **restated P3 passes on all three baseline seeds** — the G0-run s3

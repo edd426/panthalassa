@@ -1871,3 +1871,41 @@ bit-identical paths, so the probe suite's coverage carries; gates all
 green (typecheck/lint/test, probe:quick exit 0). Binary walls were
 considered and rejected: the mid-dial is where the Fst-vs-migration
 experiments live.
+
+## The interaction evening — X3 and V1 (2026-08-17, overnight)
+
+One user session produced four fixes and two features, all landed green.
+Fixes are recorded above (clade-founding spam, the permeability veto,
+the kelp manual error). The features:
+
+**X3 — the breeding programme.** The user asked for bench-chosen
+"desirable traits (maybe more than one)"; the design conversation
+established that mate choice needs no evolved cognition (the mating
+stage already runs a heritable hue-preference lottery — Lande–
+Kirkpatrick machinery from the G-wave), so artificial selection is one
+multiplicative term: `exp(Σ wᵢ · latent deviation-from-baseline)` on
+the male's ticket. Deviation-from-baseline, not raw latent — raw
+latent carries each trait's baseline (size ≈ 12) and made every weight
+a secret baseline bonus; the first test run caught it (multiplier
+saturated at the e¹⁰ clamp). State lives in `SimState`, is hashed and
+snapshotted like barrier specs (empty regime folds nothing in, golden
+hashes untouched), and restore is proven hash-identical 100 ticks past
+the round-trip. Bench: three trait×weight rows over a curated
+8-trait list (`displayHue` excluded — circular, "more hue" is not a
+direction). Sequencing per the user: this first, heritable
+preference + ornament second, evolved brains parked pending a week of
+usage.
+
+**V1 — story-telling readouts** (viz-story agent). Carrion overlay
+(bone, from the one `FIELD_TINT` table), toxicity + boldness colour
+modes, and three deep-history panels (macro-allele frequencies,
+population by body plan, conditional Batesian free-riders). Two
+patterns worth keeping: **inert-mode honesty** — a mode whose axis the
+world is not running paints flat neutral and the legend says why,
+rather than ramping over variance nothing selects on; and
+**measured comment claims** — the agent's founding-spread numbers in
+`BOLDNESS_SCALE`'s comment were verified against a fresh founder
+population and matched to the decimal. The agent also caught the
+brief's factual error (charts.ts is a dead surface; trends.ts is the
+live `t` panel) and reported it instead of building invisible panels —
+the brief is corrected in place.
