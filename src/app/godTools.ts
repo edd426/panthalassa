@@ -127,6 +127,26 @@ export function reduceBarriers(ledger: readonly BenchBarrier[], action: BarrierL
   }
 }
 
+/**
+ * Commands that retune every standing wall to the slider's permeability.
+ *
+ * The engine treats a raise on an existing id as a replace (it splices the
+ * same-id spec out before pushing), so a retune is a re-raise of the same
+ * shape. Walls already at the target are skipped: a slider release must not
+ * cost N no-op mask rebuilds.
+ */
+export function retuneBarrierCommands(ledger: readonly BenchBarrier[], permeability: number): SimCommand[] {
+  const target = clampUnit(permeability);
+  return ledger
+    .filter((barrier) => barrier.permeability !== target)
+    .map((barrier) => ({
+      kind: 'raiseBarrier',
+      barrierId: barrier.id,
+      shape: barrier.shape,
+      permeability: target,
+    }));
+}
+
 export interface ShockPreset {
   readonly label: string;
   /** °C for thermal, productivity multiplier for a crash, cleared fraction for kelp. */
@@ -396,6 +416,8 @@ const METEOR_DEFAULT_WU = 200;
 const FOUNDING_COUNT = 12;
 
 const WALL_AGE_REFRESH_MS = 500;
+/** Ledger-row click → band flash: four pulses, long enough to find on a busy map. */
+const WALL_FLASH_MS = 2400;
 
 // ---------------------------------------------------------------------------
 // DOM helpers
@@ -546,7 +568,9 @@ const STYLE_TEXT = `
   padding: 2px 0;
   border-top: 1px solid var(--hairline-soft);
   font-variant-numeric: tabular-nums;
+  cursor: pointer;
 }
+.gt-wall:hover .gt-wall-id { color: var(--phosphor); }
 
 .gt-wall-id { color: var(--amber); letter-spacing: 0.1em; }
 .gt-wall-body { flex: 1 1 auto; color: var(--ink-dim); }
@@ -570,6 +594,22 @@ const STYLE_TEXT = `
     rgba(4, 24, 36, 0.5) 6px 12px
   );
 }
+
+/* The wall's W-number, painted on the band so the ledger reads against the map. */
+.gt-band-id {
+  position: absolute;
+  top: 3px;
+  left: 5px;
+  font-size: 10px;
+  line-height: 1;
+  letter-spacing: 0.12em;
+  color: var(--amber);
+  text-shadow: 0 0 4px rgba(4, 24, 36, 0.95);
+  white-space: nowrap;
+}
+
+.gt-band--flash { border-color: var(--phosphor); }
+.gt-band--flash .gt-band-id { color: var(--phosphor); }
 
 .gt-mark {
   position: absolute;
@@ -618,6 +658,8 @@ export class GodTools {
   private armed: ArmedState = DISARMED;
   private ledger: readonly BenchBarrier[] = [];
   private wallCounter = 0;
+  private flashWallId: string | null = null;
+  private flashUntilMs = 0;
 
   private permeability = 0;
   private climateTargetC = 0;
@@ -694,11 +736,20 @@ export class GodTools {
       this.permeability = clampUnit(Number(migration.value));
       this.permeabilityValue.textContent = this.permeability.toFixed(2);
     });
-    // Same reason as the presets: the digits belong to the watch speed.
-    migration.addEventListener('change', () => migration.blur());
+    // On release the slider is the walls' setting, not just the next wall's:
+    // the first user experiment stalled on four sealed walls under a slider
+    // reading 1.00. Retuning on `change` rather than `input` keeps a drag from
+    // spraying mask rebuilds at the worker. The blur is the same reason as the
+    // presets: the digits belong to the watch speed.
+    migration.addEventListener('change', () => {
+      for (const command of retuneBarrierCommands(this.ledger, this.permeability)) this.issue(command);
+      migration.blur();
+    });
     migrationRow.append(migration, this.permeabilityValue);
     this.host.append(migrationRow);
-    this.host.append(el('span', 'gt-note', '0 = sealed · 1 = open water · between = a slow crossing'));
+    this.host.append(
+      el('span', 'gt-note', '0 = sealed · 1 = open water · between = a slow crossing · release retunes standing walls'),
+    );
 
     const raiseRow = el('div', 'gt-row');
     raiseRow.append(this.armButton('wall', 'Raise wall', 'gt-grow'));
@@ -911,6 +962,7 @@ export class GodTools {
     this.armed = DISARMED;
     this.ledger = reduceBarriers(this.ledger, { kind: 'cleared' });
     this.wallCounter = 0;
+    this.flashWallId = null;
     this.climateObservedC = null;
     this.syncArmed();
     this.syncClimateNow();
@@ -996,7 +1048,9 @@ export class GodTools {
 
   private issue(command: SimCommand): void {
     if (command.kind === 'raiseBarrier') {
-      this.wallCounter += 1;
+      // A retune re-raises an existing id; only a genuinely new wall takes a
+      // W-number, or four retunes would push the next wall to W9.
+      if (!this.ledger.some((barrier) => barrier.id === command.barrierId)) this.wallCounter += 1;
       this.ledger = reduceBarriers(this.ledger, {
         kind: 'raised',
         id: command.barrierId,
@@ -1106,6 +1160,14 @@ export class GodTools {
         body,
         this.button('Drop', () => this.issue({ kind: 'lowerBarrier', barrierId: barrier.id }), 'gt-btn--drop'),
       );
+      // Clicking the row flashes its band on the map — with several standing
+      // walls the ledger is otherwise unmatchable to the picture. The DROP
+      // button must not double as a flash, so its clicks are excluded.
+      row.addEventListener('click', (event) => {
+        if (event.target instanceof HTMLElement && event.target.closest('button') !== null) return;
+        this.flashWallId = barrier.id;
+        this.flashUntilMs = performance.now() + WALL_FLASH_MS;
+      });
       this.wallList.append(row);
       this.wallRows.push({ barrier, body });
     }
@@ -1167,8 +1229,12 @@ export class GodTools {
     const world = this.deps.config.world;
     const bands: HTMLElement[] = [];
 
+    const nowMs = performance.now();
+    if (this.flashWallId !== null && nowMs >= this.flashUntilMs) this.flashWallId = null;
+
     for (const barrier of this.ledger) {
       const band = el('div', 'gt-band');
+      band.append(el('span', 'gt-band-id', barrier.id));
       const shape = barrier.shape;
       let x0 = 0;
       let x1 = world.widthWu;
@@ -1193,6 +1259,18 @@ export class GodTools {
       // A leaky wall is drawn faint: the picture should say at a glance whether
       // migration is possible, because that is the whole experiment.
       band.style.opacity = `${0.85 - 0.6 * clampUnit(barrier.permeability)}`;
+      // The flash is computed per frame rather than by a CSS animation: the
+      // overlay rebuilds its children every rAF, which would restart an
+      // animation at phase zero each frame and freeze it there.
+      if (barrier.id === this.flashWallId) {
+        const phase = Math.max(0, this.flashUntilMs - nowMs) / WALL_FLASH_MS;
+        const pulse = 0.5 + 0.5 * Math.cos(phase * Math.PI * 8);
+        band.classList.add('gt-band--flash');
+        band.style.boxShadow = `0 0 ${6 + 16 * pulse}px ${1 + 2 * pulse}px rgba(111, 242, 196, ${0.25 + 0.5 * pulse})`;
+        // A fully open wall sits at opacity 0.25; the flash exists to point at
+        // it, so it must win over the faintness rule for its duration.
+        band.style.opacity = '0.9';
+      }
       bands.push(band);
     }
 

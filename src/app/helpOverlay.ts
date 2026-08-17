@@ -80,7 +80,7 @@ function armedTools(config: SimConfig): Readonly<Record<ArmedMode, ArmedToolHelp
   return {
     wall: {
       name: 'Raise wall',
-      how: 'Set MIGRATION first (0 sealed · 1 open water · between is a slow crossing), then arm and click two points. The axis your clicks are furthest apart on is the axis the ridge runs along — two points one above the other give a north–south wall — and the ridge always spans the whole ocean on that axis; the spread on the other axis sets its thickness. Standing walls list as W1, W2 … with their permeability and age in ticks, and DROP lowers one.',
+      how: 'Set MIGRATION (0 sealed · 1 open water · between is a slow crossing), then arm and click two points. The axis your clicks are furthest apart on is the axis the ridge runs along — two points one above the other give a north–south wall — and the ridge always spans the whole ocean on that axis; the spread on the other axis sets its thickness. Releasing the slider also retunes every standing wall. Walls list as W1, W2 … with their permeability and age; each band carries its number on the map, clicking a row flashes its wall, and DROP lowers one.',
       shows: 'Wall the ocean in two, let the halves diverge (Fst, in the deep-history panel), then drop the wall and watch what the mixed population does.',
     },
     planktonCrash: {

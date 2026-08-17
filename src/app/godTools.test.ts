@@ -24,6 +24,7 @@ import {
   grouped,
   reduceArmed,
   reduceBarriers,
+  retuneBarrierCommands,
   shockCommand,
   signedFixed,
 } from './godTools';
@@ -304,5 +305,25 @@ describe('feed formatting', () => {
   it('signs a climate offset', () => {
     expect(signedFixed(2, 1)).toBe('+2.0');
     expect(signedFixed(-0.25, 2)).toBe('-0.25');
+  });
+});
+
+describe('retuneBarrierCommands', () => {
+  it('re-raises every wall not already at the target, preserving id and shape', () => {
+    const ledger = [wall('W1', 0, 100), wall('W2', 0.4, 250)];
+    const commands = retuneBarrierCommands(ledger, 1);
+    expect(commands).toEqual([
+      { kind: 'raiseBarrier', barrierId: 'W1', shape: ledger[0]?.shape, permeability: 1 },
+      { kind: 'raiseBarrier', barrierId: 'W2', shape: ledger[1]?.shape, permeability: 1 },
+    ]);
+  });
+
+  it('skips walls already at the target and clamps the slider value', () => {
+    const ledger = [wall('W1', 1, 100), wall('W2', 0.4, 250)];
+    expect(retuneBarrierCommands(ledger, 1.7)).toEqual([
+      { kind: 'raiseBarrier', barrierId: 'W2', shape: ledger[1]?.shape, permeability: 1 },
+    ]);
+    expect(retuneBarrierCommands([wall('W1', 0.25, 5)], 0.25)).toEqual([]);
+    expect(retuneBarrierCommands([], 0.5)).toEqual([]);
   });
 });
