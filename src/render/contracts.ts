@@ -30,14 +30,26 @@ import type { SimConfig } from '../contracts/types';
  * a property of the animal (its `displayHue`, simultaneously mating signal and
  * predator search image) rather than a measurement of it.
  */
-export type ColourMode = 'identity' | 'adaptedness' | 'speedCap' | 'diet' | 'defense' | 'energy';
+export type ColourMode =
+  | 'identity'
+  | 'adaptedness'
+  | 'speedCap'
+  | 'diet'
+  | 'defense'
+  | 'toxicity'
+  | 'boldness'
+  | 'energy';
 
+// The measurement modes are kept contiguous and `energy` stays last, so the
+// `c` cycle runs identity → the six readings → condition → back.
 export const COLOUR_MODES: readonly ColourMode[] = [
   'identity',
   'adaptedness',
   'speedCap',
   'diet',
   'defense',
+  'toxicity',
+  'boldness',
   'energy',
 ];
 
@@ -52,6 +64,12 @@ export function traitKeyForMode(mode: ColourMode): TraitKey | null {
       return 'diet';
     case 'defense':
       return 'defense';
+    case 'toxicity':
+      return 'toxicity';
+    case 'boldness':
+      // The mode is named for what the watcher is looking at, the trait for
+      // what the sim reads: exposure to open water rather than kelp cover.
+      return 'forageBoldness';
     case 'identity':
     case 'energy':
       return null;
@@ -69,7 +87,7 @@ export interface ColourLegend {
 /** Field underlays the `f` key cycles through. */
 export type FieldOverlay = 'off' | FieldSliceField;
 
-export const FIELD_OVERLAYS: readonly FieldOverlay[] = ['off', 'plankton', 'kelp', 'temperature'];
+export const FIELD_OVERLAYS: readonly FieldOverlay[] = ['off', 'plankton', 'kelp', 'temperature', 'carrion'];
 
 /** A sample slice held on the main thread; `buffer` is the transferred one. */
 export interface SliceView {
@@ -155,6 +173,45 @@ export const CONSPICUOUSNESS_SCALE = 1.6;
 export function conspicuousnessSignal(conspicuousness: number): number {
   if (conspicuousness === 0) return 0;
   return Math.tanh(conspicuousness / CONSPICUOUSNESS_SCALE);
+}
+
+/**
+ * Expressed `forageBoldness` per unit of the diverging `boldness` ramp.
+ *
+ * One log-multiplier, because that is the trait's own unit: exposure enters
+ * intake and predation risk as `exp(forageBoldness)`, so ±1 is an e-fold more
+ * or less time spent in open water rather than under kelp. An absolute scale
+ * and not a p5–p95 window, for the reason `adaptedness` uses a fixed thermal
+ * reference: on a diverging ramp the *sign* is the reading, and a window that
+ * re-centres itself every slice would paint a population that had gone
+ * uniformly bold as though half of it were still timid.
+ *
+ * Measured against the founding spread (seed s1, 600 founders): p5–p95 spans
+ * −1.03 to +1.10, SD 0.65, so the tails saturate the ramp and the middle sits
+ * in the neutral band. By generation 60 of an aposematism run the mean has
+ * walked to +0.72 — the whole shoal reading warm, which is exactly the
+ * population-level move an absolute scale exists to show.
+ */
+export const BOLDNESS_SCALE = 1;
+
+/** Expressed `forageBoldness` → the signed position on the diverging ramp. */
+export function boldnessSignal(forageBoldness: number): number {
+  return forageBoldness / BOLDNESS_SCALE;
+}
+
+/**
+ * True for a measurement mode whose axis this world is not running.
+ *
+ * `toxicity` is read by the ecology only with `toggles.enableAposematism`, but
+ * the trait is on every genome regardless and carries real standing variance:
+ * measured off-arm at founding, p5–p95 spans 0.02–0.37 and drifts to 0.21–0.78
+ * by generation 20. Ramping over that would draw a chemical-defence axis the
+ * world does not have — the same trap the colour map avoids for
+ * `conspicuousness` — so the mode paints one flat neutral and says why in its
+ * legend instead of inventing a spread.
+ */
+export function isInertMode(mode: ColourMode, config: SimConfig): boolean {
+  return mode === 'toxicity' && !config.toggles.enableAposematism;
 }
 
 /**

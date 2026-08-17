@@ -378,13 +378,13 @@ export class Hud {
       span('rule'),
       this.section('observation', this.recordField, null),
       span('rule'),
-      // Above morphometry on purpose. These three readings are the ones the
-      // world view cannot answer — a juvenile is only *small* on screen, and
-      // toxicity is deliberately absent from the slice so the watcher has to
-      // infer it the way the predators do. Buried at row 22 of the trait table
-      // they would be findable but never found.
+      // Above morphometry on purpose. These are the readings the world view
+      // answers worst — a juvenile is only *small* on screen, and toxicity
+      // shows there only for whoever thought to press `c` twice past defense,
+      // and only in an armed world. Buried at row 22 of the trait table they
+      // would be findable but never found.
       this.section(
-        'life history & chemistry · toxicity is not on the world view — the eye has to infer it',
+        'life history & chemistry · toxicity is on the world view only under c → toxicity',
         this.lifeField,
         null,
       ),

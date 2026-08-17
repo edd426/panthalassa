@@ -13,8 +13,9 @@
 import { SAMPLE_SLICE, SAMPLE_SLICE_STRIDE } from '../contracts/protocol';
 import { TRAIT_META } from '../contracts/traits';
 import type { SimConfig } from '../contracts/types';
-import { BASELINE, SEQUENTIAL_AMBER, divergingAt, rampAt } from './palette';
-import { COLOUR_MODES, FIELD_OVERLAYS, traitKeyForMode } from '../render/contracts';
+import { BASELINE, DIVERGING_NEUTRAL, SEQUENTIAL_AMBER, divergingAt, rampAt } from './palette';
+import { COLOUR_MODES, FIELD_OVERLAYS, boldnessSignal, isInertMode, traitKeyForMode } from '../render/contracts';
+import { FIELD_TINT } from '../render/fieldSampling';
 import type { ColourLegend, ColourMode, FieldRaster, Frame, SliceView } from '../render/contracts';
 
 // The ColourMode/Frame family now lives in the render seam (Phase B, R0);
@@ -160,7 +161,9 @@ export class CrudeRenderer {
     // field currently spans: the climate walk shifts the whole sea, and a fixed
     // scale would wash the gradient out exactly when it starts moving.
     const span = high - low;
-    const resourceBase = field.field === 'plankton' ? '86, 214, 132' : '26, 128, 96';
+    // Off the one field-colour table, so the fallback and the Pixi overlay
+    // cannot disagree about which green is kelp and which pale is carrion.
+    const resourceBase = field.field === 'temperature' ? '' : FIELD_TINT[field.field].join(', ');
 
     for (let row = 0; row < field.rows; row += 1) {
       for (let col = 0; col < field.cols; col += 1) {
@@ -234,9 +237,19 @@ export class CrudeRenderer {
           // convex efficiency makes that the worst place to be.
           fill = divergingAt((traitValue - 0.5) * 2);
           break;
+        case 'boldness':
+          // Diverging and centred on the baseline: negative is an animal under
+          // the kelp, positive one out in open water paying the predation bill.
+          fill = divergingAt(boldnessSignal(traitValue));
+          break;
         case 'speedCap':
         case 'defense':
-          fill = rampAt(SEQUENTIAL_AMBER, span === null ? 0.5 : (traitValue - span.low) / span.range);
+        case 'toxicity':
+          // One flat neutral where the world is not running the axis — see
+          // `isInertMode`; a ramp there would draw variance nothing selects on.
+          fill = isInertMode(effective, this.config)
+            ? DIVERGING_NEUTRAL
+            : rampAt(SEQUENTIAL_AMBER, span === null ? 0.5 : (traitValue - span.low) / span.range);
           break;
         case 'energy':
           fill = rampAt(SEQUENTIAL_AMBER, energyFraction);
@@ -306,9 +319,23 @@ export class CrudeRenderer {
         return { mode, description: 'diet share', stops: ['0.0 filterer', '0.5 generalist', '1.0 predator'] };
       case 'energy':
         return { mode, description: 'energy as a fraction of storage', stops: ['0% empty', '100% full'] };
+      case 'boldness':
+        return {
+          mode,
+          description: 'forageBoldness (log-multiplier) — time in open water vs under kelp cover',
+          stops: ['−1 timid, ×0.37 exposure', 'baseline', '+1 bold, ×2.7 exposure'],
+        };
       case 'speedCap':
-      case 'defense': {
+      case 'defense':
+      case 'toxicity': {
         const unit = TRAIT_META[mode].unit;
+        if (isInertMode(mode, this.config)) {
+          return {
+            mode,
+            description: `${mode} (${unit}) — this world is not running the aposematism axis`,
+            stops: ['nothing to read: the ecology never looks at the trait'],
+          };
+        }
         const low = span === null ? '—' : span.low.toFixed(2);
         const high = span === null ? '—' : (span.low + span.range).toFixed(2);
         return { mode, description: `${mode} (${unit}), p5–p95 of the living`, stops: [`${low} low`, `${high} high`] };

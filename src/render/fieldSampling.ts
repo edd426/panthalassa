@@ -44,11 +44,30 @@ export interface NormalisedField {
 }
 
 /**
+ * Field colour for the density overlays. One place, because both the diagnostic
+ * overlay and the ambience haze read it and a second table would drift.
+ *
+ * `carrion` is bone rather than another green on purpose: it has to be
+ * separable at a glance from plankton (the food that grows) and kelp (the cover
+ * that hides), and it is the only one of the three that is not alive. Pale also
+ * puts it above both greens in luminance, so a drift of dead biomass reads as a
+ * light patch on the abyss rather than as more of the same forest.
+ */
+export const FIELD_TINT: Readonly<
+  Record<Exclude<FieldRaster['field'], 'temperature'>, readonly [number, number, number]>
+> = Object.freeze({
+  plankton: [86, 214, 132],
+  kelp: [26, 128, 96],
+  carrion: [230, 220, 196],
+});
+
+/**
  * Raster → RGBA pixels with the crude renderer's per-frame span rescale.
  * Temperature is a cold-blue → warm-red diverge across the current span;
- * resources (plankton/kelp) are their field colour with alpha proportional to
- * `value / high`, empty cells fully transparent. Callers hand the same output
- * buffer back to avoid churn; a mismatched length allocates a fresh one.
+ * the density fields (plankton/kelp/carrion) are their {@link FIELD_TINT} with
+ * alpha proportional to `value / high`, empty cells fully transparent. Callers
+ * hand the same output buffer back to avoid churn; a mismatched length
+ * allocates a fresh one.
  */
 export function normaliseField(raster: FieldRaster, recycle?: Uint8Array): NormalisedField {
   const length = raster.cols * raster.rows * 4;
@@ -68,9 +87,7 @@ export function normaliseField(raster: FieldRaster, recycle?: Uint8Array): Norma
     return { rgba, low, high };
   }
 
-  const r = raster.field === 'plankton' ? 86 : 26;
-  const g = raster.field === 'plankton' ? 214 : 128;
-  const b = raster.field === 'plankton' ? 132 : 96;
+  const [r, g, b] = FIELD_TINT[raster.field];
   for (let i = 0; i < raster.values.length; i += 1) {
     const value = raster.values[i] ?? 0;
     const base = i * 4;

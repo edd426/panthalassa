@@ -55,6 +55,15 @@ const FIELD_POLL_MS = 500;
  * rather than all three at once: each one refreshes every 1.5 s, which is well
  * inside how fast plankton, kelp or the climate walk actually move, and the
  * worker never sees three field requests land on the same frame.
+ *
+ * `carrion` is deliberately **not** here even though it is a field the `f` key
+ * can show. This list is not "every field": it is the set that has a standing
+ * consumer no matter what the overlay is set to — the ambience layers draw
+ * plankton and kelp, and `adaptedness` needs the water temperature under each
+ * animal. Nothing draws carrion except the diagnostic overlay itself, which is
+ * already fetched below whenever it is the selected one, so adding it here
+ * would buy a raster no frame reads and stretch the other three from a 1.5 s
+ * refresh to 2 s to pay for it.
  */
 const AMBIENCE_FIELDS: readonly FieldSliceField[] = ['plankton', 'kelp', 'temperature'];
 

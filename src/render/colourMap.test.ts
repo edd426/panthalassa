@@ -149,7 +149,14 @@ describe('percentile span', () => {
   it('is null with no trait channel and survives a degenerate span', () => {
     const map = createColourMap(8);
     expect(percentileSpan(map, null, 4)).toBeNull();
-    expect(percentileSpan(map, Float32Array.from([3, 3, 3, 3]), 4)).toEqual({ low: 3, range: 1 });
+    // The substituted range is flagged, because the legend has to say "flat"
+    // rather than print two endpoints that imply a gradient nobody measured.
+    expect(percentileSpan(map, Float32Array.from([3, 3, 3, 3]), 4)).toEqual({
+      low: 3,
+      range: 1,
+      degenerate: true,
+    });
+    expect(percentileSpan(map, Float32Array.from([1, 2, 3, 4]), 4)?.degenerate).toBe(false);
   });
 });
 
@@ -288,6 +295,17 @@ describe('legibility on the abyss', () => {
     expect(liftToLuminance(brightest, MEASUREMENT_LUMINANCE_FLOOR)).toBe(brightest);
   });
 
+  it('keeps the inert-axis mark countable too', () => {
+    // The flat neutral an off-arm `toxicity` paints is still a living animal
+    // the watcher has to be able to count, so it holds the same floors the
+    // ramps do rather than being allowed to recede.
+    const map = createColourMap(8);
+    resolveColours(map, makeSlice([{ energy: 0 }], [0.14]), 'toxicity', null, CONFIG);
+    const tint = map.tints[0] ?? 0;
+    expect(relativeLuminance(tint)).toBeGreaterThanOrEqual(MEASUREMENT_LUMINANCE_FLOOR - 1e-9);
+    expect(contrast(composite(tint, ABYSS, map.alphas[0] ?? 0), ABYSS)).toBeGreaterThanOrEqual(2);
+  });
+
   it('leaves identity mode exactly as the crude renderer had it', () => {
     const map = createColourMap(8);
     resolveColours(map, makeSlice([{ hue: 10, energy: 0 }]), 'identity', null, CONFIG);
@@ -423,6 +441,113 @@ describe('conspicuousness → saturation and contrast', () => {
   });
 });
 
+describe('boldness', () => {
+  /** Founder p5–p95 of expressed `forageBoldness`, measured on seed s1. */
+  const FOUNDER_P5 = -1.03;
+  const FOUNDER_P95 = 1.1;
+
+  it('reads the sign, on an absolute scale rather than a per-slice window', () => {
+    const map = createColourMap(8);
+    resolveColours(map, makeSlice([{}, {}, {}], [-1, 0, 1]), 'boldness', null, CONFIG);
+    expect(map.effectiveMode).toBe('boldness');
+    expect(map.tints[0]).toBe(toInt(divergingAt(-1)));
+    expect(map.tints[1]).toBe(toInt(DIVERGING_NEUTRAL));
+    expect(map.tints[2]).toBe(toInt(divergingAt(1)));
+
+    // The absolute-scale guarantee: the same animal keeps the same colour in a
+    // shoal that has moved without it. A p5–p95 window would re-centre and
+    // repaint a timid fish as an average one.
+    const shifted = createColourMap(8);
+    resolveColours(shifted, makeSlice([{}, {}, {}], [-1, 2, 3]), 'boldness', null, CONFIG);
+    expect(shifted.tints[0]).toBe(map.tints[0]);
+  });
+
+  it('spends the ramp over the spread the founders actually have', () => {
+    const map = createColourMap(8);
+    resolveColours(map, makeSlice([{}, {}, {}], [FOUNDER_P5, 0, FOUNDER_P95]), 'boldness', null, CONFIG);
+    // Both tails clear the neutral band, so the founding population reads as a
+    // gradient rather than as one flat grey shoal.
+    expect(map.tints[0]).not.toBe(toInt(DIVERGING_NEUTRAL));
+    expect(map.tints[2]).not.toBe(toInt(DIVERGING_NEUTRAL));
+    expect(map.tints[0]).not.toBe(map.tints[2]);
+  });
+
+  it('needs no toggle: the ecology reads exposure in every world', () => {
+    const armed = createColourMap(8);
+    const plain = createColourMap(8);
+    resolveColours(armed, makeSlice([{}, {}], [-1, 1]), 'boldness', null, SIGNAL_CONFIG);
+    resolveColours(plain, makeSlice([{}, {}], [-1, 1]), 'boldness', null, CONFIG);
+    expect([...armed.tints.slice(0, 2)]).toEqual([...plain.tints.slice(0, 2)]);
+  });
+
+  it('falls back to identity until the slice carries the channel', () => {
+    const map = createColourMap(8);
+    resolveColours(map, makeSlice([{ hue: 10 }]), 'boldness', null, CONFIG);
+    expect(map.effectiveMode).toBe('identity');
+    expect(map.tints[0]).toBe(identityTint(10));
+  });
+
+  it('names both poles, because neither is "more"', () => {
+    const legend = buildLegend('boldness', null, null, 6);
+    expect(legend.mode).toBe('boldness');
+    expect(legend.description).toContain('forageBoldness');
+    expect(legend.stops).toHaveLength(3);
+    expect(legend.stops[0]).toContain('timid');
+    expect(legend.stops[2]).toContain('bold');
+  });
+});
+
+describe('toxicity', () => {
+  /** What the legible ramps put a flat, unreadable axis at. */
+  const INERT = liftToLuminance(toInt(DIVERGING_NEUTRAL), MEASUREMENT_LUMINANCE_FLOOR);
+
+  it('ramps the armed world over the p5–p95 window, like any other trait', () => {
+    const map = createColourMap(256);
+    const values = Array.from({ length: 100 }, (_unused, index) => index * 0.03);
+    resolveColours(map, makeSlice(values.map(() => ({}) as Row), values), 'toxicity', null, SIGNAL_CONFIG);
+    expect(map.effectiveMode).toBe('toxicity');
+    const span = map.span;
+    expect(span).not.toBeNull();
+    expect(span?.degenerate).toBe(false);
+    expect(map.tints[49]).toBe(
+      toInt(rampAt(SEQUENTIAL_AMBER, ((values[49] ?? 0) - (span?.low ?? 0)) / (span?.range ?? 1))),
+    );
+    expect(map.legend.description).toBe('toxicity (load), p5–p95 of the living');
+    expect(map.legend.stops).toHaveLength(2);
+  });
+
+  it('paints one flat neutral in a world with the aposematism axis off', () => {
+    // Measured off-arm at founding: p5–p95 spans 0.02–0.37 of standing genetic
+    // variance that nothing in that sim reads. Ramping it would show a
+    // chemical-defence axis the world does not have.
+    const values = [0.02, 0.14, 0.37];
+    const map = createColourMap(8);
+    resolveColours(map, makeSlice(values.map(() => ({}) as Row), values), 'toxicity', null, CONFIG);
+    expect(map.effectiveMode).toBe('toxicity');
+    expect(map.span).toBeNull();
+    expect([map.tints[0], map.tints[1], map.tints[2]]).toEqual([INERT, INERT, INERT]);
+    expect(map.legend.description).toContain('not running the aposematism axis');
+    expect(map.legend.stops).toEqual(['nothing to read: the ecology never looks at the trait']);
+  });
+
+  it('says "flat" rather than printing a ramp between two identical numbers', () => {
+    // An armed world before anyone has invented a toxin: the reading is real
+    // and it is zero, which is a different statement from a gradient.
+    const map = createColourMap(8);
+    resolveColours(map, makeSlice([{}, {}, {}], [0, 0, 0]), 'toxicity', null, SIGNAL_CONFIG);
+    expect(map.span?.degenerate).toBe(true);
+    expect(map.legend.stops).toEqual(['flat — every animal at 0.00']);
+    expect(new Set([map.tints[0], map.tints[1], map.tints[2]]).size).toBe(1);
+  });
+
+  it('falls back to identity until the slice carries the channel', () => {
+    const map = createColourMap(8);
+    resolveColours(map, makeSlice([{ hue: 10 }]), 'toxicity', null, SIGNAL_CONFIG);
+    expect(map.effectiveMode).toBe('identity');
+    expect(map.tints[0]).toBe(identityTint(10));
+  });
+});
+
 describe('legend', () => {
   it('prints the crude renderer text for every mode', () => {
     expect(buildLegend('identity', null, null, 6)).toEqual({
@@ -452,7 +577,7 @@ describe('legend', () => {
   });
 
   it('prints the p5–p95 window and unit for a trait ramp', () => {
-    expect(buildLegend('speedCap', { low: 1.25, range: 2 }, null, 6)).toEqual({
+    expect(buildLegend('speedCap', { low: 1.25, range: 2, degenerate: false }, null, 6)).toEqual({
       mode: 'speedCap',
       description: 'speedCap (wu/tick), p5–p95 of the living',
       stops: ['1.25 low', '3.25 high'],

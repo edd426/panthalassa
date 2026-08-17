@@ -10,6 +10,8 @@
  */
 
 import { describe, expect, it } from 'vitest';
+import type { DiscreteLocusId } from '../contracts/genome';
+import { CLADE_ARCHETYPES, DISCRETE_LOCI } from '../contracts/genome';
 import type { GroupCount, TraitSample } from '../contracts/stats';
 import type { TraitKey } from '../contracts/traits';
 import { TRAIT_KEYS } from '../contracts/traits';
@@ -45,6 +47,11 @@ interface RowSpec {
   readonly fstBarrier?: number | null;
   /** Absent by default: the recorder only fills `lifeHistory` with ontogeny on. */
   readonly lifeHistory?: TrendRow['lifeHistory'];
+  readonly byArchetype?: readonly number[];
+  /** Derived-allele share at every macro-locus at once; the ancestral share is 1 − this. */
+  readonly macroDerived?: number;
+  /** Absent by default: `null` on every row of a world with the aposematism axis off. */
+  readonly mimicryIndex?: number | null;
 }
 
 function traitSample(mean: number, sd: number): TraitSample {
@@ -55,6 +62,13 @@ function makeRow(spec: RowSpec): TrendRow {
   const traits = Object.fromEntries(
     TRAIT_KEYS.map((key) => [key, traitSample(key === 'size' ? (spec.sizeMean ?? 12) : 0, key === 'size' ? (spec.sizeSd ?? 1) : 1)]),
   ) as Record<TraitKey, TraitSample>;
+  const derived = spec.macroDerived ?? 0;
+  const discreteAlleleFreq = {} as Record<DiscreteLocusId, readonly number[]>;
+  for (const locus of DISCRETE_LOCI) {
+    discreteAlleleFreq[locus.id] = Array.from({ length: locus.alleleCount }, (_value, allele) =>
+      allele === 0 ? 1 - derived : derived / Math.max(1, locus.alleleCount - 1),
+    );
+  }
   const deaths = Object.fromEntries(DEATH_CAUSES.map((cause) => [cause, spec.deaths?.[cause] ?? 0])) as Record<
     DeathCause,
     number
@@ -66,7 +80,10 @@ function makeRow(spec: RowSpec): TrendRow {
     population,
     populationBySpecies: spec.bySpecies ?? [{ tag: 0, count: population }],
     populationByDeme: spec.byDeme ?? new Array<number>(DEME_CELLS).fill(0),
+    populationByArchetype:
+      spec.byArchetype ?? [population, ...new Array<number>(CLADE_ARCHETYPES.length - 1).fill(0)],
     traits,
+    discreteAlleleFreq,
     guilds: { predatorFraction: 0.5, filtererFraction: 0.5, meanAttack: 0.1, meanDefense: 0.2 },
     popgen: {
       neDemographic: 500,
@@ -79,6 +96,7 @@ function makeRow(spec: RowSpec): TrendRow {
     resources: { planktonTotal: 1000, kelpTotal: 500, meanTemperatureC: 18, climateOffsetC: 0 },
     deaths,
     ...(spec.lifeHistory === undefined ? {} : { lifeHistory: spec.lifeHistory }),
+    ...(spec.mimicryIndex === undefined ? {} : { mimicryIndex: spec.mimicryIndex }),
   };
 }
 
@@ -115,6 +133,15 @@ describe('pickIndices', () => {
   it('respects the point budget', () => {
     expect(pickIndices([ramp], 0, ramp.length, 400).length).toBeLessThanOrEqual(400);
     expect(pickIndices([ramp, ramp, ramp], 0, ramp.length, 400).length).toBeLessThanOrEqual(400);
+  });
+
+  it('counts the forced endpoints against the budget rather than on top of it', () => {
+    // The worst case for the cap: one column whose argmin and argmax differ in
+    // every bucket, so every bucket spends its full allowance and the two
+    // endpoints are the only thing left to overrun with.
+    const sawtooth = Array.from({ length: 5000 }, (_value, index) => (index % 2 === 0 ? index : -index));
+    expect(pickIndices([sawtooth], 0, sawtooth.length, 400).length).toBeLessThanOrEqual(400);
+    expect(pickIndices([sawtooth], 0, sawtooth.length, 1400).length).toBeLessThanOrEqual(1400);
   });
 
   it('preserves a one-row spike that striding would drop', () => {
@@ -298,6 +325,45 @@ describe('the store', () => {
     }
   });
 
+  it('reads a macro-locus as the share away from the ancestral allele', () => {
+    // The panel's whole claim is that every one of these lines starts at
+    // exactly 0, which is only true because these four loci are seeded
+    // homozygous-ancestral. A derived allele appearing is the event.
+    const store = createTrendStore(config);
+    ingestTrendRow(store, makeRow({ generation: 1 }));
+    ingestTrendRow(store, makeRow({ generation: 2, macroDerived: 0.25 }));
+    expect(store.macroDerived).toHaveLength(4);
+    for (const column of store.macroDerived) {
+      expect(column[0]).toBeCloseTo(0, 9);
+      expect(column[1]).toBeCloseTo(0.25, 9);
+    }
+  });
+
+  it('keeps the census by body plan aligned with the archetype order', () => {
+    const store = createTrendStore(config);
+    ingestTrendRow(store, makeRow({ generation: 1, byArchetype: [300, 80, 20] }));
+    expect(store.archetypes).toHaveLength(CLADE_ARCHETYPES.length);
+    expect(store.archetypes.map((column) => column[0])).toEqual([300, 80, 20]);
+  });
+
+  it('withholds the free-rider column until a row has actually carried one', () => {
+    const store = createTrendStore(config);
+    ingestTrendRow(store, makeRow({ generation: 1 }));
+    expect(store.mimicrySeen).toBe(false);
+    expect(store.mimicry).toEqual([null]);
+
+    ingestTrendRow(store, makeRow({ generation: 2, mimicryIndex: null }));
+    expect(store.mimicrySeen).toBe(false);
+
+    ingestTrendRow(store, makeRow({ generation: 3, mimicryIndex: 0.6 }));
+    expect(store.mimicrySeen).toBe(true);
+    expect(store.mimicry).toEqual([null, null, 0.6]);
+
+    resetTrendStore(store);
+    expect(store.mimicrySeen).toBe(false);
+    expect(store.mimicry).toEqual([]);
+  });
+
   it('pads life history with nulls until the recorder starts reporting it', () => {
     // Alignment, not politeness: every column is indexed by row against
     // `generation`, so a column that only started appending when the field
@@ -395,6 +461,28 @@ describe('panel construction', () => {
     }
   });
 
+  it('withholds the free-rider panel until a row has carried a reading', () => {
+    // Off-arm `mimicryIndex` is null on every row. An empty panel there reads
+    // as "no mimics", which is a measurement nobody took.
+    const quiet = populated();
+    const titles = (store: ReturnType<typeof createTrendStore>): string[] =>
+      allPanels(store).map((panel) => panel.title);
+    expect(titles(quiet)).not.toContain('Batesian free-riders');
+
+    const armed = populated();
+    ingestTrendRow(armed, makeRow({ generation: 41, mimicryIndex: 0.4 }));
+    expect(titles(armed)).toContain('Batesian free-riders');
+  });
+
+  it('shows the macro-loci and the body-plan census from the first row', () => {
+    // Unlike the free-rider panel these are never "not instrumented": the
+    // frequencies and the archetype census are on every row, and a run that
+    // has invented nothing is a real reading of exactly zero.
+    const panels = allPanels(populated()).map((panel) => panel.title);
+    expect(panels).toContain('macro-allele frequencies');
+    expect(panels).toContain('population by body plan');
+  });
+
   it('gives every panel a title, a note and at least one series', () => {
     const panels = allPanels(populated());
     expect(panels.length).toBeGreaterThan(6);
@@ -470,7 +558,19 @@ describe('panel construction', () => {
   it('thins a long run to the point budget on every panel', () => {
     const store = createTrendStore(config);
     for (let index = 1; index <= 12_000; index += 1) {
-      ingestTrendRow(store, makeRow({ generation: index * 0.25, population: 400 + (index % 37) }));
+      // Every column has to move, or the assertion below stops testing the
+      // thinning: a constant column has one argmin and one argmax, so its panel
+      // would legitimately come back as a two-point flat line.
+      ingestTrendRow(
+        store,
+        makeRow({
+          generation: index * 0.25,
+          population: 400 + (index % 37),
+          macroDerived: (index % 41) / 100,
+          mimicryIndex: (index % 17) / 40,
+          byArchetype: [400, index % 29, index % 31],
+        }),
+      );
     }
     for (const panel of allPanels(store)) {
       const data = panelData(store, panel, null);

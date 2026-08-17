@@ -17,7 +17,7 @@ import { SAMPLE_SLICE, SAMPLE_SLICE_STRIDE } from '../contracts/protocol';
 import { TRAIT_META } from '../contracts/traits';
 import type { SimConfig } from '../contracts/types';
 import { BASELINE, DIVERGING_COOL, DIVERGING_NEUTRAL, DIVERGING_WARM, INK_MUTED, SEQUENTIAL_AMBER } from '../app/palette';
-import { ABYSS_COLOUR, MAX_SLOTS, conspicuousnessSignal } from './contracts';
+import { ABYSS_COLOUR, MAX_SLOTS, boldnessSignal, conspicuousnessSignal, isInertMode } from './contracts';
 import type { ColourLegend, ColourMode, FieldRaster, SliceView } from './contracts';
 import { sampleRaster } from './fieldSampling';
 
@@ -288,6 +288,15 @@ export function speciesRingTint(tag: number): number {
 export interface PercentileSpan {
   readonly low: number;
   readonly range: number;
+  /**
+   * True when p5 and p95 were the same value and `range` is the substituted 1.
+   *
+   * The ramp is then a fiction — every animal lands in the bottom step — and
+   * the legend has to say "flat" rather than print two endpoints that imply a
+   * gradient. A young armed world where nothing has invented a toxin yet is
+   * the case this exists for.
+   */
+  readonly degenerate: boolean;
 }
 
 export interface ColourMap {
@@ -333,7 +342,8 @@ export function percentileSpan(map: ColourMap, values: Float32Array | null, coun
   scratch.sort();
   const low = scratch[Math.floor((count - 1) * 0.05)] ?? 0;
   const high = scratch[Math.floor((count - 1) * 0.95)] ?? low;
-  return { low, range: high - low > 1e-9 ? high - low : 1 };
+  const spread = high - low;
+  return spread > 1e-9 ? { low, range: spread, degenerate: false } : { low, range: 1, degenerate: true };
 }
 
 export function buildLegend(
@@ -341,6 +351,8 @@ export function buildLegend(
   span: PercentileSpan | null,
   temperature: FieldRaster | null,
   thermalReferenceC: number,
+  /** See {@link isInertMode}: the axis exists on the genome but this world does not read it. */
+  inert = false,
 ): ColourLegend {
   switch (mode) {
     case 'identity':
@@ -361,9 +373,37 @@ export function buildLegend(
       return { mode, description: 'diet share', stops: ['0.0 filterer', '0.5 generalist', '1.0 predator'] };
     case 'energy':
       return { mode, description: 'energy as a fraction of storage', stops: ['0% empty', '100% full'] };
+    case 'boldness':
+      // Named by both ends, because the sign is the reading and neither pole is
+      // "more": a timid animal is not a failed bold one, it is one living in
+      // the kelp. `exp(forageBoldness)` is the exposure multiplier, so ±1 is
+      // the e-fold the two stops quote.
+      return {
+        mode,
+        description: 'forageBoldness (log-multiplier) — time in open water vs under kelp cover',
+        stops: ['−1 timid, ×0.37 exposure', 'baseline', '+1 bold, ×2.7 exposure'],
+      };
     case 'speedCap':
-    case 'defense': {
+    case 'defense':
+    case 'toxicity': {
       const unit = TRAIT_META[mode].unit;
+      if (inert) {
+        return {
+          mode,
+          description: `${mode} (${unit}) — this world is not running the aposematism axis`,
+          stops: ['nothing to read: the ecology never looks at the trait'],
+        };
+      }
+      if (span !== null && span.degenerate) {
+        // One stop, not two identical ones: a ramp with both ends at the same
+        // number is not a ramp, and printing it as one would claim a gradient
+        // that is not there.
+        return {
+          mode,
+          description: `${mode} (${unit}), p5–p95 of the living`,
+          stops: [`flat — every animal at ${span.low.toFixed(2)}`],
+        };
+      }
       const low = span === null ? '—' : span.low.toFixed(2);
       const high = span === null ? '—' : (span.low + span.range).toFixed(2);
       return { mode, description: `${mode} (${unit}), p5–p95 of the living`, stops: [`${low} low`, `${high} high`] };
@@ -408,12 +448,16 @@ export function resolveColours(
   // pressed) falls back to identity rather than painting every dot one colour
   // and implying the population is uniform.
   const effective: ColourMode = mode !== 'identity' && mode !== 'energy' && usable === null ? 'identity' : mode;
-  const span = percentileSpan(map, usable, count);
+  // Read fresh off the config handed in, never cached: the tuning tools swap
+  // the config object mid-run and a stale toggle would keep painting the world
+  // the page was opened with.
+  const inert = isInertMode(effective, config);
+  const span = inert ? null : percentileSpan(map, usable, count);
 
   map.count = count;
   map.effectiveMode = effective;
   map.span = span;
-  map.legend = buildLegend(effective, span, temperature, thermalReferenceC);
+  map.legend = buildLegend(effective, span, temperature, thermalReferenceC, inert);
 
   // Identity keeps the crude renderer's floors; every measuring mode is lifted
   // so a faded animal is still countable against the abyss.
@@ -449,9 +493,21 @@ export function resolveColours(
         // convex efficiency makes that the worst place to be.
         tint = divergingTintLegible((traitValue - 0.5) * 2);
         break;
+      case 'boldness':
+        // Diverging and centred on the baseline, like adaptedness and diet:
+        // negative is an animal living under the kelp, positive one out in open
+        // water paying the predation bill for a bigger plate.
+        tint = divergingTintLegible(boldnessSignal(traitValue));
+        break;
       case 'speedCap':
       case 'defense':
-        tint = rampTintAt(amber, span === null ? 0.5 : (traitValue - span.low) / span.range);
+      case 'toxicity':
+        // One flat neutral for an axis this world does not read — the same mark
+        // for every animal, which is the truth, rather than a ramp over
+        // variance nothing is selecting on.
+        tint = inert
+          ? NEUTRAL_LEGIBLE
+          : rampTintAt(amber, span === null ? 0.5 : (traitValue - span.low) / span.range);
         break;
       case 'energy':
         tint = rampTintAt(amber, energyFraction);

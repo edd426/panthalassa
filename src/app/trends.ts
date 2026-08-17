@@ -35,6 +35,8 @@
  * (a four-band stack) and they are adjacent in the validated order.
  */
 
+import type { DiscreteLocus } from '../contracts/genome';
+import { CLADE_ARCHETYPES, DISCRETE_LOCI, FOUNDER_FIXED_DISCRETE_KINDS } from '../contracts/genome';
 import type { SampleRow } from '../contracts/stats';
 import type { SimConfig } from '../contracts/types';
 import { DEATH_CAUSES } from '../contracts/types';
@@ -96,16 +98,42 @@ export type TrendRow = Pick<
   | 'population'
   | 'populationBySpecies'
   | 'populationByDeme'
+  | 'populationByArchetype'
   | 'traits'
+  | 'discreteAlleleFreq'
   | 'guilds'
   | 'popgen'
   | 'resources'
   | 'deaths'
   // Optional in the contract and absent until the recorder fills it, which is
   // why every life-history column is nullable and its section only appears once
-  // a row has actually carried one.
+  // a row has actually carried one. `mimicryIndex` is gated the same way, and
+  // additionally reads `null` on any row where no hue bin is meaningfully toxic.
   | 'lifeHistory'
+  | 'mimicryIndex'
 >;
+
+/**
+ * The loci where a new allele is an *event* rather than a founding condition.
+ *
+ * These are exactly the kinds seeded homozygous-ancestral at founding, so
+ * every one of them starts at a derived share of precisely 0 and the moment a
+ * line leaves the floor is the moment a body plan, a life-history strategy or
+ * chemical defence was invented. Anything else in `discreteAlleleFreq` — the
+ * pigments, the preference modifiers, the neutral markers — is drawn uniformly
+ * at founding and drifts, which is a chart about drift and not about invention.
+ */
+const MACRO_LOCI: readonly DiscreteLocus[] = DISCRETE_LOCI.filter((locus) =>
+  FOUNDER_FIXED_DISCRETE_KINDS.includes(locus.kind),
+);
+
+/** Legend-length names for {@link MACRO_LOCI}; the schema labels are sentence-length. */
+const MACRO_LABEL: Readonly<Record<string, string>> = Object.freeze({
+  cladeMacroA: 'body plan A',
+  cladeMacroB: 'body plan B',
+  lifeHistoryMacro: 'life history',
+  toxinMacro: 'toxin',
+});
 
 /**
  * Past this many species the stack stops splitting and the tail folds into one
@@ -147,6 +175,14 @@ export interface TrendStore {
   readonly fstBarrier: (number | null)[];
   /** Deme grid summed into columns, west → east: the axis a vertical ridge splits. */
   readonly demeColumns: number[][];
+  /** Census by body plan, indexed against `CLADE_ARCHETYPES`. */
+  readonly archetypes: number[][];
+  /** Per {@link MACRO_LOCI}: the share of gene copies away from the ancestral allele. */
+  readonly macroDerived: number[][];
+  /** Batesian free-rider share in the most-toxic hue bin; `null` when no bin is toxic. */
+  readonly mimicry: (number | null)[];
+  /** Whether any row has carried a real `mimicryIndex`; the panel is absent until one does. */
+  mimicrySeen: boolean;
   /** Deaths per generation, not per row: rows are a sampling interval, generations are the unit. */
   readonly deaths: readonly number[][];
   readonly plankton: number[];
@@ -197,6 +233,10 @@ export function createTrendStore(config: SimConfig): TrendStore {
     fstDemes: [],
     fstBarrier: [],
     demeColumns: Array.from({ length: demeCols }, () => [] as number[]),
+    archetypes: CLADE_ARCHETYPES.map(() => [] as number[]),
+    macroDerived: MACRO_LOCI.map(() => [] as number[]),
+    mimicry: [],
+    mimicrySeen: false,
     deaths: DEATH_CAUSES.map(() => [] as number[]),
     plankton: [],
     kelp: [],
@@ -234,6 +274,10 @@ export function resetTrendStore(store: TrendStore): void {
   store.fstDemes.length = 0;
   store.fstBarrier.length = 0;
   for (const column of store.demeColumns) column.length = 0;
+  for (const column of store.archetypes) column.length = 0;
+  for (const column of store.macroDerived) column.length = 0;
+  store.mimicry.length = 0;
+  store.mimicrySeen = false;
   for (const column of store.deaths) column.length = 0;
   store.plankton.length = 0;
   store.kelp.length = 0;
@@ -262,6 +306,26 @@ export function ingestTrendRow(store: TrendStore, row: TrendRow): void {
     trait.upper.push(sample.mean + sample.sd);
     trait.lower.push(sample.mean - sample.sd);
   }
+
+  for (let index = 0; index < CLADE_ARCHETYPES.length; index += 1) {
+    store.archetypes[index]?.push(row.populationByArchetype[index] ?? 0);
+  }
+
+  // 1 − freq(ancestral) rather than one line per allele: which derived allele
+  // won is a detail, that any of them did is the event. A locus the recorder
+  // did not report reads 0, which is also what "still entirely ancestral" is —
+  // and for these four loci that is the honest default, because a run cannot
+  // reach a derived allele without a `sweepCrossedHalf` or founding event in
+  // the feed to go with it.
+  for (let index = 0; index < MACRO_LOCI.length; index += 1) {
+    const locus = MACRO_LOCI[index];
+    const ancestral = locus === undefined ? 1 : (row.discreteAlleleFreq[locus.id]?.[0] ?? 1);
+    store.macroDerived[index]?.push(1 - ancestral);
+  }
+
+  const mimicry = row.mimicryIndex ?? null;
+  if (mimicry !== null) store.mimicrySeen = true;
+  store.mimicry.push(mimicry);
 
   store.waterTempC.push(row.resources.meanTemperatureC);
   store.attack.push(row.guilds.meanAttack);
@@ -374,7 +438,11 @@ export function pickIndices(
   }
 
   const perBucket = Math.max(1, columns.length * 2);
-  const buckets = Math.max(1, Math.floor(maxPoints / perBucket));
+  // The two endpoints are reserved out of the budget rather than added on top
+  // of it: they are forced in below, and without the reservation a panel whose
+  // single column has a distinct argmin and argmax in every bucket comes back
+  // with `maxPoints + 2` points and quietly overruns the cap it was given.
+  const buckets = Math.max(1, Math.floor((maxPoints - 2) / perBucket));
   const width = count / buckets;
   const keep = new Set<number>([start, end - 1]);
 
@@ -526,6 +594,19 @@ export function sections(store: TrendStore): readonly SectionSpec[] {
     column,
   }));
 
+  const archetypeBands: SeriesSpec[] = CLADE_ARCHETYPES.map((archetype, index) => ({
+    label: archetype,
+    colour: slot(index),
+    column: store.archetypes[index] ?? [],
+  }));
+
+  const macroSeries: SeriesSpec[] = MACRO_LOCI.map((locus, index) => ({
+    label: MACRO_LABEL[locus.id] ?? locus.id,
+    colour: slot(index),
+    column: store.macroDerived[index] ?? [],
+  }));
+
+
   const deathBands: SeriesSpec[] = DEATH_CAUSES.map((cause, index) => ({
     label: cause,
     colour: slot(index),
@@ -560,15 +641,49 @@ export function sections(store: TrendStore): readonly SectionSpec[] {
       ]
     : [];
 
-  // Both axes are off the world view by design — toxicity is kept off the slice
-  // entirely, and conspicuousness only tints in identity mode — so these charts
-  // are where the aposematism story is actually legible.
-  const signalPanels = [traitPanel(store, 'toxicity'), traitPanel(store, 'conspicuousness')].filter(
-    (panel): panel is PanelSpec => panel !== null,
-  );
+  // The world view shows these two only under a mode the watcher has to go
+  // looking for — `c → toxicity`, and conspicuousness only as saturation in
+  // identity mode — so these charts are where the aposematism story is legible
+  // without hunting for it.
+  //
+  // The free-rider share is gated on having been measured, like life history:
+  // off-arm it is `null` on every row, and an empty panel promising a reading
+  // nobody is taking reads as "no mimics" rather than as "not instrumented".
+  const signalPanels = [
+    traitPanel(store, 'toxicity'),
+    traitPanel(store, 'conspicuousness'),
+    ...(store.mimicrySeen
+      ? [
+          {
+            title: 'Batesian free-riders',
+            note: 'share of the most-toxic hue bin below the median toxin load · a mimic wears the warning without paying for it',
+            series: [{ label: 'free-riders', colour: SERIES_1, column: store.mimicry }],
+            zeroBased: true,
+          } satisfies PanelSpec,
+        ]
+      : []),
+  ].filter((panel): panel is PanelSpec => panel !== null);
 
   return [
     { title: 'census', panels: [populationPanel] },
+    {
+      title: 'inventions — the macro-loci',
+      panels: [
+        {
+          title: 'macro-allele frequencies',
+          note: 'share of gene copies away from the ancestral allele · every one of these starts at exactly 0',
+          series: macroSeries,
+          zeroBased: true,
+        },
+        {
+          title: 'population by body plan',
+          note: 'stacked · the two derived archetypes exist only downstream of a clade macro-mutation',
+          series: archetypeBands,
+          stacked: true,
+          zeroBased: true,
+        },
+      ],
+    },
     { title: 'the focal traits', panels: traitPanels },
     ...(lifePanels.length === 0 ? [] : [{ title: 'life history', panels: lifePanels }]),
     ...(signalPanels.length === 0 ? [] : [{ title: 'the signal axis', panels: signalPanels }]),
