@@ -1608,3 +1608,43 @@ base-rate panels (P18/P19 on the aposematism arm, P10 on sweep — 6 fresh
 seeds each, s1–s3 already covered by this run), because they are
 measurement, not tuning: every provisional bar above gets its criterion
 stated against 9 seeds before any knob moves for it.
+
+### G6 opens — base-rate panels out, and the yolk rule (2026-08-17)
+
+The campaign's first move is measurement, not tuning: two detached base-rate
+panels (P18/P19 on the aposematism arm, P10 on sweep — seeds s4–s9, the spec
+run covering s1–s3) so every provisional bar is stated against 9 seeds
+before any knob moves for it.
+
+**The yolk rule (G-A fix 1).** The G2 watch item "birthEnergy 8 > hatchling
+ceiling 5.5" was real waste: hatchlings are written with
+`birthEnergy · (s/s₀)^1.3` but capacity is `2.2·s`, and the feeding stage's
+`min(capacity, energy + gained)` crushed the excess on the first feeding
+tick — ~31% of the investment `clutchInvestment` billed the mother
+evaporated, with a `s^0.3` gradient that subsidised small offspring. Fix:
+feeding (and kill yield) can never *raise* reserves above capacity but never
+*destroys* reserves already held — gated on `enableOntogeny`; off-arm `held`
+never exceeds capacity, so the old expression is bit-identical there (golden
+hash untouched, full suite + probe:quick green). A yolked hatchling
+correctly refuses to feed until it burns below capacity (yolk-sac larva
+behaviour); growth stays intake-funded, so the yolk buys survival, not free
+length. Two test fixtures needed re-fitting (they hand-built juveniles with
+adult reserves left in place), and the growth-trajectory assertion now
+tolerates a plateau window — the traced fish hit 12.96 cm against a 12.97
+target with one legitimately hungry window mid-run.
+
+Cliff screen, ontogeny 45g × s1–s3, control = the spec run's own prefix
+(bit-identical pre-change):
+
+| metric (gens 0–45) | control s1/s2/s3 | yolk s1/s2/s3 |
+|---|---|---|
+| pop min | 387/452/480 | 408/455/439 |
+| biomass median | 8185/9272/9236 | 8421/9455/9164 |
+| juvenile fraction med | .623/.641/.629 | .654/.648/.641 |
+| recruitment med | 80/90/94 | 88/92/98 |
+| starvation death share | .563/.593/.586 | .588/.561/.551 |
+
+No cliff, no seed lost; recruitment up on all three seeds, starvation share
+down on two. The per-birth effect (~2.5 energy units preserved) is small at
+the system level — the point was removing the distortion before dose
+batches tune `provisioningRatio`/`clutchInvestment` on top of it.

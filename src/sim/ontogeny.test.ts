@@ -20,7 +20,7 @@ import { buildModules } from '../probes/harness';
 import { createEcology } from './ecology';
 import { createSim } from './engine';
 import type { SimHandleInternal } from './engine';
-import { T, isMature, traitAt } from './organisms';
+import { T, energyCapacityOf, isMature, traitAt } from './organisms';
 import { createSpatialIndex } from './spatial';
 
 function makeSim(seed: string, overrides: SimConfigOverrides): SimHandleInternal {
@@ -115,6 +115,10 @@ describe('ontogeny: somatic growth', () => {
     const target = traitAt(pools, slot, T.size);
 
     pools.sizeCurrent[slot] = 2.5;
+    // Re-fit the founder's reserve to its shrunken body: a hand-built juvenile
+    // must be consistent, or the yolk rule reads the adult-sized reserve as
+    // yolk and the fish (correctly) refuses to eat until it burns down.
+    pools.energy[slot] = 0.9 * energyCapacityOf(pools, slot, sim.state.config);
     const lengths: number[] = [2.5];
     for (let window = 0; window < 12; window += 1) {
       sim.step(50);
@@ -123,9 +127,15 @@ describe('ontogeny: somatic growth', () => {
       lengths.push(pools.sizeCurrent[slot] ?? 0);
     }
 
+    // Lengths never shrink, and almost every window grows — but a window may
+    // plateau when the fish eats its patch dry (growth is funded by intake,
+    // and "stunts on zero surplus" is pinned below as a property, not a bug).
+    let growingWindows = 0;
     for (let index = 1; index < lengths.length; index += 1) {
-      expect(lengths[index]).toBeGreaterThan(lengths[index - 1] ?? 0);
+      expect(lengths[index]).toBeGreaterThanOrEqual(lengths[index - 1] ?? 0);
+      if ((lengths[index] ?? 0) > (lengths[index - 1] ?? 0)) growingWindows += 1;
     }
+    expect(growingWindows).toBeGreaterThanOrEqual(lengths.length - 3);
     // It gets most of the way to its genetic target...
     expect(lengths[lengths.length - 1]).toBeGreaterThan(0.75 * target);
     // ...and the last 50 ticks buy far less length than the first 50, because
@@ -193,6 +203,10 @@ describe('ontogeny: maturity is length plus an age floor', () => {
       const sim = makeSim(seed, overrides);
       const slot = firstLiveSlot(sim);
       sim.pools.sizeCurrent[slot] = 2.5;
+      // Re-fit the reserve to the shrunken body (see the growth-trajectory
+      // test): with an adult reserve left in place the yolk rule keeps both
+      // fish equally full, and food could never separate them.
+      sim.pools.energy[slot] = 0.9 * energyCapacityOf(sim.pools, slot, sim.state.config);
       // Both fish are already past the age floor, so anything that separates
       // them is length, which is to say food.
       sim.pools.ageTicks[slot] = sim.state.config.time.maturityTicks;

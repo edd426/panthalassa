@@ -1041,7 +1041,19 @@ class PanthalassaSim implements SimHandleInternal {
       if ((pools.alive[slot] ?? 0) === 0) continue;
       const gained = this.ecology.applyFeeding(state, slot, rng);
       const capacity = energyCapacityOf(pools, slot, config);
-      pools.energy[slot] = Math.min(capacity, (pools.energy[slot] ?? 0) + gained);
+      const held = pools.energy[slot] ?? 0;
+      const fed = Math.min(capacity, held + gained);
+      // Yolk rule (ontogeny only): feeding never raises reserves above
+      // capacity, but also never destroys reserves already held — a hatchling
+      // provisioned past its structural ceiling keeps the yolk and burns it
+      // down. Without this the first feeding tick deleted the ~30% of birth
+      // energy above `maxEnergyPerSize · offspringSize`, silently discounting
+      // the investment `clutchInvestment` had billed the mother, with a
+      // size-dependent gradient (∝ s^(provisionExponent−1)) that subsidised
+      // small offspring. Off-arm `held` never exceeds capacity (capacity is
+      // fixed per organism and every inflow clamps), so the old expression is
+      // kept there verbatim.
+      pools.energy[slot] = config.toggles.enableOntogeny ? Math.max(held, fed) : fed;
     }
   }
 
@@ -1137,10 +1149,12 @@ class PanthalassaSim implements SimHandleInternal {
 
       if (predator >= 0 && predator < pools.capacity && (pools.alive[predator] ?? 0) === 1) {
         const capacity = energyCapacityOf(pools, predator, config);
-        pools.energy[predator] = Math.min(
-          capacity,
-          (pools.energy[predator] ?? 0) + (this.kills.yields[index] ?? 0),
-        );
+        const held = pools.energy[predator] ?? 0;
+        const fed = Math.min(capacity, held + (this.kills.yields[index] ?? 0));
+        // Same yolk rule as stageFeeding: a kill's yield cannot raise the
+        // predator above capacity, and (ontogeny only) cannot crush yolk a
+        // juvenile predator still carries.
+        pools.energy[predator] = config.toggles.enableOntogeny ? Math.max(held, fed) : fed;
       }
     }
 
