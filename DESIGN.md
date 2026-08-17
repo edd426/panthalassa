@@ -1818,3 +1818,28 @@ Consequences, each decided and recorded:
 The campaign closes on the D5 lesson: a **fresh-seed P1 panel** (f1–f6,
 never used in tuning) — 6/6 PASS, suite PASS. Determinism holds on seeds
 the campaign never saw.
+
+## The clade-founding spam bug (2026-08-17)
+
+The first user-run bench experiment found a latent event bug within the
+hour — walls up, a radial-drifter cohort founded, and the station log
+filled with "clade founded" lines on ordinary births (clade ids past 500
+against 14 living clades). The emission check compared a newborn's
+expressed archetype against its **mother's only** (`writeOrganism`), so
+once two archetypes interbreed, plain Mendelian segregation — a
+heterozygous drifter mother throwing an undulator, a cross-archetype
+pair splitting — fired a founding event and burned a fresh clade id per
+such birth. Unobservable before the bench: a spontaneous macro-mutation
+is rare enough that two interbreeding archetypes almost never coexisted.
+
+Fix (engine only): births carry both parents' archetype and clade; a
+child expressing the *other* parent's plan inherits that parent's clade,
+and a founding fires only for an archetype **neither parent** expresses.
+Founders and god-tool arrivals pass the single parent twice, so an
+edited macro-locus still founds (the bench cohort still pings 12×, one
+per individual — a deliberate act, one burst). Emergent recessive
+combinations expressing a plan neither parent shows still count as
+foundings, which is the honest reading. No behavioural consumers of
+`cladeId` exist, so trajectories are untouched; P11 reports founding
+counts in detail only. Gates: typecheck/lint/`npm test` green,
+`probe:quick` exit 0 (P18/P19 short-run WARNs unchanged).

@@ -215,6 +215,8 @@ interface PendingBirth {
   readonly fatherId: OrganismId;
   readonly parentArchetype: CladeArchetype;
   readonly parentCladeId: number;
+  readonly fatherArchetype: CladeArchetype;
+  readonly fatherCladeId: number;
   readonly speciesTag: number;
   readonly x: number;
   readonly y: number;
@@ -549,6 +551,8 @@ class PanthalassaSim implements SimHandleInternal {
         y,
         parentArchetype: ANCESTRAL_ARCHETYPE,
         parentCladeId: 0,
+        fatherArchetype: ANCESTRAL_ARCHETYPE,
+        fatherCladeId: 0,
         speciesTag: 0,
         rng,
         ageTicks: age,
@@ -586,6 +590,13 @@ class PanthalassaSim implements SimHandleInternal {
       y: number;
       parentArchetype: CladeArchetype;
       parentCladeId: number;
+      /**
+       * The other parent's body plan and clade. For founders and god-tool
+       * arrivals — which have no second parent — pass the mother's values
+       * again, so the founding check degrades to the single-parent case.
+       */
+      fatherArchetype: CladeArchetype;
+      fatherCladeId: number;
       speciesTag: number;
       rng: SeededRng;
       ageTicks: number;
@@ -618,23 +629,33 @@ class PanthalassaSim implements SimHandleInternal {
     pools.traitsLatent.set(phenotype.traitsLatent, base);
     pools.traitsGenotypic.set(phenotype.genotypicValues, base);
 
+    // A clade is founded only by an archetype *neither* parent expresses.
+    // Mendelian segregation — a heterozygous drifter mother throwing an
+    // undulator, a cross-archetype pair splitting down the middle — hands the
+    // child whichever parent's clade matches its body plan. Without the
+    // father check, two interbreeding archetypes announce a "founding" on
+    // ordinary births and burn a clade id each time.
     let cladeId = spec.parentCladeId;
     if (phenotype.archetype !== spec.parentArchetype) {
-      cladeId = state.nextCladeId;
-      state.nextCladeId += 1;
-      if (spec.emitCladeFounding) {
-        const event: CladeFoundingEvent = {
-          kind: 'cladeFounding',
-          tick: state.tick,
-          cladeId,
-          parentCladeId: spec.parentCladeId,
-          archetype: phenotype.archetype,
-          parentArchetype: spec.parentArchetype,
-          founderId: spec.id,
-          x: spec.x,
-          y: spec.y,
-        };
-        state.events.push(event);
+      if (phenotype.archetype === spec.fatherArchetype) {
+        cladeId = spec.fatherCladeId;
+      } else {
+        cladeId = state.nextCladeId;
+        state.nextCladeId += 1;
+        if (spec.emitCladeFounding) {
+          const event: CladeFoundingEvent = {
+            kind: 'cladeFounding',
+            tick: state.tick,
+            cladeId,
+            parentCladeId: spec.parentCladeId,
+            archetype: phenotype.archetype,
+            parentArchetype: spec.parentArchetype,
+            founderId: spec.id,
+            x: spec.x,
+            y: spec.y,
+          };
+          state.events.push(event);
+        }
       }
     }
 
@@ -1302,6 +1323,8 @@ class PanthalassaSim implements SimHandleInternal {
 
       const parentArchetype = archetypeFromCode(pools.archetype[slot] ?? 0);
       const parentCladeId = pools.cladeId[slot] ?? 0;
+      const fatherArchetype = archetypeFromCode(pools.archetype[male] ?? 0);
+      const fatherCladeId = pools.cladeId[male] ?? 0;
       const speciesTag = pools.speciesTag[slot] ?? 0;
       const mx = pools.x[slot] ?? 0;
       const my = pools.y[slot] ?? 0;
@@ -1321,6 +1344,8 @@ class PanthalassaSim implements SimHandleInternal {
           fatherId,
           parentArchetype,
           parentCladeId,
+          fatherArchetype,
+          fatherCladeId,
           speciesTag,
           x: blocked ? mx : bx,
           y: blocked ? my : by,
@@ -1357,6 +1382,8 @@ class PanthalassaSim implements SimHandleInternal {
         y: pending.y,
         parentArchetype: pending.parentArchetype,
         parentCladeId: pending.parentCladeId,
+        fatherArchetype: pending.fatherArchetype,
+        fatherCladeId: pending.fatherCladeId,
         speciesTag: pending.speciesTag,
         rng,
         ageTicks: 0,
@@ -1703,6 +1730,10 @@ class PanthalassaSim implements SimHandleInternal {
         y: py,
         parentArchetype: source === NO_SLOT ? ANCESTRAL_ARCHETYPE : archetypeFromCode(pools.archetype[source] ?? 0),
         parentCladeId: source === NO_SLOT ? 0 : (pools.cladeId[source] ?? 0),
+        // No second parent: repeating the source's values keeps the founding
+        // check single-parent, so an edited macro-locus still founds a clade.
+        fatherArchetype: source === NO_SLOT ? ANCESTRAL_ARCHETYPE : archetypeFromCode(pools.archetype[source] ?? 0),
+        fatherCladeId: source === NO_SLOT ? 0 : (pools.cladeId[source] ?? 0),
         speciesTag: source === NO_SLOT ? 0 : (pools.speciesTag[source] ?? 0),
         rng,
         ageTicks: config.time.maturityTicks,
