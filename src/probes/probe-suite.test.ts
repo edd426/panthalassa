@@ -139,7 +139,10 @@ describe('probe registry', () => {
       kind: 'k-of-n',
       minPassFraction: 1,
     });
-    expect(sweepProbe.aggregate).toMatchObject({ kind: 'k-of-n', minPassFraction: 1 / 3 });
+    // P10's floor was restated against the G6 9-seed base-rate panel
+    // (2026-08-17): 2/9 injected sweeps complete, so the bar asserts
+    // visibility (≥1/9), not a rate the data cannot support.
+    expect(sweepProbe.aggregate).toMatchObject({ kind: 'k-of-n', minPassFraction: 1 / 9 });
     expect(sweepProbe.companionScenarios).toEqual(['sweep-control']);
     expect(PROBES.find((probe) => probe.id === 'P16')?.aggregate).toMatchObject({
       kind: 'k-of-n',

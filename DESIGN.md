@@ -1674,3 +1674,43 @@ spec batch runs three doses × s1–s3 at 300 generations: control 0.88/−4.45
 (fresh — the spec run's ontogeny series is pre-yolk and no longer control),
 0.55/−4.45, 0.45/−4.45. Logit −3.9 held in reserve (indistinct at 45g).
 Adjudication row follows when the batch lands.
+
+### G6 — the base-rate panels land; three criteria restated (2026-08-17)
+
+Both detached panels complete (seeds s4–s9 at spec length; s1–s3 from the
+spec run make the nine). The panels ran the aposematism and sweep arms with
+ontogeny off, so the concurrent yolk-rule commit does not touch these
+numbers.
+
+**P18 — coupling base rate 2/9.** Selection clears the analytic null
+decisively on s1 (r 0.435) and s4 (0.427); s5 is marginal (0.197); six
+seeds sit at or below the null, one negative. The aposematism *bootstrap*
+(toxic ring via q63 pleiotropy) is near-universal — rings persisted on 6/9
+final samples — but selection-built coupling is a ~1-in-4 event at current
+knobs. The across-seed floor moves 1/3 → 0.2 (just under 2/9); at the
+suites' 3 seeds behaviour is unchanged.
+
+**P19 — cycle base rate 0/9; precursors universal.** No seed completed a
+fill-and-empty cycle, and the free-rider fraction's ceiling is remarkably
+tight: peaks 0.530–0.590 on all nine seeds, just under the 0.6 detector
+bar. Toxic rings persisted in 78–100% of samples. Restated per the P16
+ruling: the probe now asserts the precursor state (free-rider peak ≥ 0.50,
+ring persistence ≥ 0.75 — both just under 9-seed achieved minima, with a
+2/3 across-seed floor under the achieved 9/9); the cycle count is reported,
+not asserted, until G-B tuning demonstrates one. The tight free-rider
+ceiling is itself a finding: mimicry load saturates near 55% without
+crushing the ring, which points the G-B batch at the cost knobs
+(`toxinMetabolicCostPerTick`, `toxicBinFloor`) rather than the detector.
+
+**P10 — sweep completion base rate 2/9, neutral false-positive 1/9.** Two
+injected +σ alleles complete (s4 to fixation crossing 0.5 in 29
+generations, s5 crossing in 61); the other seven die by drift from their
+~3×10⁻⁴ start — honest population genetics. The neutral companion crossed
+0.5 by drift on s5 (1.81 SD at Ne 700), and panel neutral |z| spanned
+0.29–3.44, so the drift reading stays reported-not-asserted. The
+across-seed floor moves 1/3 → 1/9: the probe asserts the machinery is
+*visible*, not a completion rate the data cannot support.
+
+All three restatements ratchet against measured 9-seed base rates with
+provenance in the probe sources; the registry pin was updated in the same
+change (it exists to force exactly this deliberate step).
