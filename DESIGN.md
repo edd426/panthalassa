@@ -1555,3 +1555,56 @@ predator guild, 8-26 expressed-diet predators (G6 watch; P9 would likely
 read red there); recorder's pre-existing cached this.config (small fix,
 next probes/stats touch); OrganismDump lacking sizeCurrent/maturity (next
 protocol revision, with the inspector-refresh case).
+
+### G-wave spec-length adjudication — the wave's exit gate goes green (2026-08-17)
+
+`runs/full-gwave-impl.log` (report `runs/full-075e7b19-aff50f3b27-report.json`,
+8.6 h detached): **suite WARN — every gate green, including the restated P3 on
+all three baseline seeds** (s1 0.998, s2 1.00, s3 1.00 against ≥ 0.990). The
+G0-run gate red is closed by the criterion the adjudication prescribed, and
+the criterion is demonstrably doing work in both directions:
+
+- **s3 passes as the artifact it was ruled to be**: 100% of samples in the
+  biomass band, 0.7% cap contact, 10,843 of 910,154 attempted births dropped
+  (1.19%, against the 2% tolerance) — the exact profile the tolerance was
+  derived from. A cap-and-starve seed would still fail on drops.
+- **The band's edges bite**: s1's 0.9975 comes from real ceiling exceedances
+  (biomass max 69,301 vs ceiling 62,000), not slack — and it equals, to the
+  digit, the in-band fraction the orchestrator derived independently from the
+  *G0 run's* s1 series. That match is also the off-arm bit-identity proof:
+  two runs, five landed packages apart, same baseline trajectories.
+- **The only off-arm value shifts are instrument composition, not dynamics.**
+  P6 (0.875→0.897 on s1) and P14 (0.206→0.200 on s1) moved because the v1.7
+  genome's growth changed the denominators — the neutral-marker set P14/P6
+  read grew from 4 to 6 loci and the quant-locus count grew with the dark
+  arms. Statuses unchanged in kind; P14-s3 still rides its 0.10 floor
+  (0.099 vs 0.097).
+
+First spec-length arm data (G6's reference set):
+
+- **P17 (ontogeny) 2/3**: length CV 0.93–1.11 (the 0.42 ratchet is now far
+  under achieved — G6 should re-ratchet), juvenile fraction ~0.70, emergent
+  age at maturity ~713 ticks. s3's WARN is the thin-predator-guild watch item
+  made visible: 18.8% kill-window overlap from a 20-predator guild.
+- **P18 (aposematism) 1/3** (across-seed 1/3 ≥ 1/3 PASS): s1's genotypic
+  r 0.435 clears the analytic authored-only null (0.163 + 3 SE) — on that
+  seed *selection* built the coupling. s2 collapsed to 0 toxic hue bins;
+  s3 held 12 toxic bins but r 0.075 below null. The bootstrap is real but
+  seed-contingent at spec length — exactly the base-rate question the 9-seed
+  panel exists to answer.
+- **P19 (mimicry cycle) 0/3 completed cycles**, but the precursors are all
+  present: free-rider fraction peaks 0.54–0.55 (provisional bar 0.6) and a
+  toxic ring persists through the whole run on 2/3 seeds. Thresholds remain
+  PROVISIONAL pending the panel.
+- **P10 on neutralD**: 0/3 at the provisional ≥ 0.5 bar with drift SDs now
+  reported honestly. Meaning changed by design (crash-neutral marker); the
+  bar needs the same base-rate treatment.
+- **P12 8.74e5** — consistent with the recorded post-G1 quiet level
+  (8.7–8.9e5); the 9.0e5 bar predates G1's real 2–3% cost. Ratchet decision
+  belongs to G6, not to this adjudication.
+
+**Verdict: Wave 1 exits implementation verified.** G6 opens with the two
+base-rate panels (P18/P19 on the aposematism arm, P10 on sweep — 6 fresh
+seeds each, s1–s3 already covered by this run), because they are
+measurement, not tuning: every provisional bar above gets its criterion
+stated against 9 seeds before any knob moves for it.

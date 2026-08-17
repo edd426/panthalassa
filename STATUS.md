@@ -14,46 +14,40 @@ discriminator phase._
 
 ## Resume HERE
 
-**G0 SPEC RUN ADJUDICATED (2026-08-16 afternoon): G0/G1 verified, G2
-launched.** `runs/full-g0.log`: suite FAIL on one gate — P3 baseline-s3
-0.954, the population's small-body trajectory (late size 14.9 vs 21.5)
-pushing headcount peaks into the 4096 cap while *biomass sits below the
-baseline envelope*. Adjudicated as the headcount-band artifact the wave
-design pre-named (§4 G-A: "the fix is not a bigger cap; P3 should be
-restated in biomass" — a user-approved §9 decision, scheduled in G4). No
-distributional signature (seed sizes/diets moved both directions); all
-seeds alive at 300 gens; P4 improved to PASS on s1/s2. Full record:
-DESIGN.md "G0 spec-length adjudication". Watch item for G4: the restated
-P3 must keep an explicit cap-contact criterion (~9% of late s3 births were
-cap-clipped — that much regulation-by-cap is why the criterion stays).
-**G2 LANDED (0c2042c)**: juveniles/growth/genetic clutches/priced
-cannibalism; acceptance probe re-run by orchestrator, exit 0; record in
-DESIGN.md "G2 — ontogeny lands" (incl. the two G6 watch items: birthEnergy
-vs hatchling ceiling, conspecific damper pre-species-split; and G4's
-realised-length series debt). Contract follow-ups v1.7.1 (sizeCurrent on
-OrganismPools, d158b51) and v1.7.2 ('toxin' death cause, ac1c6e7). Quiet
-P12 done: 8.7–8.9e5, G1 costs ~2–3% real (DESIGN.md). **G3 LANDED (68b47b1)**: toxin as post-kill penalty, hue-bin avoidance
-statistic, signal costs/benefits, invention events; probe re-run exit 0;
-record in DESIGN.md "G3 — aposematism lands" (headline: the bootstrap
-fires inside 45 generations on 2/3 seeds — toxicity to 1.33, conspicuous-
-ness to +1.69). Contracts v1.8 landed (slice 15→17: lifeStage +
-conspicuousness). **G4 AND G5 BOTH LANDED (2731382, afdda35) — Wave 1's implementation
-phase is CLOSED.** All five packages (G0/G1/G2/G3 + G4/G5) committed,
-every acceptance probe re-run by the orchestrator, tree clean. P3 is now
-a biomass gate ([4000, 62000] cm, 2%-drop tolerance — derivations
-independently re-computed and reproduced exactly); the standing G0-run s3
-red resolves as the headcount artifact. Records: DESIGN.md "G4 + G5
-land". **A spec-length probe:full is running detached**
-(runs/full-gwave-impl.log, pid 18698, own pgid, persistent Monitor armed;
-FULL_SCENARIOS now includes the ontogeny and aposematism arms, so this
-run is both the restated-P3 confirmation at spec length AND G6's
-reference data). NEXT: adjudicate it, then the **G6 tuning campaign**
-(orchestrator-run: cliff-screen every knob 45g×3s, G-A dose batches,
-sizeRatioOptimum/baseLogit pair, P19+P10 9-seed base-rate panels, G-B
-last, biomass band re-derivation before ontogeny defaults on; wave ends
-with a fresh-seed P1 panel). Glass reviews owed at next display
-availability: R5 morphology divergence + G5 juveniles/signals (needs
-?ontogeny=1&aposematism=1 URL flags; default URL renders as R5).
+**WAVE 1 IS VERIFIED END-TO-END (2026-08-17): the spec-length probe:full
+adjudicated GREEN-AT-GATES.** `runs/full-gwave-impl.log` (8.6 h): suite
+WARN, **restated P3 passes on all three baseline seeds** — the G0-run s3
+gate red is closed by the criterion the adjudication prescribed, and the
+criterion bites both ways (s3 passes at 1.19% dropped births vs the 2%
+tolerance; s1's 0.998 is real ceiling exceedance, and it matches the
+orchestrator's independent derivation from the *G0 run's* series to the
+digit — which is also the off-arm bit-identity proof across all five
+packages). Only off-arm value shifts are instrument composition (P6/P14
+denominators grew with the genome). First spec-length arm data: P17 2/3
+(CV 0.93–1.11, ratchet 0.42 now far under achieved — re-ratchet in G6;
+s3 warn = the thin-predator-guild watch, 20 predators, 18.8% kill-window
+overlap), P18 1/3 (s1 genotypic r 0.435 clears the 0.163 analytic null —
+selection did it; seed-contingent otherwise), P19 0 cycles but precursors
+present (free-rider peak ~0.54, persistent toxic rings 2/3 seeds), P10
+0/3 on neutralD at its provisional bar. Full record: DESIGN.md "G-wave
+spec-length adjudication". All five packages (G0/G1/G2/G3 + G4/G5)
+committed and probe-verified; contracts at v1.8.
+
+**THE G6 TUNING CAMPAIGN IS OPEN.** First move (measurement before
+tuning): the two 9-seed **base-rate panels** running detached — P18/P19
+on the aposematism arm and P10 on sweep, 6 fresh seeds each (s4–s9;
+s1–s3 covered by the spec run). Every provisional bar (P19 0.6, P10 0.5,
+P18 across-seed) gets stated against its panel before any knob moves for
+it. Then, per the recorded plan: G-A dose batches (birthEnergy 8 vs
+hatchling ceiling 5.5 first), sizeRatioOptimum/baseLogit pair for the
+thin predator guild, G-B last (toxicBinFloor with evidence, toxinMacro-
+disabled bootstrap ablation), **biomass band re-derivation mandatory
+before ontogeny defaults on** (on-arm halves standing crop; s1 would
+fail today's band), P17 CV re-ratchet, P12 bar decision (8.74e5 vs the
+pre-G1 9.0e5 bar), and the wave-closing fresh-seed P1 panel (D5 lesson).
+Glass reviews owed at next display availability: R5 morphology
+divergence + G5 juveniles/signals (needs ?ontogeny=1&aposematism=1 URL
+flags; default URL renders as R5).
 
 **TASK #18 IS DECIDED AND PHASE B IS GO (2026-08-15).** The user chose the
 recommended lever: `carrion.maxIntake` 0.7 → 0.5 is committed as the default
