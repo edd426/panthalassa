@@ -1648,3 +1648,29 @@ No cliff, no seed lost; recruitment up on all three seeds, starvation share
 down on two. The per-birth effect (~2.5 energy units preserved) is small at
 the system level — the point was removing the distortion before dose
 batches tune `provisioningRatio`/`clutchInvestment` on top of it.
+
+### G6 — the size-window pair: cliff screen clean, spec batch out (2026-08-17)
+
+The `sizeRatioOptimum`/`baseLogit` pair re-derivation the design pre-named
+("expected to move a long way" from the emergency 0.88/−4.45 once prey have
+length structure). Cliff screen on the ontogeny arm, 45g × s1–s3 per dose,
+grid {0.88, 0.70, 0.55, 0.45} × {−4.45, −3.9}, all with the yolk rule in:
+
+| opt / logit | late predators (s1/s2/s3) | predation death share |
+|---|---|---|
+| 0.88 / −4.45 (control) | 27/17/37 | .22/.25/.24 |
+| 0.88 / −3.9 | 25/36/29 | .26/.26/.32 |
+| 0.70 / −4.45 | 30/31/25 | .22/.25/.25 |
+| 0.70 / −3.9 | 22/21/21 | .25/.23/.25 |
+| 0.55 / −4.45 | 25/21/18 | .22/.21/.23 |
+| 0.55 / −3.9 | 10/25/26 | .23/.29/.30 |
+| 0.45 / −4.45 | 17/22/28 | .24/.22/.24 |
+| 0.45 / −3.9 | 31/24/19 | .28/.26/.28 |
+
+No dose cliffs (no extinction, biomass 8.0–9.5k throughout); 45 generations
+cannot separate the pair — guild size and kill pressure are flat across the
+whole grid. The discriminator is guild *persistence* at spec length, so the
+spec batch runs three doses × s1–s3 at 300 generations: control 0.88/−4.45
+(fresh — the spec run's ontogeny series is pre-yolk and no longer control),
+0.55/−4.45, 0.45/−4.45. Logit −3.9 held in reserve (indistinct at 45g).
+Adjudication row follows when the batch lands.
