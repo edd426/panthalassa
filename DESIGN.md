@@ -1843,3 +1843,31 @@ foundings, which is the honest reading. No behavioural consumers of
 `cladeId` exist, so trajectories are untouched; P11 reports founding
 counts in detail only. Gates: typecheck/lint/`npm test` green,
 `probe:quick` exit 0 (P18/P19 short-run WARNs unchanged).
+
+## The permeability dial was a veto (2026-08-17)
+
+User observation, verbatim precision: migration happens at slider ≥ 0.5
+and "suddenly stops" below. Root cause was not the movement physics —
+the crossing step has always been scaled by permeability — but the
+steering veto in `avoidBarriers`: `if (ahead >= 0.5) return`, else turn
+parallel. Below the cutoff no organism ever *attempted* a crossing, so
+the graded drag never executed. The slider was real on [0.5, 1] and a
+placebo on [0, 0.5).
+
+First fix (blend steering by p, drag by p) measured as still a cliff:
+flux ∝ ~p^4.5, zero crossings at p ≤ 0.25 over 10 generations —
+crossing a thick band is a diffusive walk, and per-tick factors
+compound into the exponent. Both factors moved to √p; measured
+crossings over 10 generations (spec world, mid-x ridge, seed wallflux):
+
+| p | 0.0 | 0.1 | 0.25 | 0.4 | 0.6 | 1.0 |
+|---|---|---|---|---|---|---|
+| crossings | 0 | 0 | 2 | 25 | 48 | 73 |
+
+p=0.25 is now the popgen-interesting trickle (~one migrant per 5
+generations); the bottom tenth of the dial remains effectively sealed,
+which reads honestly. Sealed walls (P8) and wall-free worlds take
+bit-identical paths, so the probe suite's coverage carries; gates all
+green (typecheck/lint/test, probe:quick exit 0). Binary walls were
+considered and rejected: the mid-dial is where the Fst-vs-migration
+experiments live.

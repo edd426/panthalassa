@@ -1032,8 +1032,10 @@ class PanthalassaSim implements SimHandleInternal {
             ny = y;
           }
         } else if (target < 1) {
-          const dragX = Math.min(maxX, Math.max(0, x + dx * target));
-          const dragY = Math.min(maxY, Math.max(0, y + dy * target));
+          // sqrt, matching the steering blend's sqrt — see avoidBarriers.
+          const drag = Math.sqrt(target);
+          const dragX = Math.min(maxX, Math.max(0, x + dx * drag));
+          const dragY = Math.min(maxY, Math.max(0, y + dy * drag));
           if (permeabilityAt(barriers, dragX, dragY) > 0) {
             nx = dragX;
             ny = dragY;

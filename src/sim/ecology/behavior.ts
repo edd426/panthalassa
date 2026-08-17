@@ -418,9 +418,19 @@ function avoidEdges(state: SimState, x: number, y: number, out: BehaviorDecision
 }
 
 /**
- * If the water one probe-step ahead is impassable, turn. Both perpendiculars
- * are tried and the more permeable wins, with a fixed tie-break, so two
- * organisms meeting the same wall from the same angle turn the same way.
+ * If the water one probe-step ahead is closed, turn along the wall. Both
+ * perpendiculars are tried and the more permeable wins, with a fixed
+ * tie-break, so two organisms meeting the same wall from the same angle turn
+ * the same way.
+ *
+ * The deflection is graded by permeability, not vetoed at a cutoff: at 0 the
+ * turn is total (nobody presses into a sealed ridge), at 1 the wall steers
+ * nobody, and between the two the organism keeps `ahead` of its intent to
+ * cross. The movement stage scales the crossing step by the same factor, so
+ * realized migration flux grows roughly as permeability² — the slider is a
+ * dial all the way down. The previous `>= 0.5` early-out read on screen as
+ * "migration suddenly stops below half": below the cutoff no organism ever
+ * attempted a crossing, so the movement stage's graded drag never ran.
  */
 function avoidBarriers(
   runtime: EcologyRuntime,
@@ -432,18 +442,22 @@ function avoidBarriers(
   if (state.barriers.specs.length === 0) return;
   const probe = runtime.cellSizeWu * 2;
   const ahead = barrierPermeabilityAt(state.barriers, x + out.steerX * probe, y + out.steerY * probe);
-  if (ahead >= 0.5) return;
+  if (ahead >= 1) return;
 
   const leftX = -out.steerY;
   const leftY = out.steerX;
   const left = barrierPermeabilityAt(state.barriers, x + leftX * probe, y + leftY * probe);
   const right = barrierPermeabilityAt(state.barriers, x - leftX * probe, y - leftY * probe);
 
-  if (right > left) {
-    out.steerX = -leftX;
-    out.steerY = -leftY;
-  } else {
-    out.steerX = leftX;
-    out.steerY = leftY;
-  }
+  const turnX = right > left ? -leftX : leftX;
+  const turnY = right > left ? -leftY : leftY;
+  // sqrt, matching the movement drag's sqrt: crossing a thick band is a
+  // diffusive walk, so per-tick factors compound to an exponent — with both
+  // factors linear the measured flux fell like p^4.5 and the dial was still a
+  // cliff. With sqrt on both, measured crossings over 10 generations on the
+  // spec world ran 0 / 2 / 25 / 48 / 73 at p = 0.1 / 0.25 / 0.4 / 0.6 / 1.0 —
+  // a usable trickle-to-flood gradient (see DESIGN.md, wall-flux).
+  const keep = Math.sqrt(ahead);
+  out.steerX = keep * out.steerX + (1 - keep) * turnX;
+  out.steerY = keep * out.steerY + (1 - keep) * turnY;
 }
