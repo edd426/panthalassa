@@ -1740,3 +1740,40 @@ selected as the **flip-package candidate** — 0.45/−4.45 lands together
 with the ontogeny-default flip and the biomass-band re-derivation as one
 coordinated re-baseline, per the design's own sequencing. P17's
 kill-window overlap gets measured there.
+
+### G6 — the bootstrap-route question, answered from data (2026-08-17)
+
+The planned toxinMacro-disabled ablation turned out not to need a run: every
+sample row already carries `discreteAlleleFreq.toxinMacro`. Across all nine
+aposematism-arm runs, every seed whose toxicity rose substantially (s5
++0.91, s7 +1.88, s8 +0.98 latent) did it with the macro's non-zero alleles
+below 2.5% frequency throughout; the macro's best excursion anywhere was
+0.245 on s4 — a seed whose toxicity *fell*. **The bootstrap route is
+standing quantitative variation; the macro locus is a passenger at current
+mutation rates.** Consequences: disabling toxinMacro would not remove
+aposematism (the ablation's answer), and ToxinInventionEvent will fire
+rarely-to-never as the wave's dramatic beat — either the macro's mutation
+rate rises in a future wave with its own measured row, or the feed's
+"invention" moment is accepted as the rare event it genuinely is.
+
+### G6 — G-B: the toxin-cost lever measured; the default defends itself (2026-08-17)
+
+Spec batch, `toxinCostCoef` {0.004, 0.008} × s1–s3 at 300 generations
+(control 0.002 = the 9-seed panel):
+
+| coef | completed cycles | free-rider peak | ring persistence |
+|---|---|---|---|
+| 0.002 (default) | 0/9 | .530–.590 | .78–1.00 |
+| 0.004 | 0/3 | .539/.667/.571 | .80/.29/.24 |
+| 0.008 | 0/3 | .600/.550/.667 | .23/.45/.40 |
+
+Raising the cost does push free riders past the 0.6 episode bar (3/6 runs
+start an episode; the control never does) — but it suppresses toxic rings
+faster than it fuels mimicry: persistence collapses to a quarter of
+samples at 0.008, and the rings that die do so by being eaten out while
+still toxic, not by the toxicity-halves-then-empties Batesian ordering
+the detector (correctly) demands. **No knob moves.** 0.002 keeps the
+watchable regime the P19 precursor criterion was just ratcheted against;
+the completed cycle is recorded as undemonstrated across the whole tested
+range — likely wanting a mechanism (predator learning/avoidance memory
+decay) rather than a price, which is future-wave material, not a G6 knob.

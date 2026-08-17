@@ -33,18 +33,29 @@ present (free-rider peak ~0.54, persistent toxic rings 2/3 seeds), P10
 spec-length adjudication". All five packages (G0/G1/G2/G3 + G4/G5)
 committed and probe-verified; contracts at v1.8.
 
-**THE G6 TUNING CAMPAIGN IS OPEN.** First move (measurement before
-tuning): the two 9-seed **base-rate panels** running detached — P18/P19
-on the aposematism arm and P10 on sweep, 6 fresh seeds each (s4–s9;
-s1–s3 covered by the spec run). Every provisional bar (P19 0.6, P10 0.5,
-P18 across-seed) gets stated against its panel before any knob moves for
-it. Then, per the recorded plan: G-A dose batches (birthEnergy 8 vs
-hatchling ceiling 5.5 first), sizeRatioOptimum/baseLogit pair for the
-thin predator guild, G-B last (toxicBinFloor with evidence, toxinMacro-
-disabled bootstrap ablation), **biomass band re-derivation mandatory
-before ontogeny defaults on** (on-arm halves standing crop; s1 would
-fail today's band), P17 CV re-ratchet, P12 bar decision (8.74e5 vs the
-pre-G1 9.0e5 bar), and the wave-closing fresh-seed P1 panel (D5 lesson).
+**THE G6 CAMPAIGN IS MOSTLY ADJUDICATED (2026-08-17, one session).**
+Done, each with a DESIGN.md record: (1) **yolk rule** committed e318dea —
+feeding never destroys held reserves, ontogeny-gated, off-arm
+bit-identical; the G2 birthEnergy-vs-ceiling waste is closed. (2) **9-seed
+base-rate panels** run and folded into the probes (0df2f27): P18
+across-seed floor → 0.2 (coupling base rate 2/9), P19 asserts the
+universal precursor state (free-rider ≥0.50, ring persistence ≥0.75;
+cycle base rate 0/9, now reported-not-asserted), P10 floor → 1/9
+(completion 2/9, neutral false-positive 1/9). (3) **Size-window pair**:
+cliff grid + 9-run spec batch — 0.45/−4.45 wins on guild persistence and
+attack maintenance, but does NOT move standalone (shared config);
+selected as the flip-package candidate. (4) **G-B toxin cost**: doses
+0.004/0.008 trade ring persistence away without producing an ordered
+Batesian cycle — no knob moves, 0.002 defends itself; cycles need a
+future mechanism (predator learning), not a price. (5) **Bootstrap
+route** answered from data: toxinMacro is a passenger (<2.5% frequency on
+every rising-toxicity seed) — standing variation drives aposematism.
+REMAINING: the **flip package** — a 3-seed × 300g flip-candidate batch
+(both toggles on + 0.45/−4.45) is running detached for joint viability
+and the **mandatory biomass band re-derivation**; then the coordinated
+flip commit (toggles + pair + band + P17 CV re-ratchet ~0.9), the
+confirming probe:full, the P12 bar decision (8.74e5 vs pre-G1 9.0e5),
+and the wave-closing fresh-seed P1 panel (D5 lesson).
 Glass reviews owed at next display availability: R5 morphology
 divergence + G5 juveniles/signals (needs ?ontogeny=1&aposematism=1 URL
 flags; default URL renders as R5).
