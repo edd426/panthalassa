@@ -145,6 +145,7 @@ function makeState(overrides: SimConfigOverrides = {}, capacity = 64, seed = 'pr
       mask: new Uint8Array(cells).fill(255),
       specs: [],
     },
+    artificialSelection: { terms: [] },
     events: [],
     deathCounts: { starvation: 0, predation: 0, temperature: 0, senescence: 0, catastrophe: 0, toxin: 0 },
     matingCount: 0,

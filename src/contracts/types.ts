@@ -306,6 +306,27 @@ export interface BarrierState {
   readonly specs: BarrierSpec[];
 }
 
+/**
+ * One term of a bench-imposed breeding preference. The weight is applied to
+ * the male's **latent deviation from the trait baseline** (deviation is
+ * O(founder SD) for every trait; expressed units are not comparable — hue is
+ * degrees, size is cm — and raw latent still carries the baseline), so a
+ * slider in roughly [−2, 2] is a strong but sane pressure on any trait.
+ */
+export interface ArtificialSelectionTerm {
+  readonly trait: TraitKey;
+  readonly weight: number;
+}
+
+/**
+ * The bench's artificial-selection regime; empty `terms` is off and must be
+ * bit-identical to a world that never heard the command. Mutated only by the
+ * command path, snapshotted for restore like the barrier specs.
+ */
+export interface ArtificialSelectionState {
+  terms: readonly ArtificialSelectionTerm[];
+}
+
 // ---------------------------------------------------------------------------
 // SimState
 // ---------------------------------------------------------------------------
@@ -334,6 +355,7 @@ export interface SimState {
   readonly climate: ClimateState;
   readonly disturbance: DisturbanceState;
   readonly barriers: BarrierState;
+  readonly artificialSelection: ArtificialSelectionState;
 
   /** Events raised during the current tick; drained at the tick boundary. */
   events: SimEvent[];
@@ -378,6 +400,7 @@ export interface SimSnapshot {
   readonly climate: ClimateState;
   readonly disturbance: DisturbanceState;
   readonly barriers: readonly BarrierSpec[];
+  readonly artificialSelection: readonly ArtificialSelectionTerm[];
   readonly deathCounts: Record<DeathCause, number>;
   /**
    * Per-species first-seen tick and peak census, sorted by tag. Extinction

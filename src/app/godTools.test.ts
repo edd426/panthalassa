@@ -18,6 +18,7 @@ import {
   FOUNDING_EDITS,
   armedStatus,
   barrierShapeFromPoints,
+  breedingCommand,
   clampToWorld,
   clampUnit,
   foundingEditFor,
@@ -325,5 +326,30 @@ describe('retuneBarrierCommands', () => {
     ]);
     expect(retuneBarrierCommands([wall('W1', 0.25, 5)], 0.25)).toEqual([]);
     expect(retuneBarrierCommands([], 0.5)).toEqual([]);
+  });
+});
+
+describe('breedingCommand', () => {
+  it('drops off and zero-weight rows, clamps weights, keeps order', () => {
+    const command = breedingCommand([
+      { trait: 'size', weight: 1.5 },
+      { trait: 'off', weight: 2 },
+      { trait: 'speedCap', weight: 0 },
+      { trait: 'armorPlating', weight: -9 },
+    ]);
+    expect(command).toEqual({
+      kind: 'setArtificialSelection',
+      terms: [
+        { trait: 'size', weight: 1.5 },
+        { trait: 'armorPlating', weight: -2 },
+      ],
+    });
+  });
+
+  it('all rows off builds the clearing command', () => {
+    expect(breedingCommand([{ trait: 'off', weight: 1 }])).toEqual({
+      kind: 'setArtificialSelection',
+      terms: [],
+    });
   });
 });

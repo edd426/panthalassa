@@ -19,6 +19,7 @@ import type { SimEvent } from './events';
 import type { CladeArchetype, DiscreteLocusId, Karyotype, QuantLocusId } from './genome';
 import type { AncestryRecord, PhylogenyNode, SampleRow } from './stats';
 import type {
+  ArtificialSelectionTerm,
   BarrierShape,
   CladeId,
   DemeId,
@@ -171,6 +172,8 @@ export type SimCommand =
   | { readonly kind: 'raiseBarrier'; readonly barrierId: string; readonly shape: BarrierShape; readonly permeability: number }
   | { readonly kind: 'lowerBarrier'; readonly barrierId: string }
   | { readonly kind: 'setClimateTarget'; readonly targetOffsetC: number }
+  /** Replace the bench breeding regime wholesale; empty `terms` clears it. */
+  | { readonly kind: 'setArtificialSelection'; readonly terms: readonly ArtificialSelectionTerm[] }
   | { readonly kind: 'meteor'; readonly x: number; readonly y: number; readonly radiusWu: number }
   | {
       readonly kind: 'introduceMutant';
@@ -263,7 +266,7 @@ export interface CommandMessage {
   readonly command: SimCommand;
 }
 
-export type FieldSliceField = 'plankton' | 'kelp' | 'temperature';
+export type FieldSliceField = 'plankton' | 'kelp' | 'temperature' | 'carrion';
 
 /**
  * Fetch one resource/temperature raster for an overlay. Exists so field

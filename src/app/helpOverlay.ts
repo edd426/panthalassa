@@ -175,6 +175,12 @@ function benchSection(config: SimConfig): HelpSection {
       tool: true,
     },
     {
+      term: 'Breeding',
+      what: 'Pick up to three traits with signed weights, APPLY. Every female’s suitor lottery is multiplied by exp(Σ weight · his deviation from typical) — you are the peahen, stacked on top of her own taste. CLEAR ends the programme; it also ends with the world.',
+      note: 'Artificial selection: breed for size or armour and watch the response in the deep history — or run different programmes against a wall and drop it.',
+      tool: true,
+    },
+    {
       term: 'Thermal shock',
       what: 'Pick a preset and fire. Global, immediate, and it lasts the preset’s number of generations.',
       note: 'A step rather than a ramp: who survives the transient, and what the population looks like afterwards.',

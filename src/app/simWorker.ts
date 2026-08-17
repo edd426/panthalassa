@@ -299,7 +299,9 @@ function dispatch(message: MainToWorkerMessage): void {
           ? field.plankton
           : message.field === 'kelp'
             ? field.kelp
-            : field.temperature;
+            : message.field === 'carrion'
+              ? field.carrion
+              : field.temperature;
       // A copy, as the contract specifies: the live column keeps being written
       // every tick, and transferring it would tear the field out of the sim.
       const values = new Float32Array(source);

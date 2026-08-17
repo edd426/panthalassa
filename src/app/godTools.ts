@@ -31,6 +31,7 @@ import type { SimEvent } from '../contracts/events';
 import type { CladeArchetype, DiscreteLocusId } from '../contracts/genome';
 import { DISCRETE_LOCUS_BY_ID, cladeArchetypeFor } from '../contracts/genome';
 import type { SimCommand } from '../contracts/protocol';
+import type { TraitKey } from '../contracts/traits';
 import type { BarrierShape, DisturbanceRegion, SimConfig } from '../contracts/types';
 
 // ---------------------------------------------------------------------------
@@ -125,6 +126,46 @@ export function reduceBarriers(ledger: readonly BenchBarrier[], action: BarrierL
     case 'cleared':
       return [];
   }
+}
+
+/**
+ * Traits the breeding programme offers. Curated rather than all of
+ * `TRAIT_KEYS`: these are the ones whose response is visible on screen or in
+ * the deep history within a few generations. `displayHue` is deliberately
+ * absent — it is circular, so "more hue" is not a direction.
+ */
+export const BREEDABLE_TRAITS = [
+  'size',
+  'speedCap',
+  'armorPlating',
+  'defense',
+  'forageBoldness',
+  'bodyAspect',
+  'tOpt',
+  'toxicity',
+] as const satisfies readonly TraitKey[];
+
+export interface BreedingRow {
+  readonly trait: TraitKey | 'off';
+  readonly weight: number;
+}
+
+/**
+ * The `setArtificialSelection` payload for the panel's rows. Rows that are
+ * off or zero-weight are dropped, so "everything off" builds the clearing
+ * command rather than a no-op regime of zeros.
+ */
+export function breedingCommand(rows: readonly BreedingRow[]): SimCommand {
+  const terms = rows
+    .filter((row): row is BreedingRow & { trait: TraitKey } => row.trait !== 'off' && row.weight !== 0)
+    .map((row) => ({ trait: row.trait, weight: clampSigned(row.weight, 2) }));
+  return { kind: 'setArtificialSelection', terms };
+}
+
+/** Weight slider range guard; the sim clamps the exponent too, but the payload should already be sane. */
+export function clampSigned(value: number, limit: number): number {
+  if (!Number.isFinite(value)) return 0;
+  return value < -limit ? -limit : value > limit ? limit : value;
 }
 
 /**
@@ -418,6 +459,8 @@ const FOUNDING_COUNT = 12;
 const WALL_AGE_REFRESH_MS = 500;
 /** Ledger-row click → band flash: four pulses, long enough to find on a busy map. */
 const WALL_FLASH_MS = 2400;
+/** Breeding-programme rows; three concurrent pressures is already a lot of breeder. */
+const BREEDING_ROWS = 3;
 
 // ---------------------------------------------------------------------------
 // DOM helpers
@@ -678,6 +721,10 @@ export class GodTools {
   private readonly thermalSelect: HTMLSelectElement;
   private readonly crashSelect: HTMLSelectElement;
   private readonly stormSelect: HTMLSelectElement;
+  private readonly breedingSelects: HTMLSelectElement[] = [];
+  private readonly breedingWeights: HTMLInputElement[] = [];
+  private readonly breedingValues: HTMLElement[] = [];
+  private readonly breedingStatus: HTMLElement;
   private readonly armButtons = new Map<ArmedMode, HTMLButtonElement>();
 
   private readonly overlay: HTMLElement;
@@ -844,6 +891,46 @@ export class GodTools {
       el('span', 'gt-note', `${FOUNDING_COUNT} individuals, macro-locus edited on a living genome`),
     );
 
+    // ---- breeding programme (X3) -----------------------------------------
+    // You play the peahen: every female's suitor lottery is multiplied by
+    // exp(Σ weight · deviation-from-typical), so the panel is artificial
+    // selection over the whole ocean, stacked on top of her own preferences.
+    this.host.append(rule(), sectionHead('Breeding programme'));
+    for (let index = 0; index < BREEDING_ROWS; index += 1) {
+      const row = el('div', 'gt-row');
+      const select = el('select', 'gt-select');
+      select.append(el('option', '', 'off'));
+      for (const trait of BREEDABLE_TRAITS) select.append(el('option', '', trait));
+      select.addEventListener('change', () => select.blur());
+
+      const weight = el('input', 'gt-slider');
+      weight.type = 'range';
+      weight.min = '-2';
+      weight.max = '2';
+      weight.step = '0.1';
+      weight.value = '0';
+      const value = el('span', 'gt-value', '+0.0');
+      weight.addEventListener('input', () => {
+        value.textContent = signedFixed(Number(weight.value), 1);
+      });
+      weight.addEventListener('change', () => weight.blur());
+
+      row.append(select, weight, value);
+      this.host.append(row);
+      this.breedingSelects.push(select);
+      this.breedingWeights.push(weight);
+      this.breedingValues.push(value);
+    }
+    const breedingApply = el('div', 'gt-row');
+    this.breedingStatus = el('span', 'gt-note gt-grow', 'no programme');
+    breedingApply.append(
+      this.breedingStatus,
+      this.button('Clear', () => this.clearBreeding()),
+      this.button('Apply', () => this.applyBreeding()),
+    );
+    this.host.append(breedingApply);
+    this.host.append(el('span', 'gt-note', 'weight is per deviation-from-typical; − breeds against'));
+
     // The trend strip and X2's panel are bottom-anchored and open on a keypress,
     // so the bench lifts above whichever is up rather than being buried by it.
     this.strips = ['charts', 'trends']
@@ -963,6 +1050,7 @@ export class GodTools {
     this.ledger = reduceBarriers(this.ledger, { kind: 'cleared' });
     this.wallCounter = 0;
     this.flashWallId = null;
+    this.resetBreedingUi();
     this.climateObservedC = null;
     this.syncArmed();
     this.syncClimateNow();
@@ -1092,6 +1180,10 @@ export class GodTools {
       }
       case 'setClimateTarget':
         return `climate target ${signedFixed(command.targetOffsetC, 1)} °C`;
+      case 'setArtificialSelection':
+        return command.terms.length === 0
+          ? 'breeding programme cleared'
+          : `breeding for ${command.terms.map((term) => `${term.trait} ${signedFixed(term.weight, 1)}`).join(' · ')}`;
       case 'meteor':
         return `meteor · ${grouped(command.x)},${grouped(command.y)} · radius ${Math.round(command.radiusWu)} wu`;
       case 'triggerDisturbance': {
@@ -1119,6 +1211,40 @@ export class GodTools {
   private applyClimate(): void {
     this.issue({ kind: 'setClimateTarget', targetOffsetC: this.climateTargetC });
     if (this.climateObservedC === null) this.syncClimateNow();
+  }
+
+  private breedingRows(): BreedingRow[] {
+    return this.breedingSelects.map((select, index) => ({
+      trait: (select.value === 'off' ? 'off' : select.value) as TraitKey | 'off',
+      weight: Number(this.breedingWeights[index]?.value ?? 0),
+    }));
+  }
+
+  private applyBreeding(): void {
+    const command = breedingCommand(this.breedingRows());
+    this.issue(command);
+    this.breedingStatus.textContent =
+      command.kind === 'setArtificialSelection' && command.terms.length > 0
+        ? command.terms.map((term) => `${term.trait} ${signedFixed(term.weight, 1)}`).join(' · ')
+        : 'no programme';
+  }
+
+  private clearBreeding(): void {
+    this.issue({ kind: 'setArtificialSelection', terms: [] });
+    this.resetBreedingUi();
+  }
+
+  /** Also called on reseed: a new ocean starts with no programme, and the panel must agree. */
+  private resetBreedingUi(): void {
+    this.breedingStatus.textContent = 'no programme';
+    for (let index = 0; index < this.breedingSelects.length; index += 1) {
+      const select = this.breedingSelects[index];
+      const weight = this.breedingWeights[index];
+      const value = this.breedingValues[index];
+      if (select !== undefined) select.value = 'off';
+      if (weight !== undefined) weight.value = '0';
+      if (value !== undefined) value.textContent = '+0.0';
+    }
   }
 
   private fireThermal(): void {

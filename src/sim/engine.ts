@@ -481,6 +481,7 @@ class PanthalassaSim implements SimHandleInternal {
       climate: makeClimate(),
       disturbance: makeDisturbance(),
       barriers: makeBarriers(config),
+      artificialSelection: { terms: [] },
       events: [],
       deathCounts: emptyDeathCounts(),
       matingCount: 0,
@@ -812,6 +813,11 @@ class PanthalassaSim implements SimHandleInternal {
         break;
       case 'lowerBarrier':
         this.lowerBarrier(command.barrierId);
+        break;
+      case 'setArtificialSelection':
+        // Wholesale replace: the command is its own state, so a replayed
+        // command log reproduces the regime without ordering subtleties.
+        this.state.artificialSelection.terms = command.terms.map((term) => ({ ...term }));
         break;
       case 'setClimateTarget': {
         const previous = this.state.climate.targetOffsetC;

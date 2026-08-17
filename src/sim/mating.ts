@@ -27,7 +27,7 @@
  */
 
 import type { MatingApi, SpatialIndex } from '../contracts/apis';
-import { TRAIT_INDEX, hueDelta } from '../contracts/traits';
+import { TRAIT_COUNT, TRAIT_INDEX, TRAIT_META, hueDelta } from '../contracts/traits';
 import type { RandomSource, SimConfig, SimState, SlotIndex } from '../contracts/types';
 import { NO_SLOT, SEX_MALE } from '../contracts/types';
 import { T, energyCapacityOf, isMature, traitAt } from './organisms';
@@ -85,6 +85,33 @@ export function createMating(): MatingApi {
     suitorWeights = new Float64Array(size);
   };
 
+  /**
+   * The bench's breeding regime (X3): `exp(Σ wᵢ · (latentᵢ − baselineᵢ))` over
+   * the male's latent traits. Latent deviation, not expressed value — expressed
+   * units are incomparable across traits (degrees, cm), and raw latent still
+   * carries each trait's baseline (size sits at ~12), which would make every
+   * weight secretly a baseline bonus. Deviation from baseline is O(founder SD)
+   * for every trait, so a slider in roughly [−2, 2] means the same thing
+   * whichever trait it points at. The sum is clamped so a wild slider cannot
+   * overflow the lottery into Infinity, which would break the weighted draw.
+   * Empty terms return exactly 1, so a world that never heard the command
+   * multiplies nothing and stays bit-identical.
+   */
+  const artificialSelectionMultiplier = (state: SimState, maleSlot: SlotIndex): number => {
+    const terms = state.artificialSelection.terms;
+    if (terms.length === 0) return 1;
+    const latent = state.pop.traitsLatent;
+    const base = maleSlot * TRAIT_COUNT;
+    let score = 0;
+    for (let index = 0; index < terms.length; index += 1) {
+      const term = terms[index];
+      if (term === undefined) continue;
+      const deviation = (latent[base + TRAIT_INDEX[term.trait]] ?? 0) - TRAIT_META[term.trait].baseline;
+      score += term.weight * deviation;
+    }
+    return Math.exp(Math.max(-10, Math.min(10, score)));
+  };
+
   const acceptanceWeight = (state: SimState, femaleSlot: SlotIndex, maleSlot: SlotIndex): number => {
     const pop = state.pop;
     const config = state.config;
@@ -111,10 +138,15 @@ export function createMating(): MatingApi {
     // still gets a hearing. `findMate` floors the weight at zero, which is where
     // a strongly cryptic male ends up; that is an outcome of the lottery, not a
     // clamp on the trait.
-    if (!config.toggles.enableAposematism) return weight;
+    // The bench regime multiplies the whole ticket — hue match, condition,
+    // and the conspicuousness bonus alike — because the breeder outranks the
+    // female's own taste without erasing it.
+    const selection = artificialSelectionMultiplier(state, maleSlot);
+    if (!config.toggles.enableAposematism) return weight * selection;
     return (
-      weight +
-      config.aposematism.conspicuousnessMatingCoef * traitAt(pop, maleSlot, TRAIT_INDEX.conspicuousness)
+      (weight +
+        config.aposematism.conspicuousnessMatingCoef * traitAt(pop, maleSlot, TRAIT_INDEX.conspicuousness)) *
+      selection
     );
   };
 

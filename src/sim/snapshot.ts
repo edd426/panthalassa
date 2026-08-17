@@ -208,6 +208,13 @@ export function computeStateHash(state: SimState, store: OrganismStore): string 
     }
   }
 
+  // Empty regime folds nothing in, so worlds that never heard the command
+  // keep their golden hash — same shape as the barrier specs above.
+  for (const term of state.artificialSelection.terms) {
+    hasher.text(term.trait);
+    hasher.number(term.weight);
+  }
+
   for (const cause of DEATH_CAUSES) {
     // Same mechanism-gated exception as the carrion field and the ontogeny
     // columns: 'toxin' deaths exist only on the aposematism arm, and folding
@@ -320,6 +327,7 @@ export function serializeSnapshot(
     climate: copyClimate(state.climate),
     disturbance: copyDisturbance(state.disturbance),
     barriers: state.barriers.specs.map((spec) => ({ ...spec })),
+    artificialSelection: state.artificialSelection.terms.map((term) => ({ ...term })),
     deathCounts: copyDeathCounts(state.deathCounts),
     species: species.map((entry) => ({ ...entry })),
     stateHash,
@@ -394,6 +402,8 @@ export function applySnapshot(state: SimState, store: OrganismStore, snapshot: S
 
   state.barriers.specs.length = 0;
   for (const spec of snapshot.barriers) state.barriers.specs.push({ ...spec });
+
+  state.artificialSelection.terms = snapshot.artificialSelection.map((term) => ({ ...term }));
 
   for (const cause of DEATH_CAUSES) state.deathCounts[cause] = snapshot.deathCounts[cause];
 
