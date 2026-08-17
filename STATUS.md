@@ -50,12 +50,26 @@ Batesian cycle — no knob moves, 0.002 defends itself; cycles need a
 future mechanism (predator learning), not a price. (5) **Bootstrap
 route** answered from data: toxinMacro is a passenger (<2.5% frequency on
 every rising-toxicity seed) — standing variation drives aposematism.
-REMAINING: the **flip package** — a 3-seed × 300g flip-candidate batch
-(both toggles on + 0.45/−4.45) is running detached for joint viability
-and the **mandatory biomass band re-derivation**; then the coordinated
-flip commit (toggles + pair + band + P17 CV re-ratchet ~0.9), the
-confirming probe:full, the P12 bar decision (8.74e5 vs pre-G1 9.0e5),
-and the wave-closing fresh-seed P1 panel (D5 lesson).
+**G6 IS CLOSED — the flip is STAGED, NOT LANDED.** The flip-candidate
+factorial (both toggles on, 3 seeds × 300g, at both pair settings)
+found the campaign's headline result: **age structure suppresses
+warning coloration** — the joint world is viable (all seeds alive,
+biomass medians 7.7–10.1k) but toxic rings collapse to 0.1–4.3% of
+samples (vs 78–100% single-arm) at BOTH pair settings, because
+joint-world predation share halves (0.07–0.15 vs 0.21–0.37) and toxin
+deaths drop 10× (44–108 vs 754–2674). No default flips: shipping a
+silent signal axis would falsify P18/P19's day-old criteria. The named
+blocker: joint predation share must recover to ~0.2+ — shared-knob
+levers (diet efficiency, kill yield, baseLogit) that need a full
+off-arm re-baseline campaign. P12 stays at its design-requirement bar
+(2–3% G1 perf debt on the books). Wave closed with a fresh-seed P1
+panel: f1–f6, 6/6 PASS. Full record: DESIGN.md "G6 closes".
+**NEXT — decisions that want the user** (with the glass reviews, which
+need a display): (a) whether the next campaign is the predation
+re-baseline that unblocks the flip, (b) whether ontogeny alone is worth
+flipping meanwhile (juveniles/growth watchable by default; aposematism
+stays an arm), (c) the R5 morphology-divergence and G5
+juveniles/signals glass reviews (`?ontogeny=1&aposematism=1`).
 Glass reviews owed at next display availability: R5 morphology
 divergence + G5 juveniles/signals (needs ?ontogeny=1&aposematism=1 URL
 flags; default URL renders as R5).

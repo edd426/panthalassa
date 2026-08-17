@@ -1777,3 +1777,44 @@ watchable regime the P19 precursor criterion was just ratcheted against;
 the completed cycle is recorded as undemonstrated across the whole tested
 range — likely wanting a mechanism (predator learning/avoidance memory
 decay) rather than a price, which is future-wave material, not a G6 knob.
+
+### G6 closes — the flip is staged, not landed: age structure suppresses warning coloration (2026-08-17)
+
+The flip-candidate batches (both toggles on, 3 seeds × 300 generations,
+run at both pair settings) surfaced the campaign's headline finding and
+its blocker. **The joint world is viable** — all seeds alive at 300
+generations at both pair settings, cap contact ≤0.17%, dropped births
+≤0.91%, biomass envelope [1411, 38609] cm (post-burn-in medians
+7.7–10.1k) — but **aposematism dies in it**: toxic-ring persistence is
+0.1–4.3% of samples against 78–100% in the aposematism-only arm, at
+*both* 0.45 and 0.88, so the size-window pair is exonerated. The causal
+chain is measured, not surmised: joint-world predation death share is
+0.066–0.153 versus 0.212–0.368 single-arm, and toxin deaths — the
+poisoned-predator traffic aposematism selection rides on — collapse an
+order of magnitude (44–108 versus 754–2674). Age structure thins the
+predator guild, the thin guild halves predation pressure, and warning
+coloration loses its driver. An honest emergent interaction: the model
+is saying juvenile-dominated populations don't buy chemical defence.
+
+Consequences, each decided and recorded:
+
+- **No default flips this campaign.** Flipping both would ship a world
+  whose signal axis is authored but silent and would falsify P18/P19's
+  just-ratcheted criteria the day they landed. Flipping ontogeny alone
+  re-points the aposematism toggle scenario at the joint world, with the
+  same falsification. The toggles stay off; the arms stay staged behind
+  the probe scenarios and the `?ontogeny=1&aposematism=1` render flags.
+- **The named blocker**: joint-world predation share must recover to
+  ~0.2+ before the flip is worth re-staging. The levers are shared
+  (diet efficiency, kill yield, baseLogit) and move the off-arm
+  reference world too — a full re-baseline campaign, not a G6 dose.
+- **The pair evidence carries**: 0.45/−4.45 remains the best-of-grid
+  for on-arm guild persistence and travels with the future flip package.
+- **P12 stays at 0.9e6** — the bar is a design requirement (one
+  generation per second at 1,000 organisms), not a ratchet; the post-G1
+  quiet level 8.7–8.9e5 leaves a real 2–3% perf debt on the books
+  rather than a lowered bar hiding it.
+
+The campaign closes on the D5 lesson: a **fresh-seed P1 panel** (f1–f6,
+never used in tuning) — 6/6 PASS, suite PASS. Determinism holds on seeds
+the campaign never saw.
