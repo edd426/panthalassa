@@ -90,8 +90,8 @@ function armedTools(config: SimConfig): Readonly<Record<ArmedMode, ArmedToolHelp
     },
     kelpStorm: {
       name: 'Kelp storm',
-      how: `Always regional: arm, click the centre. Clears the preset's fraction of the kelp over a disc of radius ${stormRadius} wu for its duration.`,
-      shows: 'Takes the browsers’ resource away without touching the plankton — the other half of the crash.',
+      how: `Always regional: arm, click the centre. Strips the preset's fraction of the kelp over a disc of radius ${stormRadius} wu at once; the forest regrows slowly from its holdfasts.`,
+      shows: 'Kelp is shelter, not food — cover cuts the local kill chance. Strip a forest and everything hiding in it is suddenly catchable; watch pred in the loss ledger.',
     },
     meteor: {
       name: 'Meteor',
