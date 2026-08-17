@@ -218,6 +218,8 @@ const KEY_BINDINGS: readonly (readonly [string, string])[] = [
   ['f', 'field'],
   ['c', 'colour'],
   ['t', 'trends'],
+  ['g', 'bench'],
+  ['h', 'help'],
   ['wheel', 'zoom'],
   ['drag', 'pan'],
   ['dbl / 0', 'fit'],

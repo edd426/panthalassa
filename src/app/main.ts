@@ -31,6 +31,7 @@ import type { ColourMode, FieldOverlay, FieldRaster, SliceView, WorldRenderer } 
 import { createRenderer, rendererKind } from '../render/renderer';
 import { TrendCharts, appendTrendRow, createTrendSeries, resetTrendSeries } from './charts';
 import { GodTools } from './godTools';
+import { HelpOverlay } from './helpOverlay';
 import { Hud, describeEvent } from './hud';
 import type { SpecimenStage } from './hud';
 import { createTrends } from './trends';
@@ -73,11 +74,10 @@ const AUTO_RESTART_MS = 30_000;
 const CHART_REDRAW_MS = 700;
 
 /**
- * The god tools have no key binding in Phase A — the keyboard is deliberately
- * four keys wide — so this console handle is the only way to reach the command
- * path before there are buttons for it. `window.panthalassa.command({ kind:
- * 'meteor', x: 1000, y: 600, radiusWu: 200 })` from devtools drives exactly the
- * message a WP-C2 button will.
+ * The console handle. The bench (`g`) now covers the same command path with
+ * buttons, so this is for the commands it has no control for and for scripting
+ * a world from devtools: `window.panthalassa.command({ kind: 'meteor', x: 1000,
+ * y: 600, radiusWu: 200 })` sends exactly the message the bench's button does.
  */
 interface PanthalassaDebugApi {
   readonly seed: string;
@@ -284,6 +284,13 @@ const bench = new GodTools({
   note,
   currentTick: () => tick,
 });
+
+/**
+ * The field manual (`h`). It sends nothing and reads no world state: it exists
+ * because every key above, and the whole bench behind `g`, were undiscoverable
+ * from the screen.
+ */
+const help = new HelpOverlay({ host: requireElement('help', HTMLElement), config });
 
 /**
  * Every send is gated on `live`. The world is seeded asynchronously and the
@@ -602,11 +609,35 @@ function toggleCharts(): void {
   deepTrends.setOpen(chartsOpen);
 }
 
+/**
+ * True for `h` aimed at the world rather than at a control.
+ *
+ * The bench blurs its sliders and selects on `change`, but one being nudged
+ * with the arrow keys still holds focus, and a manual opening over the reading
+ * being taken is not what the keystroke meant. The modifiers are excluded
+ * because ⌘H is the window manager's, not ours.
+ */
+function isHelpKey(event: KeyboardEvent): boolean {
+  if (event.key !== 'h' && event.key !== 'H') return false;
+  if (event.metaKey || event.ctrlKey || event.altKey) return false;
+  const target = event.target;
+  if (
+    target instanceof HTMLInputElement ||
+    target instanceof HTMLSelectElement ||
+    target instanceof HTMLTextAreaElement
+  ) {
+    return false;
+  }
+  return !(target instanceof HTMLElement && target.isContentEditable);
+}
+
 window.addEventListener('keydown', (event: KeyboardEvent) => {
-  // Escape only ever means "put the god tool down", and it has to be answered
-  // before the extinction branch: an armed meteor outlives the world it was
-  // aimed at otherwise.
+  // Escape has to be answered before the extinction branch: an armed meteor
+  // outlives the world it was aimed at otherwise. The manual is drawn over the
+  // bench, so it is what escape takes down first; only once it is closed does
+  // the key mean "put the god tool down".
   if (event.key === 'Escape') {
+    if (help.close()) return;
     bench.cancelArmed();
     return;
   }
@@ -635,6 +666,9 @@ window.addEventListener('keydown', (event: KeyboardEvent) => {
     // The bench still opens on a dead ocean; its commands are inert there, but
     // reading back which walls were standing when it ended is post-mortem too.
     else if (event.key === 'g' || event.key === 'G') bench.toggle();
+    // Reading the manual on a finished world is fine, and it is where someone
+    // who has just watched an ocean die goes looking for what to do next.
+    else if (isHelpKey(event)) help.toggle();
     return;
   }
 
@@ -654,6 +688,7 @@ window.addEventListener('keydown', (event: KeyboardEvent) => {
   else if (event.key === 'c' || event.key === 'C') cycleColourMode();
   else if (event.key === 't' || event.key === 'T') toggleCharts();
   else if (event.key === 'g' || event.key === 'G') bench.toggle();
+  else if (isHelpKey(event)) help.toggle();
 });
 
 /**
