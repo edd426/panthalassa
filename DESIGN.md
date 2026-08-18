@@ -1909,3 +1909,85 @@ population and matched to the decimal. The agent also caught the
 brief's factual error (charts.ts is a dead surface; trends.ts is the
 live `t` panel) and reported it instead of building invisible panels —
 the brief is corrected in place.
+
+## The S-wave — heritable preference + ornament (v1.9, 2026-08-18)
+
+The user-approved second feature package (STATUS.md sequence, 2026-08-17):
+a Fisherian-runaway axis, built probe-first per its own precondition.
+
+**The model.** Two appended traits: `ornament` (softplus, ≈0 baseline —
+a display structure in cm) and `ornamentPref` (identity, signed —
+open-ended directional preference, deliberately cost-free because a
+priced preference forecloses the runaway analytically). A new dark
+autosome **A7** behind `toggles.enableSexualSelection` (the G-wave's
+dark-chromosome rule, third use): q69–q76 with the q71/q72 runaway
+block (q71 loads ornament AND preference — the authored Fisherian
+bootstrap, q36/q38/q63 style; q76 is the sensory-bias origin story,
+preference sharing a locus with wariness), plus `ornamentMacro`
+(founder-fixed invention jumps), `pigmentG`, `neutralG`. Three formulas:
+the mating-lottery logit `prefScale · herPref · hisOrnament` (clamped
+±8 as a lottery-overflow guard, X3 precedent), metabolic burn
+`coef · ornament · size^0.75`, and an **unconditional** kill-logit
+detection term `+coef · ornament` — unlike conspicuousness there is no
+aposematic credit to earn back, which is what makes the ornament a pure
+handicap.
+
+**The finding that shaped the package: expression must be sex-limited.**
+First build charged both sexes the costs while only males collect the
+mating benefit. Positive control (founder `ornamentPref` baseline
++1.2, armed, s1): mean latent ornament *fell* 0.03 → −0.60 by
+generation 25 and stayed down — half of all allele copies sat in
+females facing pure viability selection, and the runaway was dead on
+arrival, exactly as Lande's sex-limited assumption predicts. With
+male-only cost and detection (females carry and transmit the alleles,
+grow no banner): ornament climbs 0.03 → **+0.52 latent by generation
+100 against its costs**, preference holding ~1.0. Negative control at
+the shipped defaults (pref ≈ 0): ornament declines to the softplus
+floor — a banner nobody wants is pure cost. Both behaviours are the
+model working.
+
+**P20 — Fisherian runaway** (warn, `sexualSelection` arm, in both
+suites). Asserts only the wiring: V_A on both S-wave traits ≥1% of the
+analytic founder value on the armed arm (the inverse of the dark pin in
+`genetics-units`). Reports the biology: genotypic r(ornament, pref)
+against the authored q71-only null (0.158 — same construction as P18's
+q63 null, hand-pinned in `swave-units`), and detected **runaway
+episodes** — co-directional excursions ≥1.0 ornament SD with the
+preference following ≥0.5 SD from the same anchor, either direction;
+escalation the preference did not follow is refused (that is selection,
+not runaway). Episodes are reported, not asserted, until a base-rate
+panel exists (the P16/P19 ruling). First armed reading (80 gens, s1):
+V_A 0.107/0.200, r 0.167 vs null 0.158 (under the 3-SE bar — honest),
+no episode, ornament selected down at pref ≈ 0.
+
+**Off-arm discipline.** Fingerprint script (2,000 default-toggle ticks:
+RNG words, ids, positions, energies, all 23 pre-wave latent traits,
+field sums) byte-equal between pre-append HEAD and the S-wave tree —
+the layout append is not a trajectory change. Golden hash re-baselined
+`67c311b3a0e40aa6` → `4c00171a907fb877` with the note updated; the
+dark-chromosome founder pin now also covers ornament/ornamentPref,
+which have **no** always-on cross-loads, so dark means exactly zero.
+
+**Surfaces.** `?sexualSelection=1` URL flag; `c → ornament` colour mode
+with inert-mode honesty (flat neutral off-arm, legend names the axis);
+`ornament` row in the bench breeding programme (inert off-arm because
+X3 weighs latent deviation, which is exactly 0 dark); the macro-loci
+deep-history panel picks up `ornamentMacro` automatically; help overlay
+documents the flag. The tuning campaign owns `sexualSelection.*`
+(prefScale 1.0, ornamentCostCoef 0.002, ornamentDetectionCoef 0.35 —
+authored guesses): at these defaults the axis boots quiet, and whether
+seeds ever drift into a spontaneous runaway is the campaign's
+spec-length question.
+
+**The armed q1 extinction (measured, accepted).** The quick suite's
+seed dies on the armed arm at generation 11.8. Isolation runs pin the
+cause: with all three S-coefficients zeroed the collapse persists
+(134 alive at gen 14 vs 872 baseline), so it is not the ornament
+economics — merely *expressing* A7 (cross-loads plus the enlarged
+derived env-SDs on loaded traits) re-rolls the founding transient, and
+q1's transient is marginal under any re-roll. Every other seed tried
+establishes cleanly (s1/s2/s3 cliff-screened 45 gens; q2/q3/q4
+spot-checked). Ruling: no table trim to rescue one fragile seed — the
+quick suite's P20 row honestly reads "0 living organisms" on q1, the
+full suite's s1–s3 panel is 3/3 evaluable, and founding viability is a
+named watch item for the S-campaign.

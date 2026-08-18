@@ -14,6 +14,34 @@ discriminator phase._
 
 ## Resume HERE
 
+**THE S-WAVE LANDED (2026-08-18): heritable preference + ornament is
+BUILT — item (2) of the user's sequence is done.** A Fisherian-runaway
+axis behind `enableSexualSelection` (dark A7, third use of the
+dark-chromosome rule): `ornament` + `ornamentPref` traits, q69–q76
+with the q71/q72 runaway block, ornamentMacro/pigmentG/neutralG,
+mating-lottery multiplier `exp(prefScale·herPref·hisOrnament)`,
+male-only metabolic + detection costs, and **P20 (Fisherian runaway)**
+on the new `sexualSelection` arm in both suites — the probe-first
+precondition honoured. The build's headline finding: **ornament
+expression must be sex-limited** — with both sexes paying the costs the
+positive control (founder pref +1.2) *declined*; male-only costs flip
+it to +0.52 latent SD-scale escalation by gen 100. Negative control at
+defaults: pref ≈ 0, ornament selected to the floor — a banner nobody
+wants is pure cost, so the axis boots quiet and the runaway is the
+tuning campaign's spec-length question (`sexualSelection.*` knobs).
+Off-arm proven byte-identical over 2,000 ticks (fingerprint vs
+pre-append HEAD); golden hash re-baselined → `4c00171a907fb877` with
+the note. Surfaces: `?sexualSelection=1`, `c → ornament` (inert-mode
+honest), bench breeding row, help overlay. Full record: DESIGN.md
+"The S-wave". **Known state:** armed q1 dies in
+the founding transient (measured: not the S-costs — the A7 expression
+re-roll; 6/7 other seeds fine), so quick's P20 row reads not-evaluable
+on q1 by design. **Next for this axis:** a spec-length armed panel to
+base-rate P20's episodes, then the prefScale/cost campaign; glass
+review of an armed world owed at next display availability.
+
+Previous state (2026-08-17), still true where not superseded:
+
 **THE INTERACTION EVENING LANDED (2026-08-17 overnight, all green,
 pushed through `5f32051` + docs).** The user played with the bench and
 every finding was fixed same-session: **clade-founding spam** (segregation
@@ -33,11 +61,11 @@ evening" has the full record. GitHub is now public
 (edd426/panthalassa); evolved neural behavior is issue #1.
 
 **USER-SET SEQUENCE (2026-08-17, explicit):** (1) bench artificial
-selection — done; (2) **heritable preference + ornament is the next
-feature package** (a distinct ornament trait first, wired to hue later
-by choice; needs a runaway-detection probe before the feature; note the
-mating stage already runs hue-preference machinery); (3) evolved brains
-stay backlog until "a fresh week of usage". Still parked from G6: the
+selection — done; (2) heritable preference + ornament — **done
+2026-08-18, see the S-wave block above** (a distinct ornament trait,
+wired to hue later by choice; the runaway-detection probe P20 landed
+with it); (3) evolved brains stay backlog until "a fresh week of
+usage". Still parked from G6: the
 predation re-baseline decision, the ontogeny-only flip, and the R5/G5
 glass reviews (`?ontogeny=1&aposematism=1`). A toxicity colour mode
 now exists, so the aposematism arm is watchable when reviewed.
