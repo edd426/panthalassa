@@ -196,6 +196,14 @@ export type SimCommand =
       /** Null/absent means a global plankton crash; kelp storms require a region. */
       readonly region?: DisturbanceRegion | null;
     }
+  /**
+   * Retune the climate walk's stationary SD (σ, °C) mid-run (contracts v1.10,
+   * the bench's WANDER slider). 0 stills the wander entirely — the standing
+   * offset then relaxes toward the target over τ — and
+   * `setToggle enableClimateWalk false` pins the offset *at* the target
+   * instantly. Negative and non-finite values clamp to 0.
+   */
+  | { readonly kind: 'setClimateVariability'; readonly sigmaC: number }
   | { readonly kind: 'setToggle'; readonly toggle: string; readonly value: boolean };
 
 // ---------------------------------------------------------------------------

@@ -106,11 +106,11 @@ declare global {
  * Mechanism axes the URL asks for: `?ontogeny=1`, `?aposematism=1`,
  * `?sexualSelection=1`.
  *
- * The G-wave axes are off in the authored defaults, and the app has no button
- * for them — so without this there is no way to *look* at a world that is
- * running them, which is the only way the juvenile and signal treatments can be
- * reviewed at all. Query flags rather than a changed default, because the
- * defaults are the probe suite's and not this file's to move.
+ * The axes are off in the authored defaults. Query flags rather than a changed
+ * default, because the defaults are the probe suite's and not this file's to
+ * move. The bench's "Mechanism axes" section is a face on these same flags: it
+ * rewrites the URL and reloads, so every armed world states its axes in a
+ * shareable address.
  *
  * It has to happen here rather than through a `setToggle` command: the renderer
  * reads these same toggles to decide whether to draw the two channels, and its
@@ -154,11 +154,17 @@ const renderer: WorldRenderer = await createRenderer(canvas, config);
 const chartCanvas = requireElement('charts', HTMLCanvasElement);
 const charts = new TrendCharts(chartCanvas);
 const deepTrends = await createTrends(requireElement('trends', HTMLElement), config, (alert) => note(alert.line));
-const hud = new Hud(
-  requireElement('status', HTMLElement),
-  requireElement('panel', HTMLElement),
-  requireElement('banner', HTMLElement),
-);
+const statusHost = requireElement('status', HTMLElement);
+const hud = new Hud(statusHost, requireElement('panel', HTMLElement), requireElement('banner', HTMLElement));
+
+/**
+ * `u`. The station log covers a good corner of the water, and watching is the
+ * whole point of the app; the element is hidden rather than the render skipped
+ * so the extinction banner — which shares `hud.render` — still appears.
+ */
+function toggleStatusLog(): void {
+  statusHost.hidden = !statusHost.hidden;
+}
 
 function drawSeed(): string {
   return Math.random().toString(36).slice(2, 10);
@@ -675,6 +681,7 @@ window.addEventListener('keydown', (event: KeyboardEvent) => {
     if (event.key === 'f' || event.key === 'F') cycleOverlay();
     else if (event.key === 'c' || event.key === 'C') cycleColourMode();
     else if (event.key === 't' || event.key === 'T') toggleCharts();
+    else if (event.key === 'u' || event.key === 'U') toggleStatusLog();
     // The bench still opens on a dead ocean; its commands are inert there, but
     // reading back which walls were standing when it ended is post-mortem too.
     else if (event.key === 'g' || event.key === 'G') bench.toggle();
@@ -699,6 +706,7 @@ window.addEventListener('keydown', (event: KeyboardEvent) => {
   if (event.key === 'f' || event.key === 'F') cycleOverlay();
   else if (event.key === 'c' || event.key === 'C') cycleColourMode();
   else if (event.key === 't' || event.key === 'T') toggleCharts();
+  else if (event.key === 'u' || event.key === 'U') toggleStatusLog();
   else if (event.key === 'g' || event.key === 'G') bench.toggle();
   else if (isHelpKey(event)) help.toggle();
 });

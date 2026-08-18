@@ -104,10 +104,18 @@ export interface SweepCrossedHalfEvent extends EventBase {
 
 export interface ClimateEvent extends EventBase {
   readonly kind: 'climateEvent';
-  /** `walk` is the ordinary OU excursion crossing a reporting threshold; `retarget` is a god tool. */
-  readonly cause: 'walk' | 'retarget';
+  /**
+   * `walk` is the ordinary OU excursion crossing a reporting threshold; the
+   * other two are god tools — `retarget` moves the walk's centre
+   * (`setClimateTarget`), `retune` its stationary SD (`setClimateVariability`,
+   * contracts v1.10).
+   */
+  readonly cause: 'walk' | 'retarget' | 'retune';
   readonly meanOffsetC: number;
+  /** Offset change for `walk`/`retarget`; σ change for `retune`. */
   readonly deltaC: number;
+  /** Present on `retune` only: the walk's new stationary SD, °C. */
+  readonly sigmaC?: number;
 }
 
 export interface BarrierChangeEvent extends EventBase {

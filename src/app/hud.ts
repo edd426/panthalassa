@@ -144,7 +144,11 @@ export function describeEvent(event: SimEvent): string {
     case 'sweepCrossedHalf':
       return `t${event.tick} sweep · ${event.locus}/${event.allele} crossed 0.5 (${fixed(event.frequency, 3)}) in ${fixed(event.generationsElapsed, 1)} gens`;
     case 'climateEvent':
-      return `t${event.tick} climate ${event.cause} · ${fixed(event.meanOffsetC, 2)}°C (Δ${fixed(event.deltaC, 2)})`;
+      // A retune's numbers are σ, not the offset; printing them through the
+      // walk template would read as a 2.5 °C jump that never happened.
+      return event.cause === 'retune'
+        ? `t${event.tick} climate wander · σ ±${fixed(event.sigmaC ?? 0, 2)}°C (Δ${fixed(event.deltaC, 2)})`
+        : `t${event.tick} climate ${event.cause} · ${fixed(event.meanOffsetC, 2)}°C (Δ${fixed(event.deltaC, 2)})`;
     case 'barrierChange':
       return `t${event.tick} barrier ${event.barrier.id} ${event.change} · ${event.barrier.shape.kind}`;
     case 'meteor':
@@ -219,6 +223,7 @@ const KEY_BINDINGS: readonly (readonly [string, string])[] = [
   ['c', 'colour'],
   ['t', 'trends'],
   ['g', 'bench'],
+  ['u', 'hide log'],
   ['h', 'help'],
   ['wheel', 'zoom'],
   ['drag', 'pan'],

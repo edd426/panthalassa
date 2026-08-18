@@ -147,6 +147,11 @@ function keySections(): readonly HelpSection[] {
           what: 'deep history: the whole run, panel per reading',
           note: 'Drag across a panel to zoom into a range, double-click to reset. The strip keeps every row, so zooming in shows detail rather than a magnified summary.',
         },
+        {
+          term: 'u',
+          what: 'hide or show the station log — the corner panel that carries the tallies, the legend and the feed',
+          note: 'For watching with a clear view; the world keeps running and u brings the log back.',
+        },
       ],
     },
     {
@@ -170,8 +175,11 @@ function benchSection(config: SimConfig): HelpSection {
   const entries: HelpEntry[] = [
     {
       term: 'Climate',
-      what: 'Move the TARGET slider, then APPLY. The world walks toward that offset rather than jumping to it, and `now` reads back the sampled offset off the latest sample row — not the last target anyone asked for.',
-      note: 'Ramp the water and watch whether thermal optimum tracks it, or whether the losses go thermal first.',
+      what:
+        `Move the TARGET slider, then APPLY. The world walks toward that offset rather than jumping to it, and \`now\` reads back the sampled offset off the latest sample row — not the last target anyone asked for. ` +
+        `The offset is never still by default: it wanders around the target as a slow random walk (±${config.thermal.climateSigmaC} °C SD), with a ±${config.thermal.seasonAmplitudeC} °C seasonal cycle on top. ` +
+        `WANDER retunes the walk's range on release — 0 stills it. WALK off pins the offset exactly at the target until you turn it back on; SEASONS off flattens the annual cycle.`,
+      note: 'Ramp the water and watch whether thermal optimum tracks it — or hold the water constant and see what the population does with a still world. Holds and retunes last until changed or the world is reseeded.',
       tool: true,
     },
     {
@@ -192,6 +200,12 @@ function benchSection(config: SimConfig): HelpSection {
     const tool = tools[mode];
     entries.push({ term: tool.name, what: tool.how, note: tool.shows, tool: true });
   }
+  entries.push({
+    term: 'Mechanism axes',
+    what: 'Toggle ontogeny, aposematism (the toxin / warning-signal axis) and sexual selection (ornament + preference — Fisherian), then APPLY. The axes are fixed when a world is seeded, so apply restarts the run: same seed, new axes, and the flags land in the URL.',
+    note: 'Buttons on the ?ontogeny=1 / ?aposematism=1 / ?sexualSelection=1 flags below. Apply is inert while nothing is changed, so it cannot wipe a world by accident.',
+    tool: true,
+  });
   return {
     title: 'The experiment bench · g',
     lead:

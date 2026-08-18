@@ -173,6 +173,43 @@ export function clampSigned(value: number, limit: number): number {
 }
 
 /**
+ * The toggle-gated mechanism treatments the bench can reseed a world with
+ * (G-wave ontogeny and aposematism, S-wave sexual selection). An axis is fixed
+ * when a world is seeded — founder phenotypes, the renderer's channels and the
+ * probe defaults all read it at init — so the bench control rewrites the URL
+ * flags `main.ts` already answers to and reloads, rather than sending a
+ * mid-run `setToggle` that the picture would not follow.
+ */
+export interface MechanismAxis {
+  /** The `?param=1` query flag main.ts reads at startup. */
+  readonly param: string;
+  readonly label: string;
+  readonly toggle: keyof SimConfig['toggles'];
+}
+
+export const MECHANISM_AXES: readonly MechanismAxis[] = [
+  { param: 'ontogeny', label: 'ontogeny', toggle: 'enableOntogeny' },
+  { param: 'aposematism', label: 'aposematism', toggle: 'enableAposematism' },
+  { param: 'sexualSelection', label: 'sexual selection', toggle: 'enableSexualSelection' },
+];
+
+/**
+ * The query string with the axis flags rewritten and everything else — the
+ * seed, `?renderer=` — left alone. An axis turned off is *removed*, not set to
+ * `0`: main.ts treats anything but `'1'` as off, but a lingering `ontogeny=0`
+ * in a shared URL reads as armed to the human it was shared with.
+ */
+export function withAxisParams(search: string, wanted: ReadonlyMap<string, boolean>): string {
+  const params = new URLSearchParams(search);
+  for (const axis of MECHANISM_AXES) {
+    if (wanted.get(axis.param) === true) params.set(axis.param, '1');
+    else params.delete(axis.param);
+  }
+  const text = params.toString();
+  return text === '' ? '' : `?${text}`;
+}
+
+/**
  * Commands that retune every standing wall to the slider's permeability.
  *
  * The engine treats a raise on an existing id as a replace (it splices the
@@ -449,6 +486,9 @@ const WALL_MIN_CELLS = 3;
 
 const CLIMATE_LIMIT_C = 6;
 
+/** Wander (σ) slider ceiling; the authored σ is 2.5, so the range doubles it with room. */
+const WANDER_LIMIT_C = 6;
+
 const METEOR_MIN_WU = 50;
 const METEOR_MAX_WU = 400;
 const METEOR_DEFAULT_WU = 200;
@@ -711,6 +751,8 @@ export class GodTools {
   private permeability = 0;
   private climateTargetC = 0;
   private climateObservedC: number | null = null;
+  private climateWalkOn: boolean;
+  private seasonsOn: boolean;
   private meteorRadiusWu = METEOR_DEFAULT_WU;
   private crashGlobal = true;
 
@@ -718,6 +760,10 @@ export class GodTools {
   private readonly permeabilityValue: HTMLElement;
   private readonly climateValue: HTMLElement;
   private readonly climateNow: HTMLElement;
+  private readonly wanderSlider: HTMLInputElement;
+  private readonly wanderValue: HTMLElement;
+  private readonly walkButton: HTMLButtonElement;
+  private readonly seasonsButton: HTMLButtonElement;
   private readonly meteorValue: HTMLElement;
   private readonly wallList: HTMLElement;
   private readonly wallEmpty: HTMLElement;
@@ -730,6 +776,9 @@ export class GodTools {
   private readonly breedingValues: HTMLElement[] = [];
   private readonly breedingStatus: HTMLElement;
   private readonly armButtons = new Map<ArmedMode, HTMLButtonElement>();
+  private readonly axisWanted = new Map<string, boolean>();
+  private readonly axisButtons = new Map<string, HTMLButtonElement>();
+  private readonly axisStatus: HTMLElement;
 
   private readonly overlay: HTMLElement;
   private overlayFrame = 0;
@@ -835,6 +884,45 @@ export class GodTools {
     climateApply.append(this.climateNow, this.button('Apply', () => this.applyClimate()));
     this.host.append(climateApply);
 
+    // The walk itself, not just its centre: σ retunes on release like the
+    // migration slider, and the two hold buttons pin what the slider cannot —
+    // walk off snaps the offset to the target, seasons off flattens the cycle.
+    const sigma = deps.config.thermal.climateSigmaC;
+    const wanderRow = el('div', 'gt-row');
+    wanderRow.append(el('span', 'label', 'wander'));
+    this.wanderSlider = el('input', 'gt-slider');
+    this.wanderSlider.type = 'range';
+    this.wanderSlider.min = '0';
+    this.wanderSlider.max = String(WANDER_LIMIT_C);
+    this.wanderSlider.step = '0.25';
+    this.wanderSlider.value = String(sigma);
+    this.wanderValue = el('span', 'gt-value', `±${sigma.toFixed(1)}`);
+    this.wanderSlider.addEventListener('input', () => {
+      this.wanderValue.textContent = `±${Number(this.wanderSlider.value).toFixed(1)}`;
+    });
+    this.wanderSlider.addEventListener('change', () => {
+      this.issue({ kind: 'setClimateVariability', sigmaC: Number(this.wanderSlider.value) });
+      this.wanderSlider.blur();
+    });
+    wanderRow.append(this.wanderSlider, this.wanderValue);
+    this.host.append(wanderRow);
+
+    this.climateWalkOn = deps.config.toggles.enableClimateWalk;
+    this.seasonsOn = deps.config.toggles.enableSeasonality;
+    const climateModes = el('div', 'gt-row');
+    this.walkButton = this.button('Walk', () => this.toggleClimateWalk());
+    this.seasonsButton = this.button('Seasons', () => this.toggleSeasons());
+    climateModes.append(this.walkButton, this.seasonsButton);
+    this.host.append(climateModes);
+    this.syncClimateModeButtons();
+    this.host.append(
+      el(
+        'span',
+        'gt-note',
+        'target is the walk’s centre; wander ±σ is how far it strays (0 stills it) · walk off pins the offset at target · seasons off flattens the annual cycle',
+      ),
+    );
+
     // ---- disturbances ----------------------------------------------------
     this.host.append(rule(), sectionHead('Disturbance'));
 
@@ -934,6 +1022,33 @@ export class GodTools {
     );
     this.host.append(breedingApply);
     this.host.append(el('span', 'gt-note', 'weight is per deviation-from-typical; − breeds against'));
+
+    // ---- mechanism axes --------------------------------------------------
+    // Not a live command like everything above: an axis is fixed at seeding,
+    // so APPLY rewrites the URL flags and reloads into a new world. The seed
+    // param survives the rewrite, so the same seed reruns under the new axes.
+    this.host.append(rule(), sectionHead('Mechanism axes'));
+    const axisRow = el('div', 'gt-row gt-row--wrap');
+    for (const axis of MECHANISM_AXES) {
+      const on = this.deps.config.toggles[axis.toggle];
+      this.axisWanted.set(axis.param, on);
+      const button = this.button(axis.label, () => this.toggleAxis(axis.param));
+      button.setAttribute('aria-pressed', on ? 'true' : 'false');
+      this.axisButtons.set(axis.param, button);
+      axisRow.append(button);
+    }
+    this.host.append(axisRow);
+    const axisApply = el('div', 'gt-row');
+    this.axisStatus = el('span', 'gt-note gt-grow', 'as seeded');
+    axisApply.append(this.axisStatus, this.button('Apply · new world', () => this.applyAxes()));
+    this.host.append(axisApply);
+    this.host.append(
+      el(
+        'span',
+        'gt-note',
+        'fixed at seeding — apply restarts this seed with the chosen axes · aposematism is the toxin / warning-signal axis · sexual selection is ornament + preference (Fisherian)',
+      ),
+    );
 
     // The trend strip and X2's panel are bottom-anchored and open on a keypress,
     // so the bench lifts above whichever is up rather than being buried by it.
@@ -1055,6 +1170,7 @@ export class GodTools {
     this.wallCounter = 0;
     this.flashWallId = null;
     this.resetBreedingUi();
+    this.resetClimateUi();
     this.climateObservedC = null;
     this.syncArmed();
     this.syncClimateNow();
@@ -1206,8 +1322,11 @@ export class GodTools {
         const archetype = isRadial ? 'radial drifters' : 'armoured crawlers';
         return `founding ${command.count} ${archetype} · ${command.locus} allele ${command.value}`;
       }
-      case 'trackSweep':
+      case 'setClimateVariability':
+        return `climate wander σ ±${command.sigmaC.toFixed(2)} °C`;
       case 'setToggle':
+        return `${command.toggle} ${command.value ? 'on' : 'off'}`;
+      case 'trackSweep':
         return `command ${command.kind}`;
     }
   }
@@ -1215,6 +1334,36 @@ export class GodTools {
   private applyClimate(): void {
     this.issue({ kind: 'setClimateTarget', targetOffsetC: this.climateTargetC });
     if (this.climateObservedC === null) this.syncClimateNow();
+  }
+
+  private toggleClimateWalk(): void {
+    this.climateWalkOn = !this.climateWalkOn;
+    this.issue({ kind: 'setToggle', toggle: 'enableClimateWalk', value: this.climateWalkOn });
+    this.syncClimateModeButtons();
+  }
+
+  private toggleSeasons(): void {
+    this.seasonsOn = !this.seasonsOn;
+    this.issue({ kind: 'setToggle', toggle: 'enableSeasonality', value: this.seasonsOn });
+    this.syncClimateModeButtons();
+  }
+
+  private syncClimateModeButtons(): void {
+    this.walkButton.setAttribute('aria-pressed', this.climateWalkOn ? 'true' : 'false');
+    this.seasonsButton.setAttribute('aria-pressed', this.seasonsOn ? 'true' : 'false');
+  }
+
+  /**
+   * Reseed: the worker rebuilds the sim from the page's overrides, so mid-run
+   * toggle and σ retunes are gone and the panel must go back to saying so.
+   */
+  private resetClimateUi(): void {
+    const config = this.deps.config;
+    this.climateWalkOn = config.toggles.enableClimateWalk;
+    this.seasonsOn = config.toggles.enableSeasonality;
+    this.syncClimateModeButtons();
+    this.wanderSlider.value = String(config.thermal.climateSigmaC);
+    this.wanderValue.textContent = `±${config.thermal.climateSigmaC.toFixed(1)}`;
   }
 
   private breedingRows(): BreedingRow[] {
@@ -1249,6 +1398,33 @@ export class GodTools {
       if (weight !== undefined) weight.value = '0';
       if (value !== undefined) value.textContent = '+0.0';
     }
+  }
+
+  private toggleAxis(param: string): void {
+    this.axisWanted.set(param, this.axisWanted.get(param) !== true);
+    const button = this.axisButtons.get(param);
+    if (button !== undefined) {
+      button.setAttribute('aria-pressed', this.axisWanted.get(param) === true ? 'true' : 'false');
+    }
+    this.axisStatus.textContent = this.axesChanged() ? 'changed' : 'as seeded';
+  }
+
+  private axesChanged(): boolean {
+    return MECHANISM_AXES.some((axis) => this.axisWanted.get(axis.param) !== this.deps.config.toggles[axis.toggle]);
+  }
+
+  /**
+   * Reload with the flags rewritten. Guarded on an actual change: this button
+   * wipes a running world, and "apply what is already applied" must not.
+   */
+  private applyAxes(): void {
+    if (!this.axesChanged()) {
+      this.deps.note('mechanism axes unchanged — nothing to apply');
+      return;
+    }
+    const url = new URL(window.location.href);
+    url.search = withAxisParams(url.search, this.axisWanted);
+    window.location.assign(url.toString());
   }
 
   private fireThermal(): void {

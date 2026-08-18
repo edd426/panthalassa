@@ -28,6 +28,7 @@ import {
   retuneBarrierCommands,
   shockCommand,
   signedFixed,
+  withAxisParams,
 } from './godTools';
 
 const config = resolveSimConfig({});
@@ -351,5 +352,25 @@ describe('breedingCommand', () => {
       kind: 'setArtificialSelection',
       terms: [],
     });
+  });
+});
+
+describe('withAxisParams', () => {
+  it('sets wanted axes to 1 and leaves the rest of the query alone', () => {
+    const wanted = new Map([
+      ['sexualSelection', true],
+      ['ontogeny', false],
+      ['aposematism', false],
+    ]);
+    expect(withAxisParams('?seed=abc123&renderer=crude', wanted)).toBe(
+      '?seed=abc123&renderer=crude&sexualSelection=1',
+    );
+  });
+
+  it('removes an axis turned off rather than writing param=0', () => {
+    const wanted = new Map([['ontogeny', false]]);
+    expect(withAxisParams('?ontogeny=1&seed=abc123', wanted)).toBe('?seed=abc123');
+    // A world with no seed param and no axes goes back to a bare URL.
+    expect(withAxisParams('?aposematism=1', new Map())).toBe('');
   });
 });

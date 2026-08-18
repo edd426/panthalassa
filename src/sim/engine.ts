@@ -843,6 +843,9 @@ class PanthalassaSim implements SimHandleInternal {
       case 'triggerDisturbance':
         this.triggerDisturbance(command.shock, command.magnitude, command.durationTicks, command.region ?? null);
         break;
+      case 'setClimateVariability':
+        this.setClimateVariability(command.sigmaC);
+        break;
       case 'setToggle':
         this.setToggle(command.toggle, command.value);
         break;
@@ -1789,6 +1792,30 @@ class PanthalassaSim implements SimHandleInternal {
     if (toggle === 'enableCarrion' && !value) {
       this.state.field.carrion.fill(0);
     }
+  }
+
+  /**
+   * Retune the climate walk's stationary SD. Same config-swap path as
+   * `setToggle` — the override is merged and the config re-resolved, so
+   * `stepClimate` reads the new σ on its next call and the change survives a
+   * snapshot/restore through `configOverrides` like every other override.
+   */
+  private setClimateVariability(sigmaC: number): void {
+    const clamped = Number.isFinite(sigmaC) && sigmaC > 0 ? sigmaC : 0;
+    const previous = this.state.config.thermal.climateSigmaC;
+    this.configOverrides = {
+      ...this.configOverrides,
+      thermal: { ...(this.configOverrides.thermal ?? {}), climateSigmaC: clamped },
+    };
+    this.state.config = resolveSimConfig(this.configOverrides);
+    this.state.events.push({
+      kind: 'climateEvent',
+      tick: this.state.tick,
+      cause: 'retune',
+      meanOffsetC: this.state.climate.meanOffsetC,
+      deltaC: clamped - previous,
+      sigmaC: clamped,
+    });
   }
 
   // -------------------------------------------------------------------------
