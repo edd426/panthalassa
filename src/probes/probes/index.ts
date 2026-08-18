@@ -18,6 +18,7 @@ import { performanceProbe } from './performance';
 import { disturbanceProbe, reEvolvabilityProbe } from './disturbance';
 import { ageStructureProbe } from './lifehistory';
 import { couplingProbe, mimicryProbe } from './aposematism';
+import { runawayProbe } from './runaway';
 
 export const PROBES: readonly ProbeDefinition[] = [
   determinismProbe, // P1
@@ -39,6 +40,7 @@ export const PROBES: readonly ProbeDefinition[] = [
   ageStructureProbe, // P17
   couplingProbe, // P18
   mimicryProbe, // P19
+  runawayProbe, // P20
 ];
 
 /** Scenarios that at least one probe reads, excluding the standalone probes' own harnesses. */

@@ -18,10 +18,15 @@
  */
 
 import type { KillSink, SpatialIndex } from '../../contracts/apis';
-import { aposematismLogit, predationKillProbability, toxinYieldMultiplier } from '../../contracts/formulas';
+import {
+  aposematismLogit,
+  ornamentDetectionLogit,
+  predationKillProbability,
+  toxinYieldMultiplier,
+} from '../../contracts/formulas';
 import { HUE_PERIOD_DEG } from '../../contracts/traits';
 import type { RandomSource, SimState, SlotIndex } from '../../contracts/types';
-import { NO_SLOT } from '../../contracts/types';
+import { NO_SLOT, SEX_MALE } from '../../contracts/types';
 import { sizeCurrentColumn } from '../organisms';
 import {
   T_ATTACK,
@@ -29,6 +34,7 @@ import {
   T_DEFENSE,
   T_DISPLAY_HUE,
   T_FORAGE_BOLDNESS,
+  T_ORNAMENT,
   T_SPEED_CAP,
   T_TOXICITY,
   trait,
@@ -240,6 +246,7 @@ export function tryPredation(
   const conspecificOdds = config.toggles.enableOntogeny ? Math.exp(config.growth.conspecificLogit) : 1;
   const predatorTag = pop.speciesTag[slot] ?? 0;
   const aposematism = config.toggles.enableAposematism;
+  const sexualSelection = config.toggles.enableSexualSelection;
 
   for (let index = 0; index < found; index += 1) {
     const victim = neighbors[index] ?? NO_SLOT;
@@ -292,6 +299,19 @@ export function tryPredation(
       );
       if (signalOdds !== 1) {
         const scaled = probability * signalOdds;
+        probability = scaled / (1 - probability + scaled);
+      }
+    }
+
+    // S-wave: the ornament rides the same odds multiplier — a banner is visible
+    // to predators too, with no aposematic credit to earn back. That viability
+    // bill against the mating benefit is the runaway's brake. Males only:
+    // expression is sex-limited (see metabolism.ts) — a female grows no banner,
+    // so she has none to be seen by.
+    if (sexualSelection && (pop.sex[victim] ?? 0) === SEX_MALE) {
+      const ornamentOdds = Math.exp(ornamentDetectionLogit(trait(traits, victim, T_ORNAMENT), config));
+      if (ornamentOdds !== 1) {
+        const scaled = probability * ornamentOdds;
         probability = scaled / (1 - probability + scaled);
       }
     }

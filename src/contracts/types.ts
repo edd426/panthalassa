@@ -617,6 +617,22 @@ export interface AposematismConfig {
   toxinCostCoef: number;
 }
 
+/**
+ * Sexual selection (S-wave v1.9). Read only when `toggles.enableSexualSelection`.
+ * Both driving traits sit at ≈0 at founding, so every term is ≈0 at the tuned
+ * operating point — the axis only bites once ornament or preference evolves.
+ * There is deliberately **no preference cost knob**: a priced preference kills
+ * the Fisherian runaway analytically, and the runaway is what P20 watches for.
+ */
+export interface SexualSelectionConfig {
+  /** Mating-lottery logit per (ornamentPref · ornament): the suitor's ticket is multiplied by exp(coef · herPref · hisOrnament), summed with everything else the female weighs. */
+  prefScale: number;
+  /** Metabolic burn per tick: coef · ornament · size^0.75 — display tissue scales with the body carrying it. */
+  ornamentCostCoef: number;
+  /** Kill-logit cost +coef · ornament: a banner is visible to predators too. Unconditional — unlike conspicuousness there is no aposematic credit, which is what makes this a pure handicap axis. */
+  ornamentDetectionCoef: number;
+}
+
 export interface MetabolismConfig {
   /** Baseline energy burn per tick at unit size and zero speed. */
   baseRate: number;
@@ -794,6 +810,8 @@ export interface MechanismToggles {
   enableOntogeny: boolean;
   /** G-wave aposematism: toxin penalties, signal costs, bin-toxicity avoidance. */
   enableAposematism: boolean;
+  /** S-wave sexual selection: the ornament axis — preference-weighted mating, ornament metabolic burn, ornament detection cost. A7 expresses only when this is on. */
+  enableSexualSelection: boolean;
 }
 
 export interface SimConfig {
@@ -806,6 +824,7 @@ export interface SimConfig {
   readonly carrion: CarrionConfig;
   readonly growth: GrowthConfig;
   readonly aposematism: AposematismConfig;
+  readonly sexualSelection: SexualSelectionConfig;
   readonly metabolism: MetabolismConfig;
   readonly predation: PredationConfig;
   readonly senescence: SenescenceConfig;
@@ -930,6 +949,12 @@ export const DEFAULT_SIM_CONFIG: SimConfig = Object.freeze({
     conspicuousnessMatingCoef: 0.25,
     toxinCostCoef: 0.002,
   }),
+  // S-wave v1.9: authored starting guesses for the sexual-selection campaign.
+  sexualSelection: Object.freeze({
+    prefScale: 1.0,
+    ornamentCostCoef: 0.002,
+    ornamentDetectionCoef: 0.35,
+  }),
   metabolism: Object.freeze({
     baseRate: 0.012,
     sizeExponent: 0.75,
@@ -1014,6 +1039,7 @@ export const DEFAULT_SIM_CONFIG: SimConfig = Object.freeze({
     enableCarrion: true,
     enableOntogeny: false,
     enableAposematism: false,
+    enableSexualSelection: false,
   }),
 });
 

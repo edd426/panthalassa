@@ -14,6 +14,7 @@
  */
 
 import {
+  ornamentMetabolicCostPerTick,
   senescenceHazard,
   somaticGrowthPerTick,
   temperatureHazard,
@@ -21,9 +22,9 @@ import {
 } from '../../contracts/formulas';
 import type { DeathSink } from '../../contracts/apis';
 import type { RandomSource, SimState, SlotIndex } from '../../contracts/types';
-import { NO_SLOT } from '../../contracts/types';
+import { NO_SLOT, SEX_MALE } from '../../contracts/types';
 import { sizeCurrentAt, sizeCurrentColumn } from '../organisms';
-import { T_GROWTH_ALLOCATION, T_OPT, T_SIZE, T_TOXICITY, T_WIDTH, trait } from './columns';
+import { T_GROWTH_ALLOCATION, T_OPT, T_ORNAMENT, T_SIZE, T_TOXICITY, T_WIDTH, trait } from './columns';
 import { ensureOrganismCache, metabolicCostFor } from './derived';
 import { localTemperatureC } from './fields';
 import type { EcologyRuntime } from './runtime';
@@ -64,6 +65,15 @@ export function metabolismAndHazards(
   // it is not a function of the speed key.
   if (config.toggles.enableAposematism) {
     burn += toxinMetabolicCostPerTick(trait(traits, slot, T_TOXICITY), sizeCurrentAt(pop, slot), config);
+  }
+  // S-wave: display tissue billed against realised length for the same reason
+  // as toxin sequestration above. Males only — the ornament is sex-limited in
+  // expression (females carry and transmit the alleles but grow no banner),
+  // because a both-sex cost against a male-only mating benefit selects the
+  // trait down through every female copy and the runaway is analytically dead
+  // on arrival; measured 2026-08-18, DESIGN.md "The S-wave".
+  if (config.toggles.enableSexualSelection && (pop.sex[slot] ?? 0) === SEX_MALE) {
+    burn += ornamentMetabolicCostPerTick(trait(traits, slot, T_ORNAMENT), sizeCurrentAt(pop, slot), config);
   }
 
   const energy = (pop.energy[slot] ?? 0) - burn;

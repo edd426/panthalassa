@@ -27,6 +27,7 @@
  */
 
 import type { MatingApi, SpatialIndex } from '../contracts/apis';
+import { ornamentMatingLogit } from '../contracts/formulas';
 import { TRAIT_COUNT, TRAIT_INDEX, TRAIT_META, hueDelta } from '../contracts/traits';
 import type { RandomSource, SimConfig, SimState, SlotIndex } from '../contracts/types';
 import { NO_SLOT, SEX_MALE } from '../contracts/types';
@@ -128,7 +129,24 @@ export function createMating(): MatingApi {
     const capacity = energyCapacityOf(pop, maleSlot, config);
     const condition = Math.max(0, Math.min(1, (pop.energy[maleSlot] ?? 0) / capacity));
     const conditionTerm = 1 - mating.conditionWeight + mating.conditionWeight * condition;
-    const weight = display * conditionTerm;
+
+    // S-wave (v1.9): the ornament axis. Multiplicative on her whole appraisal,
+    // like the hue Gaussian — a strong preference reshapes the lottery rather
+    // than adding a flat bonus. Signed in both traits: a female with a negative
+    // preference genuinely favours the unadorned male. exp(0) = 1 keeps the
+    // dark arm exactly the pre-wave lottery (both traits sit at their 0
+    // baselines with zero variance when A7 is dark, so this is belt and braces).
+    let ornamentTerm = 1;
+    if (config.toggles.enableSexualSelection) {
+      ornamentTerm = Math.exp(
+        ornamentMatingLogit(
+          traitAt(pop, femaleSlot, TRAIT_INDEX.ornamentPref),
+          traitAt(pop, maleSlot, TRAIT_INDEX.ornament),
+          config,
+        ),
+      );
+    }
+    const weight = display * conditionTerm * ornamentTerm;
 
     // G3, the other half of the conspicuousness tug: a loud male is chosen more
     // often and eaten more often, and the sex-biased mortality that falls out of

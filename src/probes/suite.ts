@@ -67,6 +67,7 @@ export const QUICK_SCENARIOS = [
   'disturbance-smoke',
   'ontogeny',
   'aposematism',
+  'sexualSelection',
 ] as const;
 export const FULL_SCENARIOS = [
   'baseline',
@@ -77,6 +78,7 @@ export const FULL_SCENARIOS = [
   're-evolvability',
   'ontogeny',
   'aposematism',
+  'sexualSelection',
 ] as const;
 export const QUICK_SEEDS = ['q1'] as const;
 export const FULL_SEEDS = ['s1', 's2', 's3'] as const;

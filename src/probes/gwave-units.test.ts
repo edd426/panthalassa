@@ -124,19 +124,19 @@ describe('P18 analytic null', () => {
     //   V_tox = 2 · Σ (w·sd)² over q31,q32,q61,q62,q63,q68 = 0.1992745
     //   V_con = 2 · Σ (w·sd)² over q37,q63,q64,q65,q66,q67 = 0.2971925
     //   r = 0.03969 / √(0.1992745 · 0.2971925) = 0.16309…
-    const gates = { ontogeny: false, aposematism: true };
+    const gates = { ontogeny: false, aposematism: true, sexualSelection: false };
     expect(founderGeneticCovariance('toxicity', 'conspicuousness', 1, gates)).toBeCloseTo(0.03969, 6);
     expect(authoredTraitCorrelation('toxicity', 'conspicuousness', 1, gates)).toBeCloseTo(0.16309, 4);
   });
 
   it('does not depend on founderSdScale, so it is a property of the table', () => {
-    const gates = { ontogeny: false, aposematism: true };
+    const gates = { ontogeny: false, aposematism: true, sexualSelection: false };
     const wide = authoredTraitCorrelation('toxicity', 'conspicuousness', 1, gates);
     expect(authoredTraitCorrelation('toxicity', 'conspicuousness', 0.1, gates)).toBeCloseTo(wide, 10);
   });
 
   it('collapses to zero covariance when A6 is dark, because the coupling locus lives there', () => {
-    const dark = { ontogeny: false, aposematism: false };
+    const dark = { ontogeny: false, aposematism: false, sexualSelection: false };
     expect(founderGeneticCovariance('toxicity', 'conspicuousness', 1, dark)).toBe(0);
     expect(QUANT_LOCUS_BY_ID.q63.chromosome).toBe('A6');
   });
@@ -145,6 +145,7 @@ describe('P18 analytic null', () => {
     expect(gatesOf(resolveSimConfig({ toggles: { enableAposematism: true } }))).toEqual({
       ontogeny: false,
       aposematism: true,
+      sexualSelection: false,
     });
   });
 
@@ -152,6 +153,7 @@ describe('P18 analytic null', () => {
     const authored = authoredTraitCorrelation('toxicity', 'conspicuousness', 1, {
       ontogeny: false,
       aposematism: true,
+      sexualSelection: false,
     });
     expect(couplingBar(authored, 1_500)).toBeCloseTo(authored + 3 * ((1 - authored ** 2) / Math.sqrt(1_499)), 10);
     expect(couplingBar(authored, 200)).toBeGreaterThan(couplingBar(authored, 2_000));

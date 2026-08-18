@@ -32,6 +32,8 @@ export const T_GROWTH_ALLOCATION = TRAIT_INDEX.growthAllocation;
 /** G3: read only under `toggles.enableAposematism`. */
 export const T_TOXICITY = TRAIT_INDEX.toxicity;
 export const T_CONSPICUOUSNESS = TRAIT_INDEX.conspicuousness;
+/** S-wave: read only under `toggles.enableSexualSelection`. */
+export const T_ORNAMENT = TRAIT_INDEX.ornament;
 
 /** Read one trait by its pre-resolved offset. */
 export function trait(packed: Float32Array, slot: number, offset: number): number {

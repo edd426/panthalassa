@@ -85,7 +85,12 @@ export type TraitKey =
   /** Defensive toxin load. Softplus floor at a ≈0 baseline: near-inert at founding by construction. Read only when `toggles.enableAposematism`. */
   | 'toxicity'
   /** Signal amplitude: how loud the display is. Identity link; negative = cryptic. Orthogonal to `displayHue` (which colour vs how loud) — that separation is what makes mimicry expressible. */
-  | 'conspicuousness';
+  | 'conspicuousness'
+  // --- S-wave (v1.9): sexual selection. Appended; never reorder. ---
+  /** Sexually selected display structure, cm. Softplus floor at a ≈0 baseline: near-absent at founding. Multiplies the suitor lottery through `ornamentPref`; males alone pay its metabolic and detection bills (sex-limited expression — a both-sex cost against a male-only benefit kills the runaway analytically; females carry and transmit the alleles cost-free). Read only when `toggles.enableSexualSelection`. */
+  | 'ornament'
+  /** Directional mate preference for `ornament`, kill-logit-style units per cm. Identity link; negative = prefers the unadorned. Deliberately cost-free — a priced preference forecloses the Fisherian runaway this axis exists to permit. */
+  | 'ornamentPref';
 
 /**
  * Canonical trait order. **This order defines the memory layout** of
@@ -117,6 +122,8 @@ export const TRAIT_KEYS = [
   'fecundity',
   'toxicity',
   'conspicuousness',
+  'ornament',
+  'ornamentPref',
 ] as const satisfies readonly TraitKey[];
 
 export const TRAIT_COUNT = TRAIT_KEYS.length;
@@ -212,6 +219,9 @@ const META: readonly TraitMeta[] = [
   { key: 'fecundity', unit: 'count', link: 'softplus', linkScale: 0.3, baseline: 3, fitnessSense: 'matching', focal: false, description: 'Poisson clutch mean; shares one provisioning budget with offspring size.' },
   { key: 'toxicity', unit: 'load', link: 'softplus', linkScale: 0.15, baseline: 0, fitnessSense: 'directional', focal: false, description: 'Defensive chemistry; a post-kill penalty to the predator, never a lower kill probability.' },
   { key: 'conspicuousness', unit: 'amplitude', link: 'identity', linkScale: 0, baseline: 0, fitnessSense: 'matching', focal: false, description: 'Signal loudness; raises detection and mating interest, earns aposematic credit only if the local hue bin is toxic.' },
+  // S-wave (v1.9): starting guesses for the sexual-selection campaign to move.
+  { key: 'ornament', unit: 'cm', link: 'softplus', linkScale: 0.15, baseline: 0, fitnessSense: 'directional', focal: false, description: 'Display structure, male-expressed; multiplies the suitor lottery via ornamentPref, burns metabolism, raises detection.' },
+  { key: 'ornamentPref', unit: 'logit/cm', link: 'identity', linkScale: 0, baseline: 0, fitnessSense: 'matching', focal: false, description: 'Directional preference for ornament; cost-free by design so runaway is possible.' },
 ];
 
 export const TRAIT_META: Readonly<Record<TraitKey, TraitMeta>> = Object.freeze(

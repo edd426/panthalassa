@@ -1,29 +1,31 @@
 /**
  * The genome — FROZEN CONTRACT (see CLAUDE.md).
  *
- * Diploid, four autosomes plus an XY pair. Each autosome carries 12
+ * Diploid, seven autosomes plus an XY pair. Each autosome carries 8–12
  * quantitative loci (real-valued alleles under a continuum-of-alleles model)
- * with 3 discrete loci interleaved among them, so linkage drags the discrete
+ * with 1–3 discrete loci interleaved among them, so linkage drags the discrete
  * markers along with selected quantitative variation — that coupling is what
  * makes neutral markers informative about drift and what lets a sweep be seen
  * as a hitchhiking event rather than a single-locus curiosity.
  *
  * ```
- *                68 quantitative        18 discrete
+ *                76 quantitative        21 discrete
  *   A1  q01..q12 (body & power)         cladeMacroA, pigmentA, neutralA
  *   A2  q13..q24 (thermal & metabolism) cladeMacroB, pigmentB, neutralB
  *   A3  q25..q36 (trophic & conflict)   prefModA,    pigmentC, neutralC
  *   A4  q37..q48 (behaviour & display)  prefModB,    pigmentD, neutralD
  *   A5  q49..q60 (life history, v1.7)   lifeHistoryMacro, pigmentE, neutralE
  *   A6  q61..q68 (chemical defence)     toxinMacro,  pigmentF, neutralF
+ *   A7  q69..q76 (sexual selection, v1.9) ornamentMacro, pigmentG, neutralG
  *   XY  sexDeterminer
  * ```
  *
- * A5/A6 are the G-wave append (v1.7). New loci go on new autosomes — never
+ * A5/A6 are the G-wave append (v1.7); A7 is the S-wave append (v1.9), dark
+ * behind `enableSexualSelection`. New loci go on new autosomes — never
  * interleaved — so indices 0..47 keep their layout meaning and the authored
  * linkage blocks stay put; existing loci may gain `loads` onto new traits
  * (free: `founderGeneticVariance` sums per trait). G0's per-chromosome RNG
- * forks are what make the append trajectory-neutral for A1–A4.
+ * forks are what make the append trajectory-neutral for A1–A6.
  *
  * Each chromosome is **100 cM = 1 Morgan long**, which is exactly why
  * recombination is Poisson(1.0) per chromosome: the crossover rate and the map
@@ -61,9 +63,9 @@ import { TRAIT_KEYS, TRAIT_META } from './traits';
 // Chromosomes
 // ---------------------------------------------------------------------------
 
-export type AutosomeId = 'A1' | 'A2' | 'A3' | 'A4' | 'A5' | 'A6';
+export type AutosomeId = 'A1' | 'A2' | 'A3' | 'A4' | 'A5' | 'A6' | 'A7';
 
-export const AUTOSOME_IDS = ['A1', 'A2', 'A3', 'A4', 'A5', 'A6'] as const satisfies readonly AutosomeId[];
+export const AUTOSOME_IDS = ['A1', 'A2', 'A3', 'A4', 'A5', 'A6', 'A7'] as const satisfies readonly AutosomeId[];
 
 /** Genetic length of every chromosome, cM. 100 cM = 1 Morgan = Poisson(1.0) crossovers. */
 export const MAP_LENGTH_CM = 100;
@@ -203,6 +205,21 @@ const QUANT_LOCUS_SPECS = [
   // machinery, so sexual selection and predator avoidance pull on correlated loci.
   { id: 'q67', chromosome: 'A6', positionCm: 70, founderSd: 0.45, label: 'display musculature', loads: [['conspicuousness', 0.30], ['prefTarget', 8]] },
   { id: 'q68', chromosome: 'A6', positionCm: 88, founderSd: 0.45, label: 'toxin tolerance', loads: [['toxicity', 0.25], ['tWidth', 0.18]] },
+
+  // --- A7: sexual selection (S-wave v1.9) -----------------------------------
+  { id: 'q69', chromosome: 'A7', positionCm: 4, founderSd: 0.50, label: 'ornament rachis', loads: [['ornament', 0.40], ['speedCap', -0.04]] },
+  { id: 'q70', chromosome: 'A7', positionCm: 12, founderSd: 0.45, label: 'vane area', loads: [['ornament', 0.34], ['size', 0.20]] },
+  // q71/q72 are the runaway block (1.5 cM apart): q71 couples ornament to the
+  // preference for it (the Fisherian bootstrap, q36/q38/q63 style), q72 couples
+  // preference strength to general mate discrimination.
+  { id: 'q71', chromosome: 'A7', positionCm: 27, founderSd: 0.45, label: 'ornament-preference coupling', loads: [['ornament', 0.28], ['ornamentPref', 0.30]] },
+  { id: 'q72', chromosome: 'A7', positionCm: 28.5, founderSd: 0.40, label: 'display drive', loads: [['ornamentPref', 0.38], ['choosiness', 0.08]] },
+  { id: 'q73', chromosome: 'A7', positionCm: 45, founderSd: 0.50, label: 'preference gain A', loads: [['ornamentPref', 0.45]] },
+  { id: 'q74', chromosome: 'A7', positionCm: 58, founderSd: 0.45, label: 'preference gain B', loads: [['ornamentPref', 0.32], ['prefTarget', 6]] },
+  { id: 'q75', chromosome: 'A7', positionCm: 72, founderSd: 0.45, label: 'courtship stamina', loads: [['ornament', 0.26], ['metabolicEff', -0.04]] },
+  // The sensory-bias origin story: preference as a byproduct of predator-
+  // detection sensitivity, so preference variation exists before ornaments do.
+  { id: 'q76', chromosome: 'A7', positionCm: 88, founderSd: 0.40, label: 'sensory bias', loads: [['ornamentPref', 0.28], ['wariness', 1.8]] },
 ] as const satisfies readonly QuantLocusSpec[];
 
 /** `'q01' | 'q02' | … | 'q48'`. */
@@ -269,19 +286,26 @@ export interface PleiotropyEntry {
  * the G0 world, and flipping a toggle on reveals the variation that has been
  * accumulating cryptically the whole time.
  */
-export type GeneGate = 'ontogeny' | 'aposematism';
+export type GeneGate = 'ontogeny' | 'aposematism' | 'sexualSelection';
 
 export function chromosomeGate(chromosome: AutosomeId): GeneGate | null {
-  return chromosome === 'A5' ? 'ontogeny' : chromosome === 'A6' ? 'aposematism' : null;
+  return chromosome === 'A5'
+    ? 'ontogeny'
+    : chromosome === 'A6'
+      ? 'aposematism'
+      : chromosome === 'A7'
+        ? 'sexualSelection'
+        : null;
 }
 
 /** Which gene gates are expressed, from `SimConfig.toggles`. */
 export interface ActiveGates {
   readonly ontogeny: boolean;
   readonly aposematism: boolean;
+  readonly sexualSelection: boolean;
 }
 
-export const ALL_GATES_ON: ActiveGates = Object.freeze({ ontogeny: true, aposematism: true });
+export const ALL_GATES_ON: ActiveGates = Object.freeze({ ontogeny: true, aposematism: true, sexualSelection: true });
 
 function gateActive(gate: GeneGate | null, gates: ActiveGates): boolean {
   return gate === null || gates[gate];
@@ -402,7 +426,9 @@ export type DiscreteLocusKind =
   /** G-wave (v1.7): a life-history strategy jump (few-large vs many-small), founder-fixed at the ancestral allele so a strategy appears as an event, not a founding condition. */
   | 'lifeHistoryMacro'
   /** G-wave (v1.7): a toxicity jump, founder-fixed at the ancestral allele — the invention of chemical defence is an event worth logging. */
-  | 'toxinMacro';
+  | 'toxinMacro'
+  /** S-wave (v1.9): an ornament jump, founder-fixed at the ancestral allele — the invention of the display structure is an event, not a founding condition. */
+  | 'ornamentMacro';
 
 /**
  * Kinds seeded homozygous-ancestral (allele 0) at founding rather than drawn
@@ -417,6 +443,7 @@ export const FOUNDER_FIXED_DISCRETE_KINDS: readonly DiscreteLocusKind[] = Object
   'cladeMacro',
   'lifeHistoryMacro',
   'toxinMacro',
+  'ornamentMacro',
 ]);
 
 interface DiscreteLocusSpec {
@@ -452,13 +479,17 @@ const DISCRETE_LOCUS_SPECS = [
   { id: 'toxinMacro', chromosome: 'A6', positionCm: 21, kind: 'toxinMacro', alleleCount: 3, label: 'toxin macro-locus' },
   { id: 'pigmentF', chromosome: 'A6', positionCm: 52, kind: 'pigment', alleleCount: 4, label: 'pigment F' },
   { id: 'neutralF', chromosome: 'A6', positionCm: 92, kind: 'neutralMarker', alleleCount: 8, label: 'neutral marker F' },
+
+  { id: 'ornamentMacro', chromosome: 'A7', positionCm: 20, kind: 'ornamentMacro', alleleCount: 3, label: 'ornament macro-locus' },
+  { id: 'pigmentG', chromosome: 'A7', positionCm: 55, kind: 'pigment', alleleCount: 4, label: 'pigment G' },
+  { id: 'neutralG', chromosome: 'A7', positionCm: 92, kind: 'neutralMarker', alleleCount: 8, label: 'neutral marker G' },
 ] as const satisfies readonly DiscreteLocusSpec[];
 
 export type DiscreteLocusId = (typeof DISCRETE_LOCUS_SPECS)[number]['id'];
 
 export interface DiscreteLocus {
   readonly id: DiscreteLocusId;
-  /** Index into the discrete allele arrays, 0..11. */
+  /** Index into the discrete allele arrays. */
   readonly index: number;
   readonly chromosome: AutosomeId;
   readonly positionCm: number;
@@ -546,6 +577,16 @@ export const DISCRETE_EFFECTS: readonly DiscreteEffect[] = Object.freeze([
   // runs with this locus's effects disabled (G-B's bootstrap question).
   { locus: 'toxinMacro', allele: 1, trait: 'toxicity', delta: 1.0 },
   { locus: 'toxinMacro', allele: 2, trait: 'toxicity', delta: 2.0 },
+
+  // S-wave (v1.9) pigment bank, same rationale as A–F.
+  { locus: 'pigmentG', allele: 1, trait: 'displayHue', delta: 50 },
+  { locus: 'pigmentG', allele: 2, trait: 'displayHue', delta: -60 },
+  { locus: 'pigmentG', allele: 3, trait: 'displayHue', delta: 20 },
+
+  // Ornament invention jumps (allele 0 ancestral): a display structure can
+  // arrive as an event, then the polygenic tail and the runaway take it over.
+  { locus: 'ornamentMacro', allele: 1, trait: 'ornament', delta: 0.8 },
+  { locus: 'ornamentMacro', allele: 2, trait: 'ornament', delta: 1.6 },
 ] as const satisfies readonly DiscreteEffect[]);
 
 export const DISCRETE_EFFECTS_BY_LOCUS: Readonly<Record<DiscreteLocusId, readonly DiscreteEffect[]>> = Object.freeze(
@@ -561,11 +602,12 @@ export const DISCRETE_EFFECTS_BY_LOCUS: Readonly<Record<DiscreteLocusId, readonl
 export type WRowsByTrait = Readonly<Record<TraitKey, readonly { readonly locusIndex: number; readonly weight: number }[]>>;
 export type DiscreteEffectsByLocus = Readonly<Record<DiscreteLocusId, readonly DiscreteEffect[]>>;
 
-const gateKey = (gates: ActiveGates): string => `${gates.ontogeny ? 1 : 0}${gates.aposematism ? 1 : 0}`;
+const gateKey = (gates: ActiveGates): string =>
+  `${gates.ontogeny ? 1 : 0}${gates.aposematism ? 1 : 0}${gates.sexualSelection ? 1 : 0}`;
 const ACTIVE_W_CACHE = new Map<string, WRowsByTrait>();
 const ACTIVE_EFFECTS_CACHE = new Map<string, DiscreteEffectsByLocus>();
 
-/** `W_ROWS_BY_TRAIT` with dark-chromosome entries removed. Cached; four possible views. */
+/** `W_ROWS_BY_TRAIT` with dark-chromosome entries removed. Cached; eight possible views. */
 export function activeWRowsByTrait(gates: ActiveGates): WRowsByTrait {
   const key = gateKey(gates);
   const cached = ACTIVE_W_CACHE.get(key);
@@ -586,7 +628,7 @@ export function activeWRowsByTrait(gates: ActiveGates): WRowsByTrait {
   return view;
 }
 
-/** `DISCRETE_EFFECTS_BY_LOCUS` with dark-chromosome loci emptied. Cached; four possible views. */
+/** `DISCRETE_EFFECTS_BY_LOCUS` with dark-chromosome loci emptied. Cached; eight possible views. */
 export function activeDiscreteEffectsByLocus(gates: ActiveGates): DiscreteEffectsByLocus {
   const key = gateKey(gates);
   const cached = ACTIVE_EFFECTS_CACHE.get(key);
@@ -651,9 +693,9 @@ export type HaplotypeIndex = 0 | 1;
  * SoA pools. Meiosis reads two parent genomes and writes a fresh one.
  */
 export interface Genome {
-  /** `PLOIDY * QUANT_LOCUS_COUNT` = 96 real-valued alleles, `hap * 48 + locusIndex`. */
+  /** `PLOIDY * QUANT_LOCUS_COUNT` real-valued alleles, `hap * QUANT_LOCUS_COUNT + locusIndex`. */
   readonly quant: Float32Array;
-  /** `PLOIDY * DISCRETE_LOCUS_COUNT` = 24 allele indices, `hap * 12 + locusIndex`. */
+  /** `PLOIDY * DISCRETE_LOCUS_COUNT` allele indices, `hap * DISCRETE_LOCUS_COUNT + locusIndex`. */
   readonly discrete: Uint8Array;
   readonly karyotype: Karyotype;
 }

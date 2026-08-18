@@ -107,6 +107,7 @@ function derive(config: SimConfig): DerivedConstants {
   const gates: ActiveGates = {
     ontogeny: config.toggles.enableOntogeny,
     aposematism: config.toggles.enableAposematism,
+    sexualSelection: config.toggles.enableSexualSelection,
   };
   // Domain guard on the tuning surface, not a trait bound: h² = 0 asks for an
   // infinite environmental deviation and h² > 1 for an imaginary one.

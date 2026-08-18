@@ -505,6 +505,8 @@ export const TOGGLE_KEYS = [
   // read them.
   'enableOntogeny',
   'enableAposematism',
+  // S-wave v1.9, default-off: the arm turns the ornament axis ON. P20 reads it.
+  'enableSexualSelection',
 ] as const satisfies readonly (keyof MechanismToggles)[];
 
 /** The value {@link toggleScenarioName}'s arm sets: the opposite of the shipped default. */
@@ -535,6 +537,8 @@ function toggleScenario(toggle: keyof MechanismToggles): Scenario {
 export const ONTOGENY_SCENARIO = toggleScenarioName('enableOntogeny');
 /** The aposematism arm, named for the probes that read it. */
 export const APOSEMATISM_SCENARIO = toggleScenarioName('enableAposematism');
+/** The sexual-selection arm, named for the probe that reads it (P20). */
+export const SEXUAL_SELECTION_SCENARIO = toggleScenarioName('enableSexualSelection');
 
 // ---------------------------------------------------------------------------
 // disturbance smoke / P15

@@ -35,10 +35,14 @@ import { APOSEMATISM_SCENARIO } from '../scenarios';
 
 /** Which chromosomes express, from a config's toggles. */
 export function gatesOf(config: SimConfig): ActiveGates {
-  return { ontogeny: config.toggles.enableOntogeny, aposematism: config.toggles.enableAposematism };
+  return {
+    ontogeny: config.toggles.enableOntogeny,
+    aposematism: config.toggles.enableAposematism,
+    sexualSelection: config.toggles.enableSexualSelection,
+  };
 }
 
-function gateOpen(gate: 'ontogeny' | 'aposematism' | null, gates: ActiveGates): boolean {
+function gateOpen(gate: keyof ActiveGates | null, gates: ActiveGates): boolean {
   return gate === null || gates[gate];
 }
 

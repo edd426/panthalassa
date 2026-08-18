@@ -53,7 +53,9 @@ import { SeededRng } from '../sim/rng';
 
 const CONFIG = resolveSimConfig();
 /** The G-wave gates expressed — the arm where all 23 traits are live. */
-const GATES_ON_CONFIG = resolveSimConfig({ toggles: { enableOntogeny: true, enableAposematism: true } });
+const GATES_ON_CONFIG = resolveSimConfig({
+  toggles: { enableOntogeny: true, enableAposematism: true, enableSexualSelection: true },
+});
 
 /** Mutation off, so segregation and recombination are measured without noise. */
 const NO_MUTATION = resolveSimConfig({ toggles: { enableMutation: false } });
@@ -424,8 +426,10 @@ describe('founders', () => {
     // entanglement of §3), and the gate-aware analytic must match exactly
     // that, sitting strictly below the gates-on analytic.
     const columns = founderColumns(2_000, 'founder-dark', 0).genotypic;
-    const dark = { ontogeny: false, aposematism: false } as const;
-    for (const key of ['growthAllocation', 'offspringSize', 'fecundity', 'toxicity', 'conspicuousness'] as const) {
+    const dark = { ontogeny: false, aposematism: false, sexualSelection: false } as const;
+    // The S-wave pair has NO always-on cross-loads by design, so dark means
+    // exactly zero — the strongest inertness pin the rule can produce.
+    for (const key of ['growthAllocation', 'offspringSize', 'fecundity', 'toxicity', 'conspicuousness', 'ornament', 'ornamentPref'] as const) {
       const index = TRAIT_KEYS.indexOf(key);
       const analyticDark = founderGeneticVariance(key, CONFIG.genetics.founderSdScale, dark);
       const analyticOn = founderGeneticVariance(key, CONFIG.genetics.founderSdScale);

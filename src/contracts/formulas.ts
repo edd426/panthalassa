@@ -337,3 +337,39 @@ export function aposematismLogit(
 export function toxinMetabolicCostPerTick(toxicity: number, sizeCm: number, config: SimConfig): number {
   return config.aposematism.toxinCostCoef * Math.max(0, toxicity) * Math.max(0, sizeCm) ** 0.75;
 }
+
+// ---------------------------------------------------------------------------
+// S-wave v1.9 — sexual selection (read only when `toggles.enableSexualSelection`)
+// ---------------------------------------------------------------------------
+
+/**
+ * Mating-lottery logit a female's ornament preference contributes for one male:
+ * `prefScale · herPref · hisOrnament`, clamped to ±8.
+ *
+ * Signed and open-ended in both traits — a negative preference genuinely
+ * favours the unadorned, which is what lets drift start a runaway in either
+ * direction. The clamp is a numerical guard on the lottery (an `exp` overflow
+ * would break the weighted draw, the X3 precedent), not a bound on either
+ * trait: at ±8 one male already out-tickets a rival by e¹⁶.
+ */
+export function ornamentMatingLogit(femalePref: number, maleOrnament: number, config: SimConfig): number {
+  const logit = config.sexualSelection.prefScale * femalePref * maleOrnament;
+  return Math.max(-8, Math.min(8, logit));
+}
+
+/** Metabolic burn per tick of carrying the display: `coef · ornament · size^0.75`. */
+export function ornamentMetabolicCostPerTick(ornament: number, sizeCm: number, config: SimConfig): number {
+  return config.sexualSelection.ornamentCostCoef * Math.max(0, ornament) * Math.max(0, sizeCm) ** 0.75;
+}
+
+/**
+ * Kill-logit cost of the display: `+coef · ornament`.
+ *
+ * Unconditional, unlike {@link aposematismLogit}'s conspicuousness term — there
+ * is no toxic-bin credit to earn back. The ornament is a pure handicap: it buys
+ * matings and nothing else, and that asymmetry (mating benefit vs viability
+ * cost) is the tension the Fisherian runaway runs on.
+ */
+export function ornamentDetectionLogit(ornament: number, config: SimConfig): number {
+  return config.sexualSelection.ornamentDetectionCoef * Math.max(0, ornament);
+}

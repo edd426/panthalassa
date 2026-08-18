@@ -93,7 +93,7 @@ function runWithBiomass(rows: readonly SampleRow[], biomassCm: readonly number[]
 }
 
 describe('probe registry', () => {
-  it('covers P1 through P19 exactly once, in the plan’s order', () => {
+  it('covers P1 through P20 exactly once, in the plan’s order', () => {
     expect(PROBES.map((probe) => probe.id)).toEqual([
       'P1',
       'P2',
@@ -114,6 +114,7 @@ describe('probe registry', () => {
       'P17',
       'P18',
       'P19',
+      'P20',
     ]);
   });
 
