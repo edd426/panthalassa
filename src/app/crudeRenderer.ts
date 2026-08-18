@@ -245,6 +245,7 @@ export class CrudeRenderer {
         case 'speedCap':
         case 'defense':
         case 'toxicity':
+        case 'ornament':
           // One flat neutral where the world is not running the axis — see
           // `isInertMode`; a ramp there would draw variance nothing selects on.
           fill = isInertMode(effective, this.config)
@@ -327,12 +328,14 @@ export class CrudeRenderer {
         };
       case 'speedCap':
       case 'defense':
-      case 'toxicity': {
+      case 'toxicity':
+      case 'ornament': {
         const unit = TRAIT_META[mode].unit;
         if (isInertMode(mode, this.config)) {
+          const axis = mode === 'ornament' ? 'sexual-selection' : 'aposematism';
           return {
             mode,
-            description: `${mode} (${unit}) — this world is not running the aposematism axis`,
+            description: `${mode} (${unit}) — this world is not running the ${axis} axis`,
             stops: ['nothing to read: the ecology never looks at the trait'],
           };
         }

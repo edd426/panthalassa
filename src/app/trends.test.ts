@@ -327,12 +327,12 @@ describe('the store', () => {
 
   it('reads a macro-locus as the share away from the ancestral allele', () => {
     // The panel's whole claim is that every one of these lines starts at
-    // exactly 0, which is only true because these four loci are seeded
+    // exactly 0, which is only true because these five loci are seeded
     // homozygous-ancestral. A derived allele appearing is the event.
     const store = createTrendStore(config);
     ingestTrendRow(store, makeRow({ generation: 1 }));
     ingestTrendRow(store, makeRow({ generation: 2, macroDerived: 0.25 }));
-    expect(store.macroDerived).toHaveLength(4);
+    expect(store.macroDerived).toHaveLength(5);
     for (const column of store.macroDerived) {
       expect(column[0]).toBeCloseTo(0, 9);
       expect(column[1]).toBeCloseTo(0.25, 9);

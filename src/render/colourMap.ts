@@ -385,12 +385,14 @@ export function buildLegend(
       };
     case 'speedCap':
     case 'defense':
-    case 'toxicity': {
+    case 'toxicity':
+    case 'ornament': {
       const unit = TRAIT_META[mode].unit;
       if (inert) {
+        const axis = mode === 'ornament' ? 'sexual-selection' : 'aposematism';
         return {
           mode,
-          description: `${mode} (${unit}) — this world is not running the aposematism axis`,
+          description: `${mode} (${unit}) — this world is not running the ${axis} axis`,
           stops: ['nothing to read: the ecology never looks at the trait'],
         };
       }
@@ -502,6 +504,7 @@ export function resolveColours(
       case 'speedCap':
       case 'defense':
       case 'toxicity':
+      case 'ornament':
         // One flat neutral for an axis this world does not read — the same mark
         // for every animal, which is the truth, rather than a ramp over
         // variance nothing is selecting on.

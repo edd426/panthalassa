@@ -143,6 +143,10 @@ export const BREEDABLE_TRAITS = [
   'bodyAspect',
   'tOpt',
   'toxicity',
+  // Latent deviation is exactly 0 in a dark-A7 world, so off the
+  // sexual-selection arm this row is inert rather than wrong (X3 weighs
+  // latent deviation from baseline).
+  'ornament',
 ] as const satisfies readonly TraitKey[];
 
 export interface BreedingRow {

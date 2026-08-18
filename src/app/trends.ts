@@ -133,6 +133,7 @@ const MACRO_LABEL: Readonly<Record<string, string>> = Object.freeze({
   cladeMacroB: 'body plan B',
   lifeHistoryMacro: 'life history',
   toxinMacro: 'toxin',
+  ornamentMacro: 'ornament',
 });
 
 /**

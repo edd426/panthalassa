@@ -38,6 +38,7 @@ export type ColourMode =
   | 'defense'
   | 'toxicity'
   | 'boldness'
+  | 'ornament'
   | 'energy';
 
 // The measurement modes are kept contiguous and `energy` stays last, so the
@@ -50,6 +51,7 @@ export const COLOUR_MODES: readonly ColourMode[] = [
   'defense',
   'toxicity',
   'boldness',
+  'ornament',
   'energy',
 ];
 
@@ -66,6 +68,8 @@ export function traitKeyForMode(mode: ColourMode): TraitKey | null {
       return 'defense';
     case 'toxicity':
       return 'toxicity';
+    case 'ornament':
+      return 'ornament';
     case 'boldness':
       // The mode is named for what the watcher is looking at, the trait for
       // what the sim reads: exposure to open water rather than kelp cover.
@@ -211,7 +215,11 @@ export function boldnessSignal(forageBoldness: number): number {
  * legend instead of inventing a spread.
  */
 export function isInertMode(mode: ColourMode, config: SimConfig): boolean {
-  return mode === 'toxicity' && !config.toggles.enableAposematism;
+  if (mode === 'toxicity') return !config.toggles.enableAposematism;
+  // Same trap, same answer for the S-wave: dark A7 leaves ornament at exactly
+  // its softplus-of-zero floor for every animal — a constant, not an axis.
+  if (mode === 'ornament') return !config.toggles.enableSexualSelection;
+  return false;
 }
 
 /**

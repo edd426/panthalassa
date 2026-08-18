@@ -103,7 +103,8 @@ declare global {
 }
 
 /**
- * Mechanism axes the URL asks for: `?ontogeny=1`, `?aposematism=1`.
+ * Mechanism axes the URL asks for: `?ontogeny=1`, `?aposematism=1`,
+ * `?sexualSelection=1`.
  *
  * The G-wave axes are off in the authored defaults, and the app has no button
  * for them — so without this there is no way to *look* at a world that is
@@ -125,11 +126,13 @@ function requestedAxes(): SimConfigOverrides {
   }
   const ontogeny = params.get('ontogeny') === '1';
   const aposematism = params.get('aposematism') === '1';
-  if (!ontogeny && !aposematism) return {};
+  const sexualSelection = params.get('sexualSelection') === '1';
+  if (!ontogeny && !aposematism && !sexualSelection) return {};
   return {
     toggles: {
       ...(ontogeny ? { enableOntogeny: true } : {}),
       ...(aposematism ? { enableAposematism: true } : {}),
+      ...(sexualSelection ? { enableSexualSelection: true } : {}),
     },
   };
 }
@@ -764,8 +767,9 @@ function startWorld(nextSeed: string): void {
   const axes = [
     ...(config.toggles.enableOntogeny ? ['ontogeny'] : []),
     ...(config.toggles.enableAposematism ? ['aposematism'] : []),
+    ...(config.toggles.enableSexualSelection ? ['sexualSelection'] : []),
   ];
-  if (axes.length > 0) note(`G-wave axes on: ${axes.join(', ')}`);
+  if (axes.length > 0) note(`mechanism axes on: ${axes.join(', ')}`);
   // A run on the crude fallback looks like a run with the graphics turned off,
   // so the feed says which renderer is actually drawing and why. Repeated per
   // world because the feed is cleared on reseed.

@@ -215,6 +215,10 @@ function beyondSection(): HelpSection {
         what: 'run the juvenile axis on — juveniles grow into their target length instead of being born at it',
       },
       { term: '?aposematism=1', what: 'run the warning-signal axis on' },
+      {
+        term: '?sexualSelection=1',
+        what: 'run the ornament axis on — heritable mate preference for a costly display; c → ornament colours by it, and the breeding bench’s ornament row comes alive',
+      },
       { term: '?renderer=crude', what: 'the Phase A canvas picture, on purpose, without the GPU' },
       {
         term: 'console',
