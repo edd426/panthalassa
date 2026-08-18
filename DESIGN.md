@@ -1991,3 +1991,60 @@ spot-checked). Ruling: no table trim to rescue one fragile seed — the
 quick suite's P20 row honestly reads "0 living organisms" on q1, the
 full suite's s1–s3 panel is 3/3 evaluable, and founding viability is a
 named watch item for the S-campaign.
+
+## Watcher controls — the bench learns the axes and the climate (v1.10, 2026-08-18)
+
+An evening of watcher-driven asks, all three from the user at the screen:
+the station log covers too much water, the mechanism axes should not
+require editing a URL, and "I want to control the temperature better —
+or am I misunderstanding the current controls?"
+
+**`u` — hide the station log.** The element is hidden, not the render
+skipped, so the extinction banner (which shares `hud.render`) still
+fires on a covered log. Listed in the log's own key legend and the
+field manual.
+
+**Mechanism axes on the bench.** The axes stay fixed at world-seed —
+that ruling stands (probe defaults are the suite's; the renderer's
+config identity is set at page load) — so the honest control is a face
+on the existing URL flags: three toggle buttons plus APPLY · NEW WORLD,
+which rewrites `?ontogeny/?aposematism/?sexualSelection` via the pure
+`withAxisParams` helper and reloads with the same seed. Apply is inert
+when nothing changed, so it cannot wipe a running world; an axis turned
+off is *removed* from the URL, never written as `=0` (main.ts treats
+anything but `1` as off, but a lingering `ontogeny=0` reads as armed to
+whoever the URL is shared with). Buttons re-light from config after the
+reload, so the panel always states what the running world was seeded
+with.
+
+**Climate: the walk itself gets knobs (contracts v1.10).** The user's
+reading was right and the control was incomplete: TARGET only moves the
+centre of the OU walk (σ 2.5 °C, τ ≈ 40 gen), and nothing could touch
+the walk. Two additions, one contract revision:
+
+- `setClimateVariability { sigmaC }` — new SimCommand; the engine
+  merges `thermal.climateSigmaC` into `configOverrides` and re-resolves
+  the config (the `setToggle` path), so `stepClimate` reads the new σ
+  next call and the retune survives snapshot/restore for free. Garbage
+  clamps to 0. `ClimateEvent.cause` gains `'retune'` with an optional
+  `sigmaC` carrying the new SD — the feed prints "climate wander ·
+  σ ±0.50 °C" rather than routing σ through the offset template, which
+  would read as a 2.5 °C jump that never happened.
+- WALK / SEASONS hold buttons — faces on the existing (console-only)
+  `enableClimateWalk` / `enableSeasonality` toggles. Walk off pins the
+  offset *at* the target instantly (`stepClimate`'s off-branch); σ = 0
+  with the walk on leaves the pure deterministic decay toward target
+  over τ. Both distinct on purpose, both documented in the manual's
+  Climate entry with the config's real numbers. Feed now prints
+  toggles readably (`enableClimateWalk off`, was `command setToggle`).
+- Bench reset returns the new controls to the seeded config on reseed,
+  because the worker rebuilds from the page overrides and the panel
+  must not claim holds the new world does not have.
+
+**Off-path discipline.** `climate-command.test.ts` pins the five
+claims (σ reaches the live config and is narrated; clamp; σ = 0 decay
+is exactly the analytic form; walk-off pins exactly; restore
+round-trip). Suite green (668), and `probe:quick` diffed
+**status-identical per probe** against the previous baseline run at
+HEAD — the WARNs are the recorded ones (P20 armed-q1, P12, P17–P19).
+Nothing in the default trajectory moved.
